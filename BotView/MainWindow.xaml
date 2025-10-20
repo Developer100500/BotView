@@ -4,23 +4,24 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:BotView"
+        xmlns:chart="clr-namespace:BotView.Chart"
         mc:Ignorable="d"
         Title="MainWindow" Height="800" Width="800">
-    <StackPanel Orientation="Vertical">
-        <StackPanel Orientation="Horizontal">
-            <Label Content="BotView" DockPanel.Dock="Top" FontSize="18" FontWeight="Bold"/>
+    <DockPanel Height="Auto">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+            <Label Content="BotView" FontSize="18" FontWeight="Bold"/>
         </StackPanel>
-        <StackPanel Orientation="Horizontal">
-            <StackPanel Height="0" Width="100" d:LayoutOverrides="Width">
-                <Menu Height="100"/>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+            <StackPanel Height="Auto" Width="100" d:LayoutOverrides="Width">
+                <Label Content="Menu here" Width="Auto" VerticalAlignment="Stretch" Height="Auto" />
             </StackPanel>
-            <Viewbox x:Name=""/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <chart:ChartView />
+            </StackPanel>
         </StackPanel>
-        <StatusBar Width="100"/>
+        <StatusBar DockPanel.Dock="Bottom" Width="Auto" Height="30" VerticalAlignment="Bottom"/>
         
-
-
-    </StackPanel>
+    </DockPanel>
 
 
 </Window>
