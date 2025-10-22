@@ -7,20 +7,30 @@
         xmlns:chart="clr-namespace:BotView.Chart"
         mc:Ignorable="d"
         Title="MainWindow" Height="800" Width="800">
-    <DockPanel Height="Auto">
+    <DockPanel>
+        <!-- Header -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
             <Label Content="BotView" FontSize="18" FontWeight="Bold"/>
         </StackPanel>
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
-            <StackPanel Height="Auto" Width="100" d:LayoutOverrides="Width">
-                <Label Content="Menu here" Width="Auto" VerticalAlignment="Stretch" Height="Auto" />
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                <chart:ChartView />
-            </StackPanel>
-        </StackPanel>
-        <StatusBar DockPanel.Dock="Bottom" Width="Auto" Height="30" VerticalAlignment="Bottom"/>
         
+        <!-- Status Bar at Bottom -->
+        <StatusBar DockPanel.Dock="Bottom" Height="30"/>
+        
+        <!-- Main Content Area with Grid -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- Left Menu Panel -->
+            <StackPanel Grid.Column="0" Background="LightGray">
+                <Label Content="Menu here" />
+            </StackPanel>
+            
+            <!-- Chart View - Takes all remaining space -->
+            <chart:ChartView Grid.Column="1" />
+        </Grid>
     </DockPanel>
 
 
