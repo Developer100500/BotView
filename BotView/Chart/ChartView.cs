@@ -29,6 +29,22 @@ namespace BotView.Chart
 		}
 	}
 
+	struct CandlestickData
+	{
+		public string	timeframe; // chart's candle timeframe
+		public DateTime beginTime; // the date of the first candle
+		public DateTime endTime; // last candle
+		public OHLCV[]	candles;
+
+		public CandlestickData(string timeframe, DateTime beginDateTime, DateTime endDateTime, OHLCV[] candles)
+		{
+			this.timeframe = timeframe.Trim();
+			this.beginTime = beginDateTime;
+			this.endTime = endDateTime;
+			this.candles = candles;
+		}
+	}
+
 	struct ViewportClippingCoords
 	{
 		public double minPrice;
@@ -40,6 +56,7 @@ namespace BotView.Chart
 	public class ChartView : FrameworkElement
 	{
 		string timeframe = string.Empty;
+		CandlestickData candlestickData;
 		OHLCV[] candlesticks;
 
 		// Data range (will be calculated from candlestick data)
@@ -54,28 +71,33 @@ namespace BotView.Chart
 		private double topMargin = 30;
 		private double bottomMargin = 30;
 
-		// Chart area dimensions (calculated)
-		private double chartWidth = 0;
-		private double chartHeight = 0;
+	// Chart area dimensions (calculated)
+	private double chartWidth = 0;
+	private double chartHeight = 0;
 
-		// Scaling factors (fixed after initialization)
-		private double xScale = 10.0;  // pixels per candle index (default)
-		private double yScale = 10.0;  // pixels per price unit (default)
+	// === CAMERA SYSTEM (World Space) ===
+	// Camera position in world coordinates
+	private double cameraWorldX = 0;      // World X position (candle index)
+	private double cameraWorldY = 50;     // World Y position (price)
+	
+	// Camera zoom level (how many world units fit in the viewport)
+	private double worldUnitsPerViewportWidth = 20;   // How many candles fit horizontally
+	private double worldUnitsPerViewportHeight = 100; // How much price range fits vertically
 
-
-		// Pan/Zoom positions
-		private double startTimePosition = 0;   // leftmost candle index visible in viewport
-		private double startPricePosition = 0;  // bottom price visible in viewport
-
-		// Initialization flag
-		private bool isInitialized = false;
+	// Initialization flag
+	private bool isInitialized = false;
 
 		public ChartView() : base()
 		{
+			timeframe = "1d";
+
 			candlesticks = [
 					new OHLCV (1, 14, -7, 5, 100),
 					new OHLCV (11, 1, 3, 6, 60)
 			];
+
+			candlestickData = new CandlestickData (timeframe,
+				DateTime.Parse("2025/10/20 12:00:00"), DateTime.Now, candlesticks);
 
 			ViewportClippingCoords viewport = new()
 			{
@@ -93,12 +115,12 @@ namespace BotView.Chart
 			// Update chart dimensions (these can change with window resize)
 			UpdateChartDimensions();
 
-			// Initialize scaling and positions only once
-			if (!isInitialized && chartWidth > 0 && chartHeight > 0)
-			{
-				InitializeScaling();
-				isInitialized = true;
-			}
+		// Initialize camera only once
+		if (!isInitialized && chartWidth > 0 && chartHeight > 0)
+		{
+			InitializeCamera();
+			isInitialized = true;
+		}
 
 			// Draw background and borders for visualization
 			DrawChartArea(drawingContext);
@@ -121,29 +143,25 @@ namespace BotView.Chart
 			chartHeight = Math.Max(0, this.ActualHeight - topMargin - bottomMargin);
 		}
 
-		/// <summary>
-		/// Initialize scaling factors and start positions (called only once at startup)
-		/// </summary>
-		private void InitializeScaling()
-		{
-			// Calculate data range
-			UpdateDataRange();
+	/// <summary>
+	/// Initialize camera position and zoom (called only once at startup)
+	/// </summary>
+	private void InitializeCamera()
+	{
+		// Calculate data range
+		UpdateDataRange();
 
-			// Calculate initial scaling to fit data in viewport
-			double priceRange = maxPrice - minPrice;
-			if (priceRange > 0)
-			{
-				yScale = chartHeight / priceRange;  // pixels per price unit
-			}
+		// Position camera at center of data
+		cameraWorldX = (minIndex + maxIndex) / 2.0;
+		cameraWorldY = (minPrice + maxPrice) / 2.0;
 
-			// For X scale, use a default value (e.g., 50 pixels per candle)
-			// This will be adjustable via zoom later
-			xScale = 50.0;  // pixels per candle
+		// Set initial zoom to fit all data with some padding
+		double dataRangeX = maxIndex - minIndex + 10; // +10 for padding
+		double dataRangeY = (maxPrice - minPrice) * 1.2; // 20% padding
 
-			// Set initial positions to center the data
-			startTimePosition = minIndex - 5;  // Start a bit before first candle
-			startPricePosition = minPrice;     // Start at minimum price
-		}
+		worldUnitsPerViewportWidth = dataRangeX;
+		worldUnitsPerViewportHeight = dataRangeY;
+	}
 
 		/// <summary>
 		/// Calculate the min/max price range from the data
@@ -164,56 +182,118 @@ namespace BotView.Chart
 			maxPrice += padding;
 		}
 
-		/// <summary>
-		/// Convert data coordinates (candle index, price) to screen coordinates
-		/// </summary>
-		private Point DataToScreen(double candleIndex, double price)
-		{
-			double x = leftMargin + (candleIndex - startTimePosition) * xScale;
-			// Flip Y axis: higher prices should be higher on screen
-			double y = topMargin + chartHeight - ((price - startPricePosition) * yScale);
-			return new Point(x, y);
-		}
+	/// <summary>
+	/// Convert world coordinates to screen coordinates
+	/// This is the KEY function that handles all coordinate transformation
+	/// </summary>
+	private Point WorldToScreen(double worldX, double worldY)
+	{
+		// Calculate how many pixels per world unit
+		double pixelsPerWorldUnitX = chartWidth / worldUnitsPerViewportWidth;
+		double pixelsPerWorldUnitY = chartHeight / worldUnitsPerViewportHeight;
 
-		/// <summary>
-		/// Convert price value to screen Y coordinate
-		/// </summary>
-		private double PriceToScreenY(double price)
-		{
-			return topMargin + chartHeight - ((price - startPricePosition) * yScale);
-		}
+		// Calculate world position relative to camera
+		double relativeX = worldX - cameraWorldX;
+		double relativeY = worldY - cameraWorldY;
 
-		/// <summary>
-		/// Convert candle index to screen X coordinate
-		/// </summary>
-		private double IndexToScreenX(double candleIndex)
-		{
-			return leftMargin + (candleIndex - startTimePosition) * xScale;
-		}
+		// Convert to screen space (centered in viewport)
+		double screenX = leftMargin + chartWidth / 2 + (relativeX * pixelsPerWorldUnitX);
+		double screenY = topMargin + chartHeight / 2 - (relativeY * pixelsPerWorldUnitY); // Flip Y
 
-		/// <summary>
-		/// Pan the chart by moving the start positions
-		/// </summary>
-		/// <param name="deltaTime">Change in time/index position</param>
-		/// <param name="deltaPrice">Change in price position</param>
-		public void Pan(double deltaTime, double deltaPrice)
-		{
-			startTimePosition += deltaTime;
-			startPricePosition += deltaPrice;
-			InvalidateVisual();  // Request redraw
-		}
+		return new Point(screenX, screenY);
+	}
 
-		/// <summary>
-		/// Set zoom level (scaling factors)
-		/// </summary>
-		/// <param name="newXScale">New X scale (pixels per candle)</param>
-		/// <param name="newYScale">New Y scale (pixels per price unit)</param>
-		public void SetZoom(double newXScale, double newYScale)
-		{
-			xScale = Math.Max(1, newXScale);  // Minimum 1 pixel per candle
-			yScale = Math.Max(0.1, newYScale); // Minimum scale
-			InvalidateVisual();  // Request redraw
-		}
+	/// <summary>
+	/// Convert screen coordinates back to world coordinates
+	/// Useful for mouse interaction
+	/// </summary>
+	private Point ScreenToWorld(double screenX, double screenY)
+	{
+		// Calculate how many pixels per world unit
+		double pixelsPerWorldUnitX = chartWidth / worldUnitsPerViewportWidth;
+		double pixelsPerWorldUnitY = chartHeight / worldUnitsPerViewportHeight;
+
+		// Convert screen position to relative position in viewport
+		double relativeScreenX = screenX - leftMargin - chartWidth / 2;
+		double relativeScreenY = -(screenY - topMargin - chartHeight / 2); // Flip Y
+
+		// Convert to world space
+		double worldX = cameraWorldX + (relativeScreenX / pixelsPerWorldUnitX);
+		double worldY = cameraWorldY + (relativeScreenY / pixelsPerWorldUnitY);
+
+		return new Point(worldX, worldY);
+	}
+
+	/// <summary>
+	/// Pan the camera in world coordinates
+	/// </summary>
+	/// <param name="deltaWorldX">Change in world X (candle indices)</param>
+	/// <param name="deltaWorldY">Change in world Y (price units)</param>
+	public void Pan(double deltaWorldX, double deltaWorldY)
+	{
+		cameraWorldX += deltaWorldX;
+		cameraWorldY += deltaWorldY;
+		InvalidateVisual();
+	}
+
+	/// <summary>
+	/// Pan the camera based on screen pixel movement
+	/// This is useful for mouse drag panning
+	/// </summary>
+	/// <param name="deltaScreenX">Change in screen X (pixels)</param>
+	/// <param name="deltaScreenY">Change in screen Y (pixels)</param>
+	public void PanByPixels(double deltaScreenX, double deltaScreenY)
+	{
+		// Convert pixel delta to world delta
+		double pixelsPerWorldUnitX = chartWidth / worldUnitsPerViewportWidth;
+		double pixelsPerWorldUnitY = chartHeight / worldUnitsPerViewportHeight;
+
+		double deltaWorldX = -deltaScreenX / pixelsPerWorldUnitX; // Negative for natural panning
+		double deltaWorldY = deltaScreenY / pixelsPerWorldUnitY;  // Flip Y
+
+		Pan(deltaWorldX, deltaWorldY);
+	}
+
+	/// <summary>
+	/// Zoom the camera (changes how many world units are visible)
+	/// </summary>
+	/// <param name="zoomFactorX">Zoom factor for X axis (1.0 = no change, 2.0 = zoom out 2x, 0.5 = zoom in 2x)</param>
+	/// <param name="zoomFactorY">Zoom factor for Y axis</param>
+	/// <param name="worldFocusX">World X coordinate to zoom towards (optional, defaults to camera center)</param>
+	/// <param name="worldFocusY">World Y coordinate to zoom towards (optional, defaults to camera center)</param>
+	public void Zoom(double zoomFactorX, double zoomFactorY, double? worldFocusX = null, double? worldFocusY = null)
+	{
+		// Use camera position as default focus point
+		double focusX = worldFocusX ?? cameraWorldX;
+		double focusY = worldFocusY ?? cameraWorldY;
+
+		// Calculate offset from camera to focus point
+		double offsetX = focusX - cameraWorldX;
+		double offsetY = focusY - cameraWorldY;
+
+		// Apply zoom
+		worldUnitsPerViewportWidth *= zoomFactorX;
+		worldUnitsPerViewportHeight *= zoomFactorY;
+
+		// Clamp zoom levels to reasonable values
+		worldUnitsPerViewportWidth = Math.Clamp(worldUnitsPerViewportWidth, 1, 10000);
+		worldUnitsPerViewportHeight = Math.Clamp(worldUnitsPerViewportHeight, 1, 100000);
+
+		// Adjust camera position to keep focus point in the same screen position
+		cameraWorldX = focusX - offsetX * zoomFactorX;
+		cameraWorldY = focusY - offsetY * zoomFactorY;
+
+		InvalidateVisual();
+	}
+
+	/// <summary>
+	/// Zoom towards a specific screen point (useful for mouse wheel zoom)
+	/// </summary>
+	public void ZoomAtScreenPoint(double screenX, double screenY, double zoomFactor)
+	{
+		Point worldPoint = ScreenToWorld(screenX, screenY);
+		Zoom(zoomFactor, zoomFactor, worldPoint.X, worldPoint.Y);
+	}
 
 		/// <summary>
 		/// Draw chart area background and borders for visualization
@@ -241,54 +321,55 @@ namespace BotView.Chart
 			}
 		}
 
-		/// <summary>
-		/// Draw a single candlestick at the specified index
-		/// </summary>
-		/// <param name="drawingContext">Drawing context</param>
-		/// <param name="candlestick">Candlestick data</param>
-		/// <param name="candleIndex">Index position of the candle</param>
-		private void DrawCandlestick(DrawingContext drawingContext, OHLCV candlestick, int candleIndex)
-		{
-			// Candle width (in pixels) - can be adjusted based on available space
-			double candleWidth = Math.Min(20, chartWidth * 0.6);  // Max 20px or 60% of chart width
+	/// <summary>
+	/// Draw a single candlestick at the specified index
+	/// </summary>
+	private void DrawCandlestick(DrawingContext drawingContext, OHLCV candlestick, int candleIndex)
+	{
+		// Calculate candle width in world units (e.g., 0.6 of one candle unit)
+		double candleWidthWorldUnits = 0.6;
+		
+		// Convert to screen space
+		double pixelsPerWorldUnitX = chartWidth / worldUnitsPerViewportWidth;
+		double candleWidthPixels = candleWidthWorldUnits * pixelsPerWorldUnitX;
 
-			// Calculate X position (center of the candle)
-			double xPosition = IndexToScreenX(candleIndex);
+		// Get screen positions using world coordinates
+		Point centerPos = WorldToScreen(candleIndex, (candlestick.high + candlestick.low) / 2);
+		Point highPos = WorldToScreen(candleIndex, candlestick.high);
+		Point lowPos = WorldToScreen(candleIndex, candlestick.low);
+		Point openPos = WorldToScreen(candleIndex, candlestick.open);
+		Point closePos = WorldToScreen(candleIndex, candlestick.close);
 
-			// Convert prices to Y coordinates using the coordinate system
-			double highY = PriceToScreenY(candlestick.high);
-			double lowY = PriceToScreenY(candlestick.low);
-			double openY = PriceToScreenY(candlestick.open);
-			double closeY = PriceToScreenY(candlestick.close);
+		// Skip drawing if candle is outside viewport
+		if (centerPos.X < leftMargin - 50 || centerPos.X > leftMargin + chartWidth + 50)
+			return;
 
-			// Determine if bullish (close > open) or bearish
-			bool isBullish = candlestick.close > candlestick.open;
+		// Determine if bullish (close > open) or bearish
+		bool isBullish = candlestick.close > candlestick.open;
 
-			// Set colors based on candle type
-			Brush bodyBrush = isBullish ? Brushes.LightGreen : Brushes.LightCoral;
-			Pen bodyPen = new Pen(isBullish ? Brushes.Green : Brushes.Red, 2);
-			Pen wickPen = new Pen(Brushes.Black, 1.5);
+		// Set colors based on candle type
+		Brush bodyBrush = isBullish ? Brushes.LightGreen : Brushes.LightCoral;
+		Pen bodyPen = new Pen(isBullish ? Brushes.Green : Brushes.Red, 2);
+		Pen wickPen = new Pen(Brushes.Black, 1.5);
 
-			// Draw the wick (thin vertical line from high to low)
-			Point wickTop = new Point(xPosition, highY);
-			Point wickBottom = new Point(xPosition, lowY);
-			drawingContext.DrawLine(wickPen, wickTop, wickBottom);
+		// Draw the wick (thin vertical line from high to low)
+		drawingContext.DrawLine(wickPen, highPos, lowPos);
 
-			// Draw the body (rectangle from open to close)
-			double bodyTop = Math.Min(openY, closeY);      // Top of body
-			double bodyHeight = Math.Abs(closeY - openY);  // Height of body
+		// Draw the body (rectangle from open to close)
+		double bodyTop = Math.Min(openPos.Y, closePos.Y);
+		double bodyHeight = Math.Abs(closePos.Y - openPos.Y);
 
-			// Handle doji case (open == close)
-			if (bodyHeight < 1)
-				bodyHeight = 1;  // Minimum 1 pixel height
+		// Handle doji case (open == close)
+		if (bodyHeight < 1)
+			bodyHeight = 1;
 
-			Rect bodyRect = new Rect(
-				xPosition - candleWidth / 2,  // X position (centered)
-				bodyTop,                       // Y position (top)
-				candleWidth,                   // Width
-				bodyHeight                     // Height
-			);
-			drawingContext.DrawRectangle(bodyBrush, bodyPen, bodyRect);
-		}
+		Rect bodyRect = new Rect(
+			centerPos.X - candleWidthPixels / 2,
+			bodyTop,
+			candleWidthPixels,
+			bodyHeight
+		);
+		drawingContext.DrawRectangle(bodyBrush, bodyPen, bodyRect);
+	}
 	}
 }

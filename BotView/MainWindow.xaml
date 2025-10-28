@@ -29,7 +29,7 @@
             </StackPanel>
             
             <!-- Chart View - Takes all remaining space -->
-            <chart:ChartView Grid.Column="1" />
+            <chart:ChartView Grid.Column="1" x:Name="chartView" />
         </Grid>
     </DockPanel>
 
