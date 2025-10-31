@@ -93,7 +93,7 @@ namespace BotView.Chart
 
 			candlesticks = [
 					new OHLCV (1, 14, -7, 5, 100),
-					new OHLCV (11, 1, 3, 6, 60)
+					new OHLCV (11, 11, 0, 6, 60)
 			];
 
 			candlestickData = new CandlestickData (timeframe,
