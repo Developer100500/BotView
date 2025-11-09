@@ -8,4 +8,8 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="ccxt" Version="4.5.17" />
+  </ItemGroup>
+
 </Project>

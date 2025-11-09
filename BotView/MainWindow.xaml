@@ -24,8 +24,49 @@
             </Grid.ColumnDefinitions>
             
             <!-- Left Menu Panel -->
-            <StackPanel Grid.Column="0" Background="LightGray">
-                <Label Content="Menu here" />
+            <StackPanel Grid.Column="0" Background="LightGray" Margin="5">
+                <Label Content="Управление графиком" FontWeight="Bold" HorizontalAlignment="Center"/>
+                
+                <Button Name="btnPositionToLast" Content="К последней свечке" Margin="2" Click="BtnPositionToLast_Click"/>
+
+                <Separator Margin="2"/>
+                <Label Content="Биржа:" FontSize="10"/>
+                <ComboBox Name="cmbExchange" Margin="2" SelectionChanged="CmbExchange_SelectionChanged">
+                    <ComboBoxItem Content="Binance" Tag="binance" IsSelected="True"/>
+                    <ComboBoxItem Content="Bybit" Tag="bybit"/>
+                    <ComboBoxItem Content="OKX" Tag="okx"/>
+                    <ComboBoxItem Content="Kraken" Tag="kraken"/>
+                </ComboBox>
+
+                <Separator Margin="2"/>
+                <Label Content="Торговая пара:" FontSize="10"/>
+                <ComboBox Name="cmbSymbol" Margin="2" SelectionChanged="CmbSymbol_SelectionChanged">
+                    <ComboBoxItem Content="BTC/USDT" Tag="BTC/USDT" IsSelected="True"/>
+                    <ComboBoxItem Content="ETH/USDT" Tag="ETH/USDT"/>
+                    <ComboBoxItem Content="BNB/USDT" Tag="BNB/USDT"/>
+                    <ComboBoxItem Content="ADA/USDT" Tag="ADA/USDT"/>
+                    <ComboBoxItem Content="SOL/USDT" Tag="SOL/USDT"/>
+                </ComboBox>
+
+                <Separator Margin="2"/>
+                <Label Content="Timeframe:" FontSize="10"/>
+                <ComboBox Name="cmbTimeframe" Margin="2" SelectionChanged="CmbTimeframe_SelectionChanged">
+                    <ComboBoxItem Content="1m" Tag="1m"/>
+                    <ComboBoxItem Content="5m" Tag="5m"/>
+                    <ComboBoxItem Content="15m" Tag="15m"/>
+                    <ComboBoxItem Content="1h" Tag="1h"/>
+                    <ComboBoxItem Content="1d" Tag="1d" IsSelected="True"/>
+                    <ComboBoxItem Content="1w" Tag="1w"/>
+                </ComboBox>
+
+                <Separator Margin="2"/>
+                <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2" Click="BtnShowMetrics_Click"/>
+                <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2" Click="BtnExportMetrics_Click"/>
+                
+                <Separator Margin="2"/>
+                <TextBlock Text="Инструкции:" FontSize="10" FontWeight="Bold" Margin="2"/>
+                <TextBlock Text="• Перетаскивание мышью для панорамирования" FontSize="9" TextWrapping="Wrap" Margin="2"/>
+                <TextBlock Text="• Колесо мыши для масштабирования" FontSize="9" TextWrapping="Wrap" Margin="2"/>
             </StackPanel>
             
             <!-- Chart View - Takes all remaining space -->

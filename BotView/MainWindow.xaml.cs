@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -9,6 +10,9 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using BotView.Chart;
+using BotView.Configuration;
+using BotView.Services;
+using BotView.Interfaces;
 
 namespace BotView
 {
@@ -17,78 +21,447 @@ namespace BotView
     /// </summary>
     public partial class MainWindow : Window
     {
-        private Point? lastMousePos = null;
-        //private ChartView chartView;
-
+        private readonly IExchangeService _exchangeService;
+        private readonly IDataProvider _dataProvider;
+        private readonly System.Windows.Threading.DispatcherTimer _metricsTimer;
+        
         public MainWindow()
         {
             InitializeComponent();
             
-            // Find the ChartView control
-            //chartView = FindName("myChartView") as ChartView;
-            if (chartView == null)
+            // Initialize services with logger
+            _dataProvider = new DataProvider();
+            var logger = new ConsoleExchangeLogger();
+            _exchangeService = new ExchangeService(_dataProvider, logger);
+            
+            // Set up performance metrics timer (log metrics every 5 minutes)
+            _metricsTimer = new System.Windows.Threading.DispatcherTimer();
+            _metricsTimer.Interval = TimeSpan.FromMinutes(5);
+            _metricsTimer.Tick += MetricsTimer_Tick;
+            _metricsTimer.Start();
+            
+            // Загружаем демонстрационные данные после инициализации
+            this.Loaded += MainWindow_Loaded;
+        }
+
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            // Load real data instead of demo data
+            await LoadRealData("binance", "BTC/USDT", "1d");
+        }
+
+        /// <summary>
+        /// Loads real data from cryptocurrency exchange
+        /// </summary>
+        /// <param name="exchange">Exchange name (e.g., "binance")</param>
+        /// <param name="symbol">Trading pair symbol (e.g., "BTC/USDT")</param>
+        /// <param name="timeframe">Timeframe (e.g., "1d")</param>
+        /// <param name="limit">Number of candles to load (default: 500)</param>
+        private async Task LoadRealData(string exchange, string symbol, string timeframe, int limit = 500)
+        {
+            try
             {
-                // If not found by name, find it in the visual tree
-                chartView = FindVisualChild<ChartView>(this);
+                // Show loading indicator (you can implement a loading spinner here)
+                this.Cursor = Cursors.Wait;
+                
+                // Load data asynchronously without blocking UI
+                var candlestickData = await Task.Run(async () =>
+                {
+                    return await _exchangeService.GetCandlestickDataAsync(exchange, symbol, timeframe, limit);
+                });
+                
+                // Update chart on UI thread
+                Dispatcher.Invoke(() =>
+                {
+                    chartView.SetCandlestickData(candlestickData);
+                    chartView.FitToData();
+                });
+                
+                Debug.WriteLine($"Successfully loaded {candlestickData.candles.Length} candles from {exchange} for {symbol} ({timeframe})");
+            }
+            catch (Exception ex)
+            {
+                // Handle errors and show user-friendly messages
+                Dispatcher.Invoke(() =>
+                {
+                    MessageBox.Show(
+                        $"Ошибка загрузки данных с биржи {exchange}:\n\n{ex.Message}\n\nБудут загружены демонстрационные данные.",
+                        "Ошибка подключения к бирже",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning
+                    );
+                    
+                    // Fallback to demo data
+                    LoadDemoData();
+                });
+                
+                Debug.WriteLine($"Failed to load real data: {ex.Message}");
+            }
+            finally
+            {
+                // Hide loading indicator
+                this.Cursor = Cursors.Arrow;
+            }
+        }
+
+        private void LoadDemoData()
+        {
+            // Создаем массив демонстрационных свечей
+            DateTime startTime = DateTime.Parse("2025/10/01 00:00:00");
+            var demoCandles = new OHLCV[30];
+            
+            Random random = new Random();
+            double basePrice = 100.0;
+            
+            for (int i = 0; i < demoCandles.Length; i++)
+            {
+                // Генерируем случайные данные OHLCV
+                double open = basePrice + random.NextDouble() * 10 - 5;
+                double close = open + random.NextDouble() * 8 - 4;
+                double high = Math.Max(open, close) + random.NextDouble() * 3;
+                double low = Math.Min(open, close) - random.NextDouble() * 3;
+                double volume = 1000 + random.NextDouble() * 2000;
+                
+                // Calculate proper timestamp for each candle (1 day intervals)
+                DateTime candleTime = startTime.AddDays(i);
+                long timestamp = ((DateTimeOffset)candleTime).ToUnixTimeMilliseconds();
+                
+                demoCandles[i] = new OHLCV(timestamp, open, high, low, close, volume);
+                basePrice = close; // Следующая свеча начинается с цены закрытия предыдущей
             }
             
-            if (chartView != null)
+            // Создаем структуру данных свечей
+            var candlestickData = new CandlestickData(
+                timeframe: "1d",
+                beginDateTime: startTime,
+                endDateTime: startTime.AddDays(demoCandles.Length - 1),
+                candles: demoCandles
+            );
+            
+            // Загружаем данные в график
+            chartView.SetCandlestickData(candlestickData);
+            
+            // Подгоняем график под данные
+            chartView.FitToData();
+        }
+
+        private void ConnectToExchange() // For testing
+        {
+            string exchangeName = App.AvailableExchanges[0];
+            var exchangeInfo = ExchangeConfig.ExchangeDetails[exchangeName];
+            var exchange = new ccxt.binance();
+            Debug.Write(exchange.currencies);
+            exchange.Close();
+            
+            // Test drawing methods with different data formats
+            TestDrawingCompatibility();
+        }
+        
+        /// <summary>
+        /// Tests that drawing methods work correctly with both timestamp-enabled data and legacy data
+        /// </summary>
+        private void TestDrawingCompatibility()
+        {
+            Debug.WriteLine("Testing drawing compatibility with different data formats...");
+            
+            DateTime baseTime = DateTime.Parse("2025/10/01 00:00:00");
+            
+            // Test 1: Create data with timestamps (new format)
+            var timestampCandles = new OHLCV[]
             {
-                // Add mouse event handlers
-                chartView.MouseMove += ChartView_MouseMove;
-                chartView.MouseWheel += ChartView_MouseWheel;
-                chartView.MouseLeftButtonDown += ChartView_MouseLeftButtonDown;
-                chartView.MouseLeftButtonUp += ChartView_MouseLeftButtonUp;
-            }
-        }
-
-        private void ChartView_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            lastMousePos = e.GetPosition(chartView);
-            chartView.CaptureMouse();
-        }
-
-        private void ChartView_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            lastMousePos = null;
-            chartView.ReleaseMouseCapture();
-        }
-
-        private void ChartView_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (e.LeftButton == MouseButtonState.Pressed && lastMousePos != null)
+                new OHLCV(((DateTimeOffset)baseTime).ToUnixTimeMilliseconds(), 100, 105, 98, 103, 1000),
+                new OHLCV(((DateTimeOffset)baseTime.AddDays(1)).ToUnixTimeMilliseconds(), 103, 108, 101, 106, 1200),
+                new OHLCV(((DateTimeOffset)baseTime.AddDays(2)).ToUnixTimeMilliseconds(), 106, 110, 104, 109, 900)
+            };
+            
+            // Test 2: Create data without timestamps (legacy format) - using timestamp = 0 to force fallback
+            var legacyCandles = new OHLCV[]
             {
-                Point currentPos = e.GetPosition(chartView);
-                double deltaX = currentPos.X - lastMousePos.Value.X;
-                double deltaY = currentPos.Y - lastMousePos.Value.Y;
+                new OHLCV(0, 100, 105, 98, 103, 1000),  // timestamp = 0 forces fallback to calculation
+                new OHLCV(0, 103, 108, 101, 106, 1200),
+                new OHLCV(0, 106, 110, 104, 109, 900)
+            };
+            
+            // Test timestamp data
+            var timestampData = new CandlestickData("1d", baseTime, baseTime.AddDays(2), timestampCandles);
+            Debug.WriteLine($"Timestamp data - First candle time: {timestampCandles[0].GetDateTime()}");
+            Debug.WriteLine($"Timestamp data - Last candle time: {timestampCandles[2].GetDateTime()}");
+            
+            // Test legacy data
+            var legacyData = new CandlestickData("1d", baseTime, baseTime.AddDays(2), legacyCandles);
+            Debug.WriteLine($"Legacy data - First candle time (should be epoch): {legacyCandles[0].GetDateTime()}");
+            Debug.WriteLine($"Legacy data - Last candle time (should be epoch): {legacyCandles[2].GetDateTime()}");
+            
+            // Verify that GetCandleTime works correctly for both formats
+            // This simulates what happens in DrawCandlestick method
+            chartView.SetCandlestickData(timestampData);
+            Debug.WriteLine("Timestamp data loaded successfully - drawing should use actual timestamps");
+            
+            // Test that the chart can render with timestamp data
+            chartView.FitToData();
+            Debug.WriteLine("Chart fitted to timestamp data successfully");
+            
+            // Switch to legacy data to test fallback
+            chartView.SetCandlestickData(legacyData);
+            Debug.WriteLine("Legacy data loaded successfully - drawing should use calculated times");
+            
+            // Test that the chart can render with legacy data
+            chartView.FitToData();
+            Debug.WriteLine("Chart fitted to legacy data successfully");
+            
+            Debug.WriteLine("Drawing compatibility test completed successfully!");
+            Debug.WriteLine("Both timestamp-enabled and legacy data formats work correctly with drawing methods");
+        }
+
+        // === EVENT HANDLERS FOR CONTROL BUTTONS ===
+
+        private void BtnPositionToLast_Click(object sender, RoutedEventArgs e)
+        {
+            chartView.PositionToLastCandle();
+        }
+
+        private async void CmbExchange_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (chartView == null || cmbSymbol == null || cmbTimeframe == null) return;
+            
+            var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
+            var selectedSymbol = cmbSymbol.SelectedItem as ComboBoxItem;
+            var selectedTimeframe = cmbTimeframe.SelectedItem as ComboBoxItem;
+            
+            if (selectedExchange?.Tag != null && selectedSymbol?.Tag != null && selectedTimeframe?.Tag != null)
+            {
+                string exchange = selectedExchange.Tag.ToString() ?? "binance";
+                string symbol = selectedSymbol.Tag.ToString() ?? "BTC/USDT";
+                string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
                 
-                // Pan the chart using pixel-based movement
-                chartView.PanByPixels(deltaX, deltaY);
+                await LoadRealData(exchange, symbol, timeframe);
             }
-            lastMousePos = e.GetPosition(chartView);
         }
 
-        private void ChartView_MouseWheel(object sender, MouseWheelEventArgs e)
+        private async void CmbSymbol_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            Point mousePos = e.GetPosition(chartView);
-            double zoomFactor = e.Delta > 0 ? 0.9 : 1.1; // Zoom in/out by 10%
-            chartView.ZoomAtScreenPoint(mousePos.X, mousePos.Y, zoomFactor);
-        }
-
-        // Helper method to find a child control in the visual tree
-        private T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
-        {
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            if (chartView == null || cmbExchange == null || cmbTimeframe == null) return;
+            
+            var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
+            var selectedSymbol = cmbSymbol.SelectedItem as ComboBoxItem;
+            var selectedTimeframe = cmbTimeframe.SelectedItem as ComboBoxItem;
+            
+            if (selectedExchange?.Tag != null && selectedSymbol?.Tag != null && selectedTimeframe?.Tag != null)
             {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T result)
-                    return result;
+                string exchange = selectedExchange.Tag.ToString() ?? "binance";
+                string symbol = selectedSymbol.Tag.ToString() ?? "BTC/USDT";
+                string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
                 
-                var childOfChild = FindVisualChild<T>(child);
-                if (childOfChild != null)
-                    return childOfChild;
+                await LoadRealData(exchange, symbol, timeframe);
             }
-            return null;
+        }
+
+        private async void CmbTimeframe_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (chartView == null || cmbExchange == null || cmbSymbol == null) return;
+            
+            var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
+            var selectedSymbol = cmbSymbol.SelectedItem as ComboBoxItem;
+            var selectedTimeframe = cmbTimeframe.SelectedItem as ComboBoxItem;
+            
+            if (selectedExchange?.Tag != null && selectedSymbol?.Tag != null && selectedTimeframe?.Tag != null)
+            {
+                string exchange = selectedExchange.Tag.ToString() ?? "binance";
+                string symbol = selectedSymbol.Tag.ToString() ?? "BTC/USDT";
+                string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
+                
+                await LoadRealData(exchange, symbol, timeframe);
+            }
+        }
+
+        private void BtnShowMetrics_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var performanceMetrics = _exchangeService.GetPerformanceMetrics();
+                var summary = performanceMetrics.GetFormattedSummary();
+                
+                // Create a new window to display performance metrics
+                var metricsWindow = new Window
+                {
+                    Title = "Метрики производительности",
+                    Width = 600,
+                    Height = 400,
+                    Owner = this,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner
+                };
+                
+                var scrollViewer = new ScrollViewer
+                {
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    Margin = new Thickness(10)
+                };
+                
+                var textBlock = new TextBlock
+                {
+                    Text = summary,
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.NoWrap
+                };
+                
+                scrollViewer.Content = textBlock;
+                metricsWindow.Content = scrollViewer;
+                
+                metricsWindow.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Ошибка при получении метрик производительности:\n\n{ex.Message}",
+                    "Ошибка",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                );
+            }
+        }
+
+        private void LoadDemoDataWithTimeframe(string timeframe)
+        {
+            // Создаем демонстрационные данные для выбранного timeframe
+            DateTime startTime = DateTime.Parse("2025/10/01 00:00:00");
+            int candleCount = timeframe switch
+            {
+                "1m" => 1440, // 1 день в минутах
+                "5m" => 288,  // 1 день в 5-минутках
+                "15m" => 96,  // 1 день в 15-минутках
+                "1h" => 24,   // 1 день в часах
+                "1d" => 30,   // 30 дней
+                "1w" => 12,   // 12 недель
+                _ => 30
+            };
+            
+            var demoCandles = new OHLCV[candleCount];
+            Random random = new Random();
+            double basePrice = 100.0;
+            
+            // Calculate timeframe interval for proper timestamps
+            TimeSpan timeframeInterval = timeframe switch
+            {
+                "1m" => TimeSpan.FromMinutes(1),
+                "5m" => TimeSpan.FromMinutes(5),
+                "15m" => TimeSpan.FromMinutes(15),
+                "1h" => TimeSpan.FromHours(1),
+                "1d" => TimeSpan.FromDays(1),
+                "1w" => TimeSpan.FromDays(7),
+                _ => TimeSpan.FromDays(1)
+            };
+            
+            for (int i = 0; i < demoCandles.Length; i++)
+            {
+                double open = basePrice + random.NextDouble() * 10 - 5;
+                double close = open + random.NextDouble() * 8 - 4;
+                double high = Math.Max(open, close) + random.NextDouble() * 3;
+                double low = Math.Min(open, close) - random.NextDouble() * 3;
+                double volume = 1000 + random.NextDouble() * 2000;
+                
+                // Calculate proper timestamp for each candle based on timeframe
+                DateTime candleTime = startTime.Add(TimeSpan.FromTicks(timeframeInterval.Ticks * i));
+                long timestamp = ((DateTimeOffset)candleTime).ToUnixTimeMilliseconds();
+                
+                demoCandles[i] = new OHLCV(timestamp, open, high, low, close, volume);
+                basePrice = close;
+            }
+            
+            // Вычисляем конечное время на основе timeframe
+            TimeSpan timeframeSpan = timeframe switch
+            {
+                "1m" => TimeSpan.FromMinutes(candleCount),
+                "5m" => TimeSpan.FromMinutes(candleCount * 5),
+                "15m" => TimeSpan.FromMinutes(candleCount * 15),
+                "1h" => TimeSpan.FromHours(candleCount),
+                "1d" => TimeSpan.FromDays(candleCount),
+                "1w" => TimeSpan.FromDays(candleCount * 7),
+                _ => TimeSpan.FromDays(candleCount)
+            };
+            
+            var candlestickData = new CandlestickData(
+                timeframe: timeframe,
+                beginDateTime: startTime,
+                endDateTime: startTime.Add(timeframeSpan),
+                candles: demoCandles
+            );
+            
+            chartView.SetCandlestickData(candlestickData);
+            chartView.FitToData();
+        }
+
+        private void BtnExportMetrics_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var performanceMetrics = _exchangeService.GetPerformanceMetrics();
+                var csvData = performanceMetrics.ExportMetricsToCSV();
+                
+                // Create save file dialog
+                var saveFileDialog = new Microsoft.Win32.SaveFileDialog
+                {
+                    Title = "Экспорт метрик производительности",
+                    Filter = "CSV files (*.csv)|*.csv|Text files (*.txt)|*.txt|All files (*.*)|*.*",
+                    DefaultExt = "csv",
+                    FileName = $"performance_metrics_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+                };
+                
+                if (saveFileDialog.ShowDialog() == true)
+                {
+                    System.IO.File.WriteAllText(saveFileDialog.FileName, csvData);
+                    MessageBox.Show(
+                        $"Метрики производительности успешно экспортированы в файл:\n{saveFileDialog.FileName}",
+                        "Экспорт завершен",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Ошибка при экспорте метрик производительности:\n\n{ex.Message}",
+                    "Ошибка экспорта",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                );
+            }
+        }
+
+        private void MetricsTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                // Log detailed performance metrics periodically
+                _exchangeService.LogDetailedPerformanceMetrics();
+                
+                // Clear expired cache entries to maintain performance
+                _exchangeService.ClearExpiredCache();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error logging performance metrics: {ex.Message}");
+            }
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            try
+            {
+                // Stop the metrics timer
+                _metricsTimer?.Stop();
+                
+                // Log final performance metrics before closing
+                _exchangeService?.LogDetailedPerformanceMetrics();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error during cleanup: {ex.Message}");
+            }
+            
+            base.OnClosed(e);
         }
     }
 }

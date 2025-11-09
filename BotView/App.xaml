@@ -4,6 +4,6 @@
              xmlns:local="clr-namespace:BotView"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+
     </Application.Resources>
 </Application>

@@ -2,3 +2,5 @@
 .vs/
 BotView/obj/
 BotView/bin/
+BotView.Tests/bin
+BotView.Tests/obj
