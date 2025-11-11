@@ -70,12 +70,14 @@ namespace BotView
             {
                 // Логирование ошибки инициализации
                 System.Diagnostics.Debug.WriteLine($"Failed to initialize services: {ex.Message}");
-                
+				System.Diagnostics.Debug.WriteLine($"Failed to initialize services: {ex.StackTrace}");
+				throw ex;
+
                 // В случае ошибки создаем базовые сервисы
-                DataProviderLogger = new ConsoleDataProviderLogger();
-                ExchangeLogger = new ConsoleExchangeLogger();
-                DataProvider = new DataProvider(DataProviderLogger);
-                ExchangeService = new ExchangeService(DataProvider, ExchangeLogger);
+                //DataProviderLogger = new ConsoleDataProviderLogger();
+                //ExchangeLogger = new ConsoleExchangeLogger();
+                //DataProvider = new DataProvider(DataProviderLogger);
+                //ExchangeService = new ExchangeService(DataProvider, ExchangeLogger);
             }
         }
 

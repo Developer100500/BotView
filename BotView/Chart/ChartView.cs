@@ -134,7 +134,7 @@ namespace BotView.Chart
 	{
 		string timeframe = string.Empty;
 		CandlestickData candlestickData;
-		OHLCV[] candlesticks;
+		//OHLCV[] candlesticks;
 
 		ViewportClippingCoords viewport;
 
@@ -174,12 +174,12 @@ namespace BotView.Chart
 
 			// Создаем тестовые данные с реальными временными метками
 			DateTime baseTime = DateTime.Now;
-			this.candlesticks = [
+			OHLCV[] candles = [
 				new OHLCV (100, 114, 93, 105, 1000),
 				new OHLCV (105, 111, 100, 106, 800)
 			];
 
-			this.candlestickData = new CandlestickData(timeframe, baseTime, DateTime.Now, candlesticks);
+			this.candlestickData = new CandlestickData(timeframe, baseTime, DateTime.Now, candles);
 
 			// Инициализируем мировую систему координат
 			worldOriginTime = baseTime;
@@ -218,7 +218,7 @@ namespace BotView.Chart
 			DrawPriceScale(drawingContext);
 
 			// Draw the candlestick
-			DrawCandlesticks(drawingContext, candlesticks);
+			DrawCandlesticks(drawingContext, candlestickData.candles);
 		}
 
 		protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
@@ -371,7 +371,7 @@ namespace BotView.Chart
 		/// </summary>
 		private void UpdateDataRange()
 		{
-			if (candlesticks == null || candlesticks.Length == 0)
+			if (candlestickData.candles == null || candlestickData.candles.Length == 0)
 			{
 				viewport.minPrice = 0;
 				viewport.maxPrice = 100;
@@ -382,7 +382,7 @@ namespace BotView.Chart
 			viewport.minPrice = double.MaxValue;
 			viewport.maxPrice = double.MinValue;
 
-			foreach (var candle in candlesticks)
+			foreach (var candle in candlestickData.candles)
 			{
 				viewport.minPrice = Math.Min(viewport.minPrice, candle.low);
 				viewport.maxPrice = Math.Max(viewport.maxPrice, candle.high);
@@ -614,7 +614,6 @@ namespace BotView.Chart
 		public void SetCandlestickData(CandlestickData newData)
 		{
 			this.candlestickData = newData;
-			this.candlesticks = newData.candles;
 			this.timeframe = newData.timeframe;
 			
 			// Пересчитываем диапазон данных
@@ -661,7 +660,7 @@ namespace BotView.Chart
 		/// </summary>
 		public void FitToData()
 		{
-			if (candlesticks == null || candlesticks.Length == 0)
+			if (candlestickData.candles == null || candlestickData.candles.Length == 0)
 				return;
 
 			// Вычисляем временной диапазон данных
@@ -714,7 +713,7 @@ namespace BotView.Chart
 		/// </summary>
 		public void PositionToLastCandle()
 		{
-			if (candlesticks == null || candlesticks.Length == 0)
+			if (candlestickData.candles == null || candlestickData.candles.Length == 0)
 				return;
 
 			DateTime lastCandleTime = candlestickData.endTime;
@@ -827,6 +826,7 @@ namespace BotView.Chart
 		private DateTime GetCandleTime(int candleIndex)
 		{
 			// Check if we have valid candles data and the index is within bounds
+			var candlesticks = candlestickData.candles;
 			if (candlesticks != null && candleIndex >= 0 && candleIndex < candlesticks.Length)
 			{
 				// Use timestamp from OHLCV data if it's not the default value (0)
@@ -835,6 +835,7 @@ namespace BotView.Chart
 					return candlesticks[candleIndex].GetDateTime();
 				}
 			}
+
 			
 			// Fallback to calculation based on timeframe for backward compatibility
 			TimeSpan timeframeSpan = ParseTimeframe(timeframe);
