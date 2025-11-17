@@ -6,35 +6,39 @@
 
 ## Типы координат
 
-### 1. View Coordinates (Координаты окна)
-- **Структура**: `ViewCoordinates`
-- **Единицы**: Пиксели (int)
-- **Отсчет**: От верхнего левого угла компонента
-- **Использование**: Позиционирование UI элементов, обработка мыши
+### 1. Coordinates (Универсальная структура координат)
+- **Структура**: `Coordinates`
+- **Единицы**: double (поддерживает как пиксели, так и мировые координаты)
+- **Использование**: 
+  - **View Coordinates**: Координаты окна (пиксели от верхнего левого угла компонента)
+  - **World Coordinates**: Мировые координаты (секунды от базового времени, единицы цены от базовой цены)
 
 ```csharp
-struct ViewCoordinates
+public struct Coordinates
 {
-    public int x;  // Пиксели от левого края
-    public int y;  // Пиксели от верхнего края
+    public double x;
+    public double y;
+
+    public Coordinates(double x, double y)
+    {
+        this.x = x;
+        this.y = y;
+    }
+
+    // Конструктор для целочисленных координат (для обратной совместимости)
+    public Coordinates(int x, int y)
+    {
+        this.x = x;
+        this.y = y;
+    }
 }
 ```
 
-### 2. World Coordinates (Мировые координаты)
-- **Структура**: `WorldCoordinates`
-- **Единицы**: Пиксели (double)
-- **Отсчет**: От единой точки отсчета (центр изначального экрана)
-- **Использование**: Позиционирование графика, операции zoom/pan
+**Экземпляры для разных целей:**
+- **View Coordinates**: Координаты внутри окна компонента ChartView (пиксели)
+- **World Coordinates**: Мировые координаты для ориентации в пространстве всего графика
 
-```csharp
-struct WorldCoordinates
-{
-    public double x;  // Секунды от базового времени
-    public double y;  // Единицы цены от базовой цены
-}
-```
-
-### 3. Chart Coordinates (Координаты графика)
+### 2. Chart Coordinates (Координаты графика)
 - **Структура**: `ChartCoordinates`
 - **Единицы**: Время и цена
 - **Использование**: Позиционирование свечей согласно OHLCV данным
@@ -81,10 +85,10 @@ struct ViewportClippingCoords
 ```csharp
 // Конвертация времени и цены свечи в экранные координаты
 ChartCoordinates candleChart = new ChartCoordinates(candleTime, candlePrice);
-ViewCoordinates candleView = ChartToView(candleChart);
+Coordinates candleView = ChartToView(candleChart);
 
 // Конвертация позиции мыши в координаты времени/цены
-ViewCoordinates mouseView = new ViewCoordinates(mouseX, mouseY);
+Coordinates mouseView = new Coordinates(mouseX, mouseY);
 ChartCoordinates mouseChart = ViewToChart(mouseView);
 ```
 
