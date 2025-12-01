@@ -16,6 +16,12 @@ public abstract class TechnicalAnalysisTool
 	public bool IsVisible { get; set; } = true;
 
 	/// <summary>
+	/// Оптимизация для отрисовки только тех элементов, которые были смещены или изменены.
+	/// После каждого Draw() ставится в false
+	/// </summary>
+	public bool NeedsRedrawing { get; set; } = true;
+
+	/// <summary>
 	/// Абстрактный метод для отрисовки инструмента
 	/// </summary>
 	/// <param name="drawingContext">Контекст отрисовки WPF</param>

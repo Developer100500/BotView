@@ -232,9 +232,7 @@ public class ChartView : FrameworkElement
 		controller.HandleMouseWheel(mousePosition, e.Delta);
 	}
 
-	/// <summary>
-	/// Update chart dimensions (called on every render to handle window resize)
-	/// </summary>
+	/// <summary>Update chart dimensions (called on every render to handle window resize)</summary>
 	private void UpdateChartDimensions()
 	{
 		model.ChartWidth = Math.Max(0, this.ActualWidth - model.LeftMargin - model.RightMargin);

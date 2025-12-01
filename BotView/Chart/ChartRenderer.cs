@@ -13,11 +13,9 @@ public class ChartRenderer
 	private readonly ChartModel model;
 	private readonly ChartController controller;
 
-	/// <summary>
-	/// Конструктор ChartRenderer
-	/// </summary>
-	/// <param name="model">Модель графика</param>
-	/// <param name="controller">Контроллер графика</param>
+	private bool RedrawAllTechnicalTools = false;
+
+
 	public ChartRenderer(ChartModel model, ChartController controller)
 	{
 		this.model = model ?? throw new ArgumentNullException(nameof(model));
@@ -345,9 +343,6 @@ public class ChartRenderer
 		}
 	}
 
-	/// <summary>
-	/// Отрисовка инструментов технического анализа
-	/// </summary>
 	private void DrawTechnicalAnalysisTools(DrawingContext drawingContext)
 	{
 		if (model.TechnicalAnalysisManager == null)
@@ -376,9 +371,9 @@ public class ChartRenderer
 			// Получаем все инструменты
 			foreach (var tool in model.TechnicalAnalysisManager.GetTools())
 			{
-				// Отрисовываем каждый видимый инструмент
-				// Передаем функцию конвертации ChartToView как делегат
-				tool.Draw(drawingContext, controller.ChartToView, currentViewport);
+				if (tool.NeedsRedrawing || RedrawAllTechnicalTools) {
+					tool.Draw(drawingContext, controller.ChartToView, currentViewport);
+				}
 			}
 		}
 		finally

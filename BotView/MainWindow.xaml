@@ -60,6 +60,10 @@
                 </ComboBox>
 
                 <Separator Margin="2"/>
+                <TextBlock Text="Инструменты" Margin="2"/>
+                <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2" Click="BtnHorizontalLine_Click"/>
+
+                <Separator Margin="2"/>
                 <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2" Click="BtnShowMetrics_Click"/>
                 <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2" Click="BtnExportMetrics_Click"/>
                 

@@ -145,22 +145,8 @@ namespace BotView
             chartView.FitToData();
         }
 
-        private void ConnectToExchange() // For testing
-        {
-            string exchangeName = App.AvailableExchanges[0];
-            var exchangeInfo = ExchangeConfig.ExchangeDetails[exchangeName];
-            var exchange = new ccxt.binance();
-            Debug.Write(exchange.currencies);
-            exchange.Close();
-            
-            // Test drawing methods with different data formats
-            TestDrawingCompatibility();
-        }
-        
-        /// <summary>
-        /// Tests that drawing methods work correctly with both timestamp-enabled data and legacy data
-        /// </summary>
-        private void TestDrawingCompatibility()
+		/// <summary>Tests that drawing methods work correctly with both timestamp-enabled data and legacy data</summary>
+		private void TestDrawingCompatibility()
         {
             Debug.WriteLine("Testing drawing compatibility with different data formats...");
             

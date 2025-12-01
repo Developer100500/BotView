@@ -56,10 +56,6 @@ public class HorizontalLine : TechnicalAnalysisTool
 		ChartCoordinates startPoint = new ChartCoordinates(viewport.minTime, Price);
 		ChartCoordinates endPoint = new ChartCoordinates(viewport.maxTime, Price);
 
-		// Конвертируем в View Coordinates
-		Coordinates startView = chartToViewConverter(startPoint);
-		Coordinates endView = chartToViewConverter(endPoint);
-
 		// Проверяем, находится ли линия в видимом диапазоне цен
 		// Определяем границы видимой области (с учетом возможного переворота)
 		double minVisiblePrice = Math.Min(viewport.minPrice, viewport.maxPrice);
@@ -67,7 +63,14 @@ public class HorizontalLine : TechnicalAnalysisTool
 		
 		// Если линия полностью вне видимой области, не рисуем её
 		if (Price < minVisiblePrice || Price > maxVisiblePrice)
+		{
+			IsVisible = false;
 			return;
+		}
+
+		// Конвертируем в View Coordinates
+		Coordinates startView = chartToViewConverter(startPoint);
+		Coordinates endView = chartToViewConverter(endPoint);
 
 		// Проверяем, что координаты валидны (не NaN и не Infinity)
 		if (double.IsNaN(startView.x) || double.IsNaN(startView.y) || 

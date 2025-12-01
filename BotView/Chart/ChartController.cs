@@ -41,7 +41,7 @@ public class ChartController
 		this.model = model ?? throw new ArgumentNullException(nameof(model));
 	}
 
-	// === COORDINATE CONVERSION METHODS ===
+#region === COORDINATE CONVERSION METHODS ===
 
 	/// <summary>
 	/// Конвертация из Chart координат (время/цена) в World координаты
@@ -167,7 +167,8 @@ public class ChartController
 		ViewportChanged?.Invoke();
 	}
 
-	// === CAMERA CONTROL METHODS ===
+#endregion
+#region === CAMERA CONTROL METHODS ===
 
 	/// <summary>
 	/// Инициализация камеры (вызывается один раз при старте)
@@ -298,7 +299,7 @@ public class ChartController
 			
 		Zoom(timeZoomFactor, priceZoomFactor, centerWorld.x, centerWorld.y);
 	}
-
+#endregion
 	// === MOUSE INTERACTION METHODS ===
 
 	/// <summary>
