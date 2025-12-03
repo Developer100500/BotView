@@ -55,6 +55,18 @@ public class TechnicalAnalysisManager
 	/// Получает количество инструментов в коллекции
 	/// </summary>
 	public int Count => tools.Count;
+
+	/// <summary>
+	/// Устанавливает флаг NeedsRedrawing = true для всех инструментов
+	/// Вызывается при изменении viewport (pan/zoom), смене данных или других операциях, требующих перерисовки
+	/// </summary>
+	public void MarkAllToolsForRedrawing()
+	{
+		foreach (var tool in tools)
+		{
+			tool.NeedsRedrawing = true;
+		}
+	}
 }
 
 

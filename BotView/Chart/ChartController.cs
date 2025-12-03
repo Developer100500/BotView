@@ -163,6 +163,9 @@ public class ChartController
 			bottomRightChart.time    // maxTime
 		);
 
+		// Помечаем все инструменты технического анализа для перерисовки при изменении viewport
+		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
+
 		// Уведомляем об изменении viewport
 		ViewportChanged?.Invoke();
 	}
@@ -187,6 +190,9 @@ public class ChartController
 
 		double dataRangeY = (model.Viewport.maxPrice - model.Viewport.minPrice) * 1.2; // 20% padding
 		model.PriceRangeInViewport = dataRangeY;
+
+		// Помечаем все инструменты для перерисовки при первоначальной загрузке
+		//model.TechnicalAnalysisManager.MarkAllToolsForRedrawing(); // Скорее всего это не нужно, т.к. по-умолчанию ChartRenderer имеет флаг RedrawAllTechincalTools установленный в true
 
 		// Update viewport based on camera
 		UpdateViewportFromCamera();
@@ -468,6 +474,9 @@ public class ChartController
 			
 		// Пересчитываем диапазон данных
 		model.UpdateDataRange();
+			
+		// Помечаем все инструменты для перерисовки при смене данных (таймфрейм или торговая пара)
+		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
 			
 		// Если камера еще не инициализирована, инициализируем её
 		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0)

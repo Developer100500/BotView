@@ -14,7 +14,11 @@
         </StackPanel>
         
         <!-- Status Bar at Bottom -->
-        <StatusBar DockPanel.Dock="Bottom" Height="30"/>
+        <StatusBar DockPanel.Dock="Bottom" Height="30" Name="statusBar">
+            <StatusBarItem>
+                <TextBlock Name="fpsCounter" Text="Render: -- ms" Margin="5,0"/>
+            </StatusBarItem>
+        </StatusBar>
         
         <!-- Main Content Area with Grid -->
         <Grid>

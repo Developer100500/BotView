@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -137,6 +138,10 @@ public class ChartView : FrameworkElement
 	private readonly ChartController controller;
 	private readonly ChartRenderer renderer;
 
+	// === RENDER TIME COUNTER ===
+	/// <summary>Время последней отрисовки в миллисекундах</summary>
+	public double LastRenderTimeMs { get; private set; }
+
 	public ChartView() : base()
 	{
 		// Инициализируем модель (она создаст тестовые данные и инструменты)
@@ -154,6 +159,9 @@ public class ChartView : FrameworkElement
 
 	protected override void OnRender(DrawingContext drawingContext)
 	{
+		// Начинаем измерение времени
+		Stopwatch stopwatch = Stopwatch.StartNew();
+
 		base.OnRender(drawingContext);
 
 		// Update chart dimensions (these can change with window resize)
@@ -166,18 +174,22 @@ public class ChartView : FrameworkElement
 			model.IsInitialized = true;
 		}
 
-		// Делегируем отрисовку в renderer
-		renderer.Render(drawingContext);
+		renderer.Render(drawingContext); // Делегируем отрисовку в renderer
+
+		// Завершаем измерение времени и сохраняем результат в миллисекундах
+		stopwatch.Stop();
+		LastRenderTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 	}
 
 	protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
 	{
 		base.OnRenderSizeChanged(sizeInfo);
 			
-		// При изменении размера окна обновляем viewport
+		// При изменении размера окна обновляем viewport и запрашиваем перерисовку всех инструментов
 		if (model.IsInitialized)
 		{
 			controller.UpdateViewportFromCamera();
+			renderer.RequestRedrawAllTechnicalTools();
 		}
 	}
 
@@ -186,6 +198,13 @@ public class ChartView : FrameworkElement
 	protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
 	{
 		base.OnMouseLeftButtonDown(e);
+		
+		// Проверяем, находимся ли мы в режиме создания инструмента теханализа
+		if (TechnicalAnalysisTool.IsCreatingTool)
+		{
+			HandleToolCreation(e);
+			return;
+		}
 			
 		Point mousePos = e.GetPosition(this);
 		var result = controller.HandleMouseLeftButtonDown(mousePos);
@@ -199,6 +218,46 @@ public class ChartView : FrameworkElement
 		{
 			this.Cursor = result.Cursor;
 		}
+	}
+
+	/// <summary>
+	/// Обработка клика для создания инструмента технического анализа
+	/// </summary>
+	private void HandleToolCreation(MouseButtonEventArgs e)
+	{
+		// Получаем позицию мыши
+		Point mousePos = e.GetPosition(this);
+		
+		// Конвертируем View координаты в Chart координаты
+		var chartCoords = controller.ViewToChart(new Coordinates(mousePos.X, mousePos.Y));
+		
+		// Создаём инструмент в зависимости от типа
+		TechnicalAnalysisTool? newTool = TechnicalAnalysisTool.CreatingToolType switch
+		{
+			TechnicalAnalysisToolType.HorizontalLine => new HorizontalLine(
+				price: chartCoords.price,
+				color: Brushes.Red,
+				thickness: 2.0
+			),
+			// Здесь можно добавить другие типы инструментов
+			_ => null
+		};
+
+		if (newTool != null)
+		{
+			// Добавляем инструмент в менеджер
+			model.TechnicalAnalysisManager.AddTool(newTool);
+		}
+		
+		// Выключаем режим создания и возвращаем курсор
+		TechnicalAnalysisTool.StopCreating();
+		this.Cursor = Cursors.Arrow;
+
+		// Запрашиваем перерисовку графика
+		InvalidateVisual();
+		
+		// Помечаем событие как обработанное, чтобы не обрабатывать его для pan
+		e.Handled = true;
 	}
 
 	protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
@@ -323,6 +382,20 @@ public class ChartView : FrameworkElement
 	{
 		controller.ZoomAxis(timeZoomFactor, priceZoomFactor);
 		InvalidateVisual();
+	}
+
+	/// <summary>Получает менеджер инструментов технического анализа</summary>
+	public TechnicalAnalysisManager GetTechnicalAnalysisManager()
+	{
+		return model.TechnicalAnalysisManager;
+	}
+
+	/// <summary>Конвертирует View координаты (пиксели) в Chart координаты (время и цена)</summary>
+	/// <param name="viewCoords">Координаты в пикселях от верхнего левого угла</param>
+	/// <returns>Координаты в виде времени и цены</returns>
+	public ChartCoordinates ViewToChart(Coordinates viewCoords)
+	{
+		return controller.ViewToChart(viewCoords);
 	}
 
 }

@@ -10,6 +10,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using BotView.Chart;
+using BotView.Chart.TechnicalAnalysis;
 using BotView.Configuration;
 using BotView.Services;
 using BotView.Interfaces;
@@ -24,6 +25,7 @@ namespace BotView
         private readonly IExchangeService _exchangeService;
         private readonly IDataProvider _dataProvider;
         private readonly System.Windows.Threading.DispatcherTimer _metricsTimer;
+        private readonly System.Windows.Threading.DispatcherTimer _renderTimeUpdateTimer;
         
         public MainWindow()
         {
@@ -40,8 +42,24 @@ namespace BotView
             _metricsTimer.Tick += MetricsTimer_Tick;
             _metricsTimer.Start();
             
+            // Set up render time update timer (update UI every 100ms)
+            _renderTimeUpdateTimer = new System.Windows.Threading.DispatcherTimer();
+            _renderTimeUpdateTimer.Interval = TimeSpan.FromMilliseconds(100);
+            _renderTimeUpdateTimer.Tick += RenderTimeUpdateTimer_Tick;
+            _renderTimeUpdateTimer.Start();
+            
             // Загружаем демонстрационные данные после инициализации
             this.Loaded += MainWindow_Loaded;
+        }
+
+        private void RenderTimeUpdateTimer_Tick(object? sender, EventArgs e)
+        {
+            // Обновляем счетчик времени отрисовки в StatusBar
+            if (fpsCounter != null && chartView != null)
+            {
+                double renderTime = chartView.LastRenderTimeMs;
+                fpsCounter.Text = $"Render: {renderTime:F2} ms";
+            }
         }
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -145,60 +163,6 @@ namespace BotView
             chartView.FitToData();
         }
 
-		/// <summary>Tests that drawing methods work correctly with both timestamp-enabled data and legacy data</summary>
-		private void TestDrawingCompatibility()
-        {
-            Debug.WriteLine("Testing drawing compatibility with different data formats...");
-            
-            DateTime baseTime = DateTime.Parse("2025/10/01 00:00:00");
-            
-            // Test 1: Create data with timestamps (new format)
-            var timestampCandles = new OHLCV[]
-            {
-                new OHLCV(((DateTimeOffset)baseTime).ToUnixTimeMilliseconds(), 100, 105, 98, 103, 1000),
-                new OHLCV(((DateTimeOffset)baseTime.AddDays(1)).ToUnixTimeMilliseconds(), 103, 108, 101, 106, 1200),
-                new OHLCV(((DateTimeOffset)baseTime.AddDays(2)).ToUnixTimeMilliseconds(), 106, 110, 104, 109, 900)
-            };
-            
-            // Test 2: Create data without timestamps (legacy format) - using timestamp = 0 to force fallback
-            var legacyCandles = new OHLCV[]
-            {
-                new OHLCV(0, 100, 105, 98, 103, 1000),  // timestamp = 0 forces fallback to calculation
-                new OHLCV(0, 103, 108, 101, 106, 1200),
-                new OHLCV(0, 106, 110, 104, 109, 900)
-            };
-            
-            // Test timestamp data
-            var timestampData = new CandlestickData("1d", baseTime, baseTime.AddDays(2), timestampCandles);
-            Debug.WriteLine($"Timestamp data - First candle time: {timestampCandles[0].GetDateTime()}");
-            Debug.WriteLine($"Timestamp data - Last candle time: {timestampCandles[2].GetDateTime()}");
-            
-            // Test legacy data
-            var legacyData = new CandlestickData("1d", baseTime, baseTime.AddDays(2), legacyCandles);
-            Debug.WriteLine($"Legacy data - First candle time (should be epoch): {legacyCandles[0].GetDateTime()}");
-            Debug.WriteLine($"Legacy data - Last candle time (should be epoch): {legacyCandles[2].GetDateTime()}");
-            
-            // Verify that GetCandleTime works correctly for both formats
-            // This simulates what happens in DrawCandlestick method
-            chartView.SetCandlestickData(timestampData);
-            Debug.WriteLine("Timestamp data loaded successfully - drawing should use actual timestamps");
-            
-            // Test that the chart can render with timestamp data
-            chartView.FitToData();
-            Debug.WriteLine("Chart fitted to timestamp data successfully");
-            
-            // Switch to legacy data to test fallback
-            chartView.SetCandlestickData(legacyData);
-            Debug.WriteLine("Legacy data loaded successfully - drawing should use calculated times");
-            
-            // Test that the chart can render with legacy data
-            chartView.FitToData();
-            Debug.WriteLine("Chart fitted to legacy data successfully");
-            
-            Debug.WriteLine("Drawing compatibility test completed successfully!");
-            Debug.WriteLine("Both timestamp-enabled and legacy data formats work correctly with drawing methods");
-        }
-
         // === EVENT HANDLERS FOR CONTROL BUTTONS ===
 
         private void BtnPositionToLast_Click(object sender, RoutedEventArgs e)
@@ -258,6 +222,18 @@ namespace BotView
                 
                 await LoadRealData(exchange, symbol, timeframe);
             }
+        }
+
+        private void BtnHorizontalLine_Click(object sender, RoutedEventArgs e)
+        {
+            if (chartView == null)
+                return;
+
+            // Включаем режим создания горизонтальной линии
+            TechnicalAnalysisTool.StartCreating(TechnicalAnalysisToolType.HorizontalLine);
+            
+            // Меняем курсор на Cross (перекрестие)
+            chartView.Cursor = Cursors.Cross;
         }
 
         private void BtnShowMetrics_Click(object sender, RoutedEventArgs e)
@@ -436,8 +412,9 @@ namespace BotView
         {
             try
             {
-                // Stop the metrics timer
+                // Stop the timers
                 _metricsTimer?.Stop();
+                _renderTimeUpdateTimer?.Stop();
                 
                 // Log final performance metrics before closing
                 _exchangeService?.LogDetailedPerformanceMetrics();

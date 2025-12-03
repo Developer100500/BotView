@@ -10,19 +10,13 @@ namespace BotView.Chart.TechnicalAnalysis;
 /// </summary>
 public class HorizontalLine : TechnicalAnalysisTool
 {
-	/// <summary>
-	/// Цена линии в Chart Coordinates
-	/// </summary>
+	/// <summary>Цена линии в Chart Coordinates</summary>
 	public double Price { get; set; }
 
-	/// <summary>
-	/// Цвет линии
-	/// </summary>
+	/// <summary>Цвет линии</summary>
 	public Brush Color { get; set; }
-
-	/// <summary>
-	/// Толщина линии
-	/// </summary>
+ 
+	/// <summary>Толщина линии</summary>
 	public double Thickness { get; set; }
 
 	/// <summary>
@@ -39,34 +33,25 @@ public class HorizontalLine : TechnicalAnalysisTool
 		IsVisible = true;
 	}
 
-	/// <summary>
-	/// Отрисовка горизонтальной линии через весь график
-	/// </summary>
+	/// <summary>Отрисовка горизонтальной линии через весь график</summary>
 	public override void Draw(
 		DrawingContext drawingContext,
 		Func<ChartCoordinates, Coordinates> chartToViewConverter,
 		ViewportClippingCoords viewport
 	)
 	{
-		if (!IsVisible)
+		// Проверяем, находится ли линия в видимом диапазоне цен
+		double minVisiblePrice = Math.Min(viewport.minPrice, viewport.maxPrice);
+		double maxVisiblePrice = Math.Max(viewport.minPrice, viewport.maxPrice);
+		
+		// Если линия полностью вне видимой области, не рисуем её
+		if (Price < minVisiblePrice || Price > maxVisiblePrice)
 			return;
 
 		// Создаем точки начала и конца линии в Chart Coordinates
 		// Линия проходит от minTime до maxTime на уровне заданной цены
 		ChartCoordinates startPoint = new ChartCoordinates(viewport.minTime, Price);
 		ChartCoordinates endPoint = new ChartCoordinates(viewport.maxTime, Price);
-
-		// Проверяем, находится ли линия в видимом диапазоне цен
-		// Определяем границы видимой области (с учетом возможного переворота)
-		double minVisiblePrice = Math.Min(viewport.minPrice, viewport.maxPrice);
-		double maxVisiblePrice = Math.Max(viewport.minPrice, viewport.maxPrice);
-		
-		// Если линия полностью вне видимой области, не рисуем её
-		if (Price < minVisiblePrice || Price > maxVisiblePrice)
-		{
-			IsVisible = false;
-			return;
-		}
 
 		// Конвертируем в View Coordinates
 		Coordinates startView = chartToViewConverter(startPoint);

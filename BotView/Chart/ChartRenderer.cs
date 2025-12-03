@@ -13,7 +13,7 @@ public class ChartRenderer
 	private readonly ChartModel model;
 	private readonly ChartController controller;
 
-	private bool RedrawAllTechnicalTools = false;
+	public bool RedrawAllTechnicalTools { get; set; } = false;
 
 
 	public ChartRenderer(ChartModel model, ChartController controller)
@@ -368,10 +368,12 @@ public class ChartRenderer
 
 		try
 		{
-			// Получаем все инструменты
+			// В WPF каждый OnRender должен перерисовать ВСЁ заново,
+			// поэтому рисуем все видимые инструменты без проверки NeedsRedrawing
 			foreach (var tool in model.TechnicalAnalysisManager.GetTools())
 			{
-				if (tool.NeedsRedrawing || RedrawAllTechnicalTools) {
+				if (tool.IsVisible)
+				{
 					tool.Draw(drawingContext, controller.ChartToView, currentViewport);
 				}
 			}
@@ -381,6 +383,15 @@ public class ChartRenderer
 			// Убираем clipping
 			drawingContext.Pop();
 		}
+	}
+
+	/// <summary>
+	/// Устанавливает флаг принудительной перерисовки всех инструментов технического анализа
+	/// Вызывается при изменении размера окна, zoom, pan и других операциях, требующих полной перерисовки
+	/// </summary>
+	public void RequestRedrawAllTechnicalTools()
+	{
+		RedrawAllTechnicalTools = true;
 	}
 }
 
