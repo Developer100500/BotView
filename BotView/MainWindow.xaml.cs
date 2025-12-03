@@ -68,9 +68,7 @@ namespace BotView
             await LoadRealData("binance", "BTC/USDT", "1d");
         }
 
-        /// <summary>
-        /// Loads real data from cryptocurrency exchange
-        /// </summary>
+        /// <summary>Loads real data from cryptocurrency exchange</summary>
         /// <param name="exchange">Exchange name (e.g., "binance")</param>
         /// <param name="symbol">Trading pair symbol (e.g., "BTC/USDT")</param>
         /// <param name="timeframe">Timeframe (e.g., "1d")</param>

@@ -657,7 +657,7 @@ public class ChartController
 		double totalSeconds = viewportRange.TotalSeconds;
 
 		// Целевое количество меток на экране (примерно 5-10)
-		int targetTickCount = 8;
+		int targetTickCount = 10;
 		double secondsPerTick = totalSeconds / targetTickCount;
 
 		// Выбираем подходящий интервал
@@ -681,7 +681,7 @@ public class ChartController
 		double priceRange = model.Viewport.maxPrice - model.Viewport.minPrice;
 			
 		// Целевое количество меток на экране (примерно 5-10)
-		int targetTickCount = 8;
+		int targetTickCount = 10;
 		double rawInterval = priceRange / targetTickCount;
 
 		// Округляем до "красивого" числа

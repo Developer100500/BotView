@@ -205,8 +205,28 @@ public class ChartView : FrameworkElement
 			HandleToolCreation(e);
 			return;
 		}
-			
+
 		Point mousePos = e.GetPosition(this);
+		
+		// Проверяем, кликнули ли на инструмент для редактирования
+		var viewCoords = new Coordinates(mousePos.X, mousePos.Y);
+		var toolAtPoint = model.TechnicalAnalysisManager.GetToolAtPoint(
+			viewCoords,
+			controller.ChartToView,
+			model.Viewport,
+			tolerance: 5.0
+		);
+
+		if (toolAtPoint != null)
+		{
+			// Начинаем редактирование инструмента
+			TechnicalAnalysisTool.StartEditing(toolAtPoint);
+			this.CaptureMouse();
+			this.Cursor = Cursors.SizeNS; // Для горизонтальной линии
+			e.Handled = true;
+			return;
+		}
+			
 		var result = controller.HandleMouseLeftButtonDown(mousePos);
 			
 		if (result.ShouldCaptureMouse)
@@ -263,6 +283,15 @@ public class ChartView : FrameworkElement
 	protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
 	{
 		base.OnMouseLeftButtonUp(e);
+
+		// Если редактировали инструмент — завершаем редактирование
+		if (TechnicalAnalysisTool.IsEditingTool)
+		{
+			TechnicalAnalysisTool.StopEditing();
+			this.Cursor = Cursors.Arrow;
+			this.ReleaseMouseCapture();
+			return;
+		}
 			
 		controller.HandleMouseLeftButtonUp();
 		this.Cursor = Cursors.Arrow;
@@ -274,6 +303,38 @@ public class ChartView : FrameworkElement
 		base.OnMouseMove(e);
 			
 		Point currentPosition = e.GetPosition(this);
+		var viewCoords = new Coordinates(currentPosition.X, currentPosition.Y);
+
+		// Если редактируем инструмент — обновляем его позицию
+		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != null)
+		{
+			var chartCoords = controller.ViewToChart(viewCoords);
+			TechnicalAnalysisTool.EditingTool.UpdatePosition(chartCoords);
+			InvalidateVisual();
+			return;
+		}
+
+		// Если не перетаскиваем график — проверяем наведение на инструмент
+		if (e.LeftButton != MouseButtonState.Pressed)
+		{
+			var toolAtPoint = model.TechnicalAnalysisManager.GetToolAtPoint(
+				viewCoords,
+				controller.ChartToView,
+				model.Viewport,
+				tolerance: 5.0
+			);
+
+			if (toolAtPoint != null)
+			{
+				// Для горизонтальной линии показываем вертикальную стрелку
+				if (toolAtPoint is HorizontalLine)
+				{
+					this.Cursor = Cursors.SizeNS;
+				}
+				return;
+			}
+		}
+
 		var cursor = controller.HandleMouseMove(currentPosition);
 			
 		if (cursor != null)

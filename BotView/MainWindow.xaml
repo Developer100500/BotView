@@ -50,6 +50,7 @@
                     <ComboBoxItem Content="BNB/USDT" Tag="BNB/USDT"/>
                     <ComboBoxItem Content="ADA/USDT" Tag="ADA/USDT"/>
                     <ComboBoxItem Content="SOL/USDT" Tag="SOL/USDT"/>
+                    <ComboBoxItem Content="TON/USDT" Tag="TON/USDT"/>
                 </ComboBox>
 
                 <Separator Margin="2"/>

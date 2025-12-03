@@ -10,13 +10,10 @@ namespace BotView.Chart.TechnicalAnalysis;
 /// </summary>
 public class HorizontalLine : TechnicalAnalysisTool
 {
-	/// <summary>Цена линии в Chart Coordinates</summary>
 	public double Price { get; set; }
 
-	/// <summary>Цвет линии</summary>
 	public Brush Color { get; set; }
  
-	/// <summary>Толщина линии</summary>
 	public double Thickness { get; set; }
 
 	/// <summary>
@@ -69,6 +66,36 @@ public class HorizontalLine : TechnicalAnalysisTool
 
 		// Отрисовываем линию
 		drawingContext.DrawLine(linePen, new System.Windows.Point(startView.x, startView.y), new System.Windows.Point(endView.x, endView.y));
+	}
+
+	/// <summary>
+	/// Проверяет, попадает ли точка на горизонтальную линию
+	/// </summary>
+	public override bool HitTest(
+		Coordinates viewCoords,
+		Func<ChartCoordinates, Coordinates> chartToViewConverter,
+		ViewportClippingCoords viewport,
+		double tolerance = 5.0)
+	{
+		// Конвертируем цену линии в Y-координату View
+		ChartCoordinates linePoint = new ChartCoordinates(viewport.minTime, Price);
+		Coordinates lineView = chartToViewConverter(linePoint);
+
+		// Проверяем валидность координат
+		if (double.IsNaN(lineView.y) || double.IsInfinity(lineView.y))
+			return false;
+
+		// Проверяем, находится ли Y-координата мыши в пределах tolerance от линии
+		double distance = Math.Abs(viewCoords.y - lineView.y);
+		return distance <= tolerance;
+	}
+
+	/// <summary>
+	/// Обновляет позицию горизонтальной линии (цену)
+	/// </summary>
+	public override void UpdatePosition(ChartCoordinates chartCoords)
+	{
+		Price = chartCoords.price;
 	}
 }
 
