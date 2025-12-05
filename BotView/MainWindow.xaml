@@ -25,6 +25,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="100"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="100" />
             </Grid.ColumnDefinitions>
             
             <!-- Left Menu Panel -->
@@ -40,17 +41,6 @@
                     <ComboBoxItem Content="Bybit" Tag="bybit"/>
                     <ComboBoxItem Content="OKX" Tag="okx"/>
                     <ComboBoxItem Content="Kraken" Tag="kraken"/>
-                </ComboBox>
-
-                <Separator Margin="2"/>
-                <Label Content="Торговая пара:" FontSize="10"/>
-                <ComboBox Name="cmbSymbol" Margin="2" SelectionChanged="CmbSymbol_SelectionChanged">
-                    <ComboBoxItem Content="BTC/USDT" Tag="BTC/USDT" IsSelected="True"/>
-                    <ComboBoxItem Content="ETH/USDT" Tag="ETH/USDT"/>
-                    <ComboBoxItem Content="BNB/USDT" Tag="BNB/USDT"/>
-                    <ComboBoxItem Content="ADA/USDT" Tag="ADA/USDT"/>
-                    <ComboBoxItem Content="SOL/USDT" Tag="SOL/USDT"/>
-                    <ComboBoxItem Content="TON/USDT" Tag="TON/USDT"/>
                 </ComboBox>
 
                 <Separator Margin="2"/>
@@ -80,6 +70,14 @@
             
             <!-- Chart View - Takes all remaining space -->
             <chart:ChartView Grid.Column="1" x:Name="chartView" />
+
+            <!-- Right Panel -->
+            <StackPanel Grid.Column="2" Background="LightGray" Margin="5">
+                <Label Content="Торговые пары" FontWeight="Bold" HorizontalAlignment="Center"/>
+                <ListBox Name="lstTradingPairs" Margin="2" SelectionChanged="LstTradingPairs_SelectionChanged">
+                    <!-- Items loaded from database -->
+                </ListBox>
+            </StackPanel>
         </Grid>
     </DockPanel>
 

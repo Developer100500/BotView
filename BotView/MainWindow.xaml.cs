@@ -14,22 +14,27 @@ using BotView.Chart.TechnicalAnalysis;
 using BotView.Configuration;
 using BotView.Services;
 using BotView.Interfaces;
+using BotView.Database;
 
 namespace BotView
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
+    /// <summary>Interaction logic for MainWindow.xaml</summary>
     public partial class MainWindow : Window
     {
         private readonly IExchangeService _exchangeService;
         private readonly IDataProvider _dataProvider;
+        private readonly DatabaseService _databaseService;
         private readonly System.Windows.Threading.DispatcherTimer _metricsTimer;
         private readonly System.Windows.Threading.DispatcherTimer _renderTimeUpdateTimer;
         
         public MainWindow()
         {
             InitializeComponent();
+            
+            // Initialize database service
+            _databaseService = new DatabaseService();
+            InitializeDatabase();
+            LoadTradingPairsFromDatabase();
             
             // Initialize services with logger
             _dataProvider = new DataProvider();
@@ -50,6 +55,64 @@ namespace BotView
             
             // Загружаем демонстрационные данные после инициализации
             this.Loaded += MainWindow_Loaded;
+        }
+
+        /// <summary>Инициализирует базу данных и заполняет тестовыми данными если нужно</summary>
+        private void InitializeDatabase()
+        {
+            try
+            {
+                // Тестовое подключение
+                if (!_databaseService.TestConnection())
+                {
+                    MessageBox.Show("Не удалось подключиться к базе данных.", "Ошибка БД", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                // Инициализируем таблицы
+                _databaseService.Initialize();
+
+                // Если торговых пар нет, заполняем тестовыми данными
+                if (!_databaseService.HasTradingPairs())
+                {
+                    _databaseService.SeedTestData();
+                    Debug.WriteLine("Database seeded with test data.");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при инициализации базы данных:\n{ex.Message}", "Ошибка БД", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>Загружает торговые пары из базы данных в ListBox</summary>
+        private void LoadTradingPairsFromDatabase()
+        {
+            try
+            {
+                lstTradingPairs.Items.Clear();
+
+                var tradingPairs = _databaseService.GetAllTradingPairs();
+                bool isFirst = true;
+
+                foreach (var pair in tradingPairs)
+                {
+                    var item = new ListBoxItem
+                    {
+                        Content = pair.Symbol,
+                        Tag = pair.Symbol,
+                        IsSelected = isFirst
+                    };
+                    lstTradingPairs.Items.Add(item);
+                    isFirst = false;
+                }
+
+                Debug.WriteLine($"Loaded {tradingPairs.Count} trading pairs from database.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading trading pairs from database: {ex.Message}");
+            }
         }
 
         private void RenderTimeUpdateTimer_Tick(object? sender, EventArgs e)
@@ -170,34 +233,16 @@ namespace BotView
 
         private async void CmbExchange_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (chartView == null || cmbSymbol == null || cmbTimeframe == null) return;
+            if (_exchangeService == null || chartView == null || lstTradingPairs == null || cmbTimeframe == null) return;
             
             var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
-            var selectedSymbol = cmbSymbol.SelectedItem as ComboBoxItem;
+            var selectedPair = lstTradingPairs.SelectedItem as ListBoxItem;
             var selectedTimeframe = cmbTimeframe.SelectedItem as ComboBoxItem;
             
-            if (selectedExchange?.Tag != null && selectedSymbol?.Tag != null && selectedTimeframe?.Tag != null)
+            if (selectedExchange?.Tag != null && selectedPair?.Tag != null && selectedTimeframe?.Tag != null)
             {
                 string exchange = selectedExchange.Tag.ToString() ?? "binance";
-                string symbol = selectedSymbol.Tag.ToString() ?? "BTC/USDT";
-                string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
-                
-                await LoadRealData(exchange, symbol, timeframe);
-            }
-        }
-
-        private async void CmbSymbol_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (chartView == null || cmbExchange == null || cmbTimeframe == null) return;
-            
-            var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
-            var selectedSymbol = cmbSymbol.SelectedItem as ComboBoxItem;
-            var selectedTimeframe = cmbTimeframe.SelectedItem as ComboBoxItem;
-            
-            if (selectedExchange?.Tag != null && selectedSymbol?.Tag != null && selectedTimeframe?.Tag != null)
-            {
-                string exchange = selectedExchange.Tag.ToString() ?? "binance";
-                string symbol = selectedSymbol.Tag.ToString() ?? "BTC/USDT";
+                string symbol = selectedPair.Tag.ToString() ?? "BTC/USDT";
                 string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
                 
                 await LoadRealData(exchange, symbol, timeframe);
@@ -206,16 +251,35 @@ namespace BotView
 
         private async void CmbTimeframe_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (chartView == null || cmbExchange == null || cmbSymbol == null) return;
+            if (_exchangeService == null || chartView == null || cmbExchange == null || lstTradingPairs == null) return;
             
             var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
-            var selectedSymbol = cmbSymbol.SelectedItem as ComboBoxItem;
+            var selectedPair = lstTradingPairs.SelectedItem as ListBoxItem;
             var selectedTimeframe = cmbTimeframe.SelectedItem as ComboBoxItem;
             
-            if (selectedExchange?.Tag != null && selectedSymbol?.Tag != null && selectedTimeframe?.Tag != null)
+            if (selectedExchange?.Tag != null && selectedPair?.Tag != null && selectedTimeframe?.Tag != null)
             {
                 string exchange = selectedExchange.Tag.ToString() ?? "binance";
-                string symbol = selectedSymbol.Tag.ToString() ?? "BTC/USDT";
+                string symbol = selectedPair.Tag.ToString() ?? "BTC/USDT";
+                string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
+                
+                await LoadRealData(exchange, symbol, timeframe);
+            }
+        }
+
+        private async void LstTradingPairs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Проверяем что все необходимые объекты инициализированы
+            if (_exchangeService == null || chartView == null || cmbExchange == null || cmbTimeframe == null || lstTradingPairs == null) return;
+            
+            var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
+            var selectedPair = lstTradingPairs.SelectedItem as ListBoxItem;
+            var selectedTimeframe = cmbTimeframe.SelectedItem as ComboBoxItem;
+            
+            if (selectedExchange?.Tag != null && selectedPair?.Tag != null && selectedTimeframe?.Tag != null)
+            {
+                string exchange = selectedExchange.Tag.ToString() ?? "binance";
+                string symbol = selectedPair.Tag.ToString() ?? "BTC/USDT";
                 string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
                 
                 await LoadRealData(exchange, symbol, timeframe);
