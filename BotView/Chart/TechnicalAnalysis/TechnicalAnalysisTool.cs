@@ -4,9 +4,7 @@ using BotView.Chart;
 
 namespace BotView.Chart.TechnicalAnalysis;
 
-/// <summary>
-/// Тип инструмента технического анализа
-/// </summary>
+/// <summary>Тип инструмента технического анализа</summary>
 public enum TechnicalAnalysisToolType
 {
 	None,
@@ -25,28 +23,20 @@ public abstract class TechnicalAnalysisTool
 {
 	// === СТАТИЧЕСКИЕ СВОЙСТВА ДЛЯ РЕЖИМА СОЗДАНИЯ ===
 	
-	/// <summary>
-	/// Флаг, указывающий что сейчас активен режим создания инструмента на графике
-	/// </summary>
+	/// <summary>Флаг, указывающий что сейчас активен режим создания инструмента на графике</summary>
 	public static bool IsCreatingTool { get; set; } = false;
 
-	/// <summary>
-	/// Тип инструмента, который сейчас создаётся
-	/// </summary>
+	/// <summary>Тип инструмента, который сейчас создаётся</summary>
 	public static TechnicalAnalysisToolType CreatingToolType { get; set; } = TechnicalAnalysisToolType.None;
 
-	/// <summary>
-	/// Начинает режим создания инструмента указанного типа
-	/// </summary>
+	/// <summary>Начинает режим создания инструмента указанного типа</summary>
 	public static void StartCreating(TechnicalAnalysisToolType toolType)
 	{
 		IsCreatingTool = true;
 		CreatingToolType = toolType;
 	}
 
-	/// <summary>
-	/// Завершает режим создания инструмента
-	/// </summary>
+	/// <summary>Завершает режим создания инструмента</summary>
 	public static void StopCreating()
 	{
 		IsCreatingTool = false;
@@ -55,28 +45,20 @@ public abstract class TechnicalAnalysisTool
 
 	// === СТАТИЧЕСКИЕ СВОЙСТВА ДЛЯ РЕЖИМА РЕДАКТИРОВАНИЯ ===
 
-	/// <summary>
-	/// Флаг, указывающий что сейчас активен режим редактирования инструмента
-	/// </summary>
+	/// <summary>Флаг, указывающий что сейчас активен режим редактирования инструмента</summary>
 	public static bool IsEditingTool { get; private set; } = false;
 
-	/// <summary>
-	/// Ссылка на инструмент, который сейчас редактируется
-	/// </summary>
+	/// <summary>Ссылка на инструмент, который сейчас редактируется</summary>
 	public static TechnicalAnalysisTool? EditingTool { get; private set; } = null;
 
-	/// <summary>
-	/// Начинает режим редактирования указанного инструмента
-	/// </summary>
+	/// <summary>Начинает режим редактирования указанного инструмента</summary>
 	public static void StartEditing(TechnicalAnalysisTool tool)
 	{
 		IsEditingTool = true;
 		EditingTool = tool;
 	}
 
-	/// <summary>
-	/// Завершает режим редактирования инструмента
-	/// </summary>
+	/// <summary>Завершает режим редактирования инструмента</summary>
 	public static void StopEditing()
 	{
 		IsEditingTool = false;
@@ -85,9 +67,7 @@ public abstract class TechnicalAnalysisTool
 
 	// === СВОЙСТВА ЭКЗЕМПЛЯРА ===
 
-	/// <summary>
-	/// Видимость инструмента на графике
-	/// </summary>
+	/// <summary>Видимость инструмента на графике</summary>
 	public bool IsVisible { get; set; } = true;
 
 	/// <summary>
@@ -96,9 +76,7 @@ public abstract class TechnicalAnalysisTool
 	/// </summary>
 	public bool NeedsRedrawing { get; set; } = true;
 
-	/// <summary>
-	/// Абстрактный метод для отрисовки инструмента
-	/// </summary>
+	/// <summary>Абстрактный метод для отрисовки инструмента</summary>
 	/// <param name="drawingContext">Контекст отрисовки WPF</param>
 	/// <param name="chartToViewConverter">Функция конвертации из Chart Coordinates в View Coordinates</param>
 	/// <param name="viewport">Текущий viewport для определения видимой области</param>
@@ -108,9 +86,7 @@ public abstract class TechnicalAnalysisTool
 		ViewportClippingCoords viewport
 	);
 
-	/// <summary>
-	/// Проверяет, попадает ли точка (координаты мыши) на инструмент
-	/// </summary>
+	/// <summary>Проверяет, попадает ли точка (координаты мыши) на инструмент</summary>
 	/// <param name="viewCoords">Координаты точки в View Coordinates (пиксели)</param>
 	/// <param name="chartToViewConverter">Функция конвертации из Chart Coordinates в View Coordinates</param>
 	/// <param name="viewport">Текущий viewport для определения видимой области</param>
@@ -123,9 +99,7 @@ public abstract class TechnicalAnalysisTool
 		double tolerance = 5.0
 	);
 
-	/// <summary>
-	/// Обновляет позицию инструмента при перетаскивании
-	/// </summary>
+	/// <summary>Обновляет позицию инструмента при перетаскивании</summary>
 	/// <param name="chartCoords">Новые координаты в Chart Coordinates (время и цена)</param>
 	public abstract void UpdatePosition(ChartCoordinates chartCoords);
 }

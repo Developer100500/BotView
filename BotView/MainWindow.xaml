@@ -11,6 +11,31 @@
         <!-- Header -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
             <Label Content="BotView" FontSize="18" FontWeight="Bold"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Separator Margin="2"/>
+                <Label Content="Биржа:" FontSize="10"/>
+                <ComboBox Name="cmbExchange" Margin="2" SelectionChanged="CmbExchange_SelectionChanged">
+                    <ComboBoxItem Content="Binance" Tag="binance" IsSelected="True"/>
+                    <ComboBoxItem Content="Bybit" Tag="bybit"/>
+                    <ComboBoxItem Content="OKX" Tag="okx"/>
+                    <ComboBoxItem Content="Kraken" Tag="kraken"/>
+                </ComboBox>
+
+                <Separator Margin="2"/>
+                <Label Content="Timeframe:" FontSize="10"/>
+                <ComboBox Name="cmbTimeframe" Margin="2"
+                          SelectionChanged="CmbTimeframe_SelectionChanged"
+                          Height="Auto" MaxHeight="24">
+                    <ComboBoxItem Content="1m" Tag="1m"/>
+                    <ComboBoxItem Content="5m" Tag="5m"/>
+                    <ComboBoxItem Content="15m" Tag="15m"/>
+                    <ComboBoxItem Content="1h" Tag="1h"/>
+                    <ComboBoxItem Content="1d" Tag="1d" IsSelected="True"/>
+                    <ComboBoxItem Content="1w" Tag="1w"/>
+                </ComboBox>
+            </StackPanel>
+            
         </StackPanel>
         
         <!-- Status Bar at Bottom -->
@@ -31,28 +56,8 @@
             <!-- Left Menu Panel -->
             <StackPanel Grid.Column="0" Background="LightGray" Margin="5">
                 <Label Content="Управление графиком" FontWeight="Bold" HorizontalAlignment="Center"/>
-                
+
                 <Button Name="btnPositionToLast" Content="К последней свечке" Margin="2" Click="BtnPositionToLast_Click"/>
-
-                <Separator Margin="2"/>
-                <Label Content="Биржа:" FontSize="10"/>
-                <ComboBox Name="cmbExchange" Margin="2" SelectionChanged="CmbExchange_SelectionChanged">
-                    <ComboBoxItem Content="Binance" Tag="binance" IsSelected="True"/>
-                    <ComboBoxItem Content="Bybit" Tag="bybit"/>
-                    <ComboBoxItem Content="OKX" Tag="okx"/>
-                    <ComboBoxItem Content="Kraken" Tag="kraken"/>
-                </ComboBox>
-
-                <Separator Margin="2"/>
-                <Label Content="Timeframe:" FontSize="10"/>
-                <ComboBox Name="cmbTimeframe" Margin="2" SelectionChanged="CmbTimeframe_SelectionChanged">
-                    <ComboBoxItem Content="1m" Tag="1m"/>
-                    <ComboBoxItem Content="5m" Tag="5m"/>
-                    <ComboBoxItem Content="15m" Tag="15m"/>
-                    <ComboBoxItem Content="1h" Tag="1h"/>
-                    <ComboBoxItem Content="1d" Tag="1d" IsSelected="True"/>
-                    <ComboBoxItem Content="1w" Tag="1w"/>
-                </ComboBox>
 
                 <Separator Margin="2"/>
                 <TextBlock Text="Инструменты" Margin="2"/>

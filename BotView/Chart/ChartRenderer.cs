@@ -22,9 +22,7 @@ public class ChartRenderer
 		this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
 	}
 
-	/// <summary>
-	/// Главный метод отрисовки графика
-	/// </summary>
+	/// <summary>Главный метод отрисовки графика</summary>
 	/// <param name="drawingContext">Контекст отрисовки WPF</param>
 	public void Render(DrawingContext drawingContext)
 	{

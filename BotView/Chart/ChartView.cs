@@ -164,8 +164,7 @@ public class ChartView : FrameworkElement
 
 		base.OnRender(drawingContext);
 
-		// Update chart dimensions (these can change with window resize)
-		UpdateChartDimensions();
+		
 
 		// Initialize camera only once
 		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0)
@@ -184,7 +183,9 @@ public class ChartView : FrameworkElement
 	protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
 	{
 		base.OnRenderSizeChanged(sizeInfo);
-			
+
+		UpdateChartDimensions();
+
 		// При изменении размера окна обновляем viewport и запрашиваем перерисовку всех инструментов
 		if (model.IsInitialized)
 		{
