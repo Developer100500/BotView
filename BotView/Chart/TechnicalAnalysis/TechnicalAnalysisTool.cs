@@ -1,5 +1,6 @@
 using System;
 using System.Windows.Media;
+using Newtonsoft.Json.Linq;
 using BotView.Chart;
 
 namespace BotView.Chart.TechnicalAnalysis;
@@ -102,5 +103,10 @@ public abstract class TechnicalAnalysisTool
 	/// <summary>Обновляет позицию инструмента при перетаскивании</summary>
 	/// <param name="chartCoords">Новые координаты в Chart Coordinates (время и цена)</param>
 	public abstract void UpdatePosition(ChartCoordinates chartCoords);
+
+	/// <summary>Сериализует инструмент в JObject</summary>
+	public abstract JObject toJson();
+	/// <summary>Сериализует инструмент в JSON строку</summary>
+	public abstract string toJsonString();
 }
 

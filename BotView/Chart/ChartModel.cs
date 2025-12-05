@@ -58,22 +58,11 @@ public class ChartModel
 		WorldOriginPrice = 100; // базовая цена для отсчета
 
 		Viewport = new ViewportClippingCoords(
-			minPrice: 90,
+			minPrice: 0,
 			maxPrice: 120,
 			minTime: baseTime.AddDays(-3),
 			maxTime: baseTime
 		);
-
-		// Создаем тестовые горизонтальные линии
-		// Линия поддержки: цена 42000, цвет синий, толщина 2
-		HorizontalLine supportLine = new HorizontalLine(42000, System.Windows.Media.Brushes.Blue, 2.0);
-
-		// Линия сопротивления: цена 92000, цвет красный, толщина 2
-		HorizontalLine resistanceLine = new HorizontalLine(92000, System.Windows.Media.Brushes.Red, 2.0);
-
-		// Добавляем линии в менеджер
-		TechnicalAnalysisManager.AddTool(supportLine);
-		TechnicalAnalysisManager.AddTool(resistanceLine);
 	}
 
 	/// <summary>

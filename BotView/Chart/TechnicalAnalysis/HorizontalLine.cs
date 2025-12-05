@@ -1,5 +1,6 @@
 using System;
 using System.Windows.Media;
+using Newtonsoft.Json.Linq;
 using BotView.Chart;
 
 namespace BotView.Chart.TechnicalAnalysis;
@@ -96,6 +97,32 @@ public class HorizontalLine : TechnicalAnalysisTool
 	public override void UpdatePosition(ChartCoordinates chartCoords)
 	{
 		Price = chartCoords.price;
+	}
+
+	/// <summary>Сериализует горизонтальную линию в JObject</summary>
+	public override JObject toJson()
+	{
+		string colorString = "#FFFFFF";
+		if (Color is SolidColorBrush solidBrush)
+		{
+			var color = solidBrush.Color;
+			colorString = $"#{color.A:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
+		}
+
+		return new JObject
+		{
+			["type"] = "HorizontalLine",
+			["price"] = Price,
+			["color"] = colorString,
+			["thickness"] = Thickness,
+			["isVisible"] = IsVisible
+		};
+	}
+
+	/// <summary>Сериализует горизонтальную линию в JSON строку</summary>
+	public override string toJsonString()
+	{
+		return toJson().ToString(Newtonsoft.Json.Formatting.None);
 	}
 }
 

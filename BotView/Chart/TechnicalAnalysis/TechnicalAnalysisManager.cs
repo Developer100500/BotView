@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 using BotView.Chart;
+using BotView.Services;
 
 namespace BotView.Chart.TechnicalAnalysis;
 
@@ -11,17 +13,27 @@ namespace BotView.Chart.TechnicalAnalysis;
 public class TechnicalAnalysisManager
 {
 	private readonly List<TechnicalAnalysisTool> tools = new List<TechnicalAnalysisTool>();
+	private readonly JsonService jsonService = new JsonService("tools.json");
 
-	/// <summary>
-	/// Добавляет инструмент в коллекцию
-	/// </summary>
-	/// <param name="tool">Инструмент для добавления</param>
-	public void AddTool(TechnicalAnalysisTool tool)
+	/// <summary>Добавляет инструмент в коллекцию и сохраняет в файл</summary>
+	public void AddTool(TechnicalAnalysisTool tool, TechnicalAnalysisToolType toolType)
 	{
 		if (tool != null && !tools.Contains(tool))
 		{
 			tools.Add(tool);
+			//SaveToolsToFile();
 		}
+	}
+
+	/// <summary>Сохраняет все инструменты в JSON-файл</summary>
+	private void SaveToolsToFile()
+	{
+		var toolsArray = new JArray();
+		foreach (var tool in tools)
+		{
+			toolsArray.Add(tool.toJson());
+		}
+		jsonService.SaveArray(toolsArray);
 	}
 
 	/// <summary>

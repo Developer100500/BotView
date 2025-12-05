@@ -267,7 +267,7 @@ public class ChartView : FrameworkElement
 		if (newTool != null)
 		{
 			// Добавляем инструмент в менеджер
-			model.TechnicalAnalysisManager.AddTool(newTool);
+			model.TechnicalAnalysisManager.AddTool(newTool, TechnicalAnalysisToolType.HorizontalLine);
 		}
 		
 		// Выключаем режим создания и возвращаем курсор
