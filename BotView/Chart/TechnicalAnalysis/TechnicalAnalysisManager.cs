@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using BotView.Chart;
 using BotView.Services;
@@ -13,27 +16,123 @@ namespace BotView.Chart.TechnicalAnalysis;
 public class TechnicalAnalysisManager
 {
 	private readonly List<TechnicalAnalysisTool> tools = new List<TechnicalAnalysisTool>();
-	private readonly JsonService jsonService = new JsonService("tools.json");
+	private const string DataFolder = "data";
 
-	/// <summary>Добавляет инструмент в коллекцию и сохраняет в файл</summary>
+	/// <summary>Текущий символ торговой пары (например, BTC/USDT)</summary>
+	public string? CurrentSymbol { get; private set; }
+
+	/// <summary>Добавляет инструмент в коллекцию</summary>
 	public void AddTool(TechnicalAnalysisTool tool, TechnicalAnalysisToolType toolType)
 	{
 		if (tool != null && !tools.Contains(tool))
 		{
 			tools.Add(tool);
-			//SaveToolsToFile();
 		}
 	}
 
-	/// <summary>Сохраняет все инструменты в JSON-файл</summary>
-	private void SaveToolsToFile()
+	/// <summary>Генерирует путь к файлу для указанного символа</summary>
+	private static string GetFilePath(string symbol)
 	{
-		var toolsArray = new JArray();
-		foreach (var tool in tools)
+		// Заменяем "/" на "_" в имени символа для создания валидного имени файла
+		string safeFileName = symbol.Replace("/", "_") + ".json";
+		return Path.Combine(DataFolder, safeFileName);
+	}
+
+	/// <summary>Асинхронно сохраняет все инструменты в JSON-файл для текущего символа</summary>
+	public async Task SaveToolsAsync()
+	{
+		if (string.IsNullOrEmpty(CurrentSymbol))
+			return;
+
+		try
 		{
-			toolsArray.Add(tool.toJson());
+			string filePath = GetFilePath(CurrentSymbol);
+			var jsonService = new JsonService(filePath);
+
+			var toolsArray = new JArray();
+			foreach (var tool in tools)
+			{
+				toolsArray.Add(tool.toJson());
+			}
+
+			await jsonService.SaveArrayAsync(toolsArray);
+			Debug.WriteLine($"Saved {tools.Count} tools to {filePath}");
 		}
-		jsonService.SaveArray(toolsArray);
+		catch (Exception ex)
+		{
+			Debug.WriteLine($"Error saving tools: {ex.Message}");
+		}
+	}
+
+	/// <summary>Асинхронно загружает инструменты из JSON-файла для текущего символа</summary>
+	public async Task LoadToolsAsync()
+	{
+		if (string.IsNullOrEmpty(CurrentSymbol))
+			return;
+
+		try
+		{
+			string filePath = GetFilePath(CurrentSymbol);
+			var jsonService = new JsonService(filePath);
+
+			var toolsArray = await jsonService.LoadArrayAsync();
+			if (toolsArray == null)
+			{
+				Debug.WriteLine($"No tools file found for {CurrentSymbol}");
+				return;
+			}
+
+			tools.Clear();
+
+			foreach (var item in toolsArray)
+			{
+				if (item is JObject toolJson)
+				{
+					var tool = DeserializeTool(toolJson);
+					if (tool != null)
+					{
+						tools.Add(tool);
+					}
+				}
+			}
+
+			Debug.WriteLine($"Loaded {tools.Count} tools from {filePath}");
+		}
+		catch (Exception ex)
+		{
+			Debug.WriteLine($"Error loading tools: {ex.Message}");
+		}
+	}
+
+	/// <summary>Десериализует инструмент из JSON на основе его типа</summary>
+	private static TechnicalAnalysisTool? DeserializeTool(JObject json)
+	{
+		string? type = json["type"]?.ToString();
+		return type switch
+		{
+			"HorizontalLine" => HorizontalLine.FromJson(json),
+			// Добавить другие типы инструментов по мере необходимости
+			_ => null
+		};
+	}
+
+	/// <summary>Переключает на новый символ: сохраняет текущие инструменты, очищает, загружает для нового символа</summary>
+	public async Task SetSymbolAsync(string symbol)
+	{
+		// Сохраняем инструменты для текущего символа (если есть)
+		if (!string.IsNullOrEmpty(CurrentSymbol))
+		{
+			await SaveToolsAsync();
+		}
+
+		// Очищаем текущие инструменты
+		tools.Clear();
+
+		// Устанавливаем новый символ
+		CurrentSymbol = symbol;
+
+		// Загружаем инструменты для нового символа
+		await LoadToolsAsync();
 	}
 
 	/// <summary>

@@ -124,5 +124,48 @@ public class HorizontalLine : TechnicalAnalysisTool
 	{
 		return toJson().ToString(Newtonsoft.Json.Formatting.None);
 	}
+
+	/// <summary>Создаёт горизонтальную линию из JObject</summary>
+	public static HorizontalLine? FromJson(JObject json)
+	{
+		if (json == null)
+			return null;
+
+		// Проверяем тип инструмента
+		string? type = json["type"]?.ToString();
+		if (type != "HorizontalLine")
+			return null;
+
+		// Извлекаем параметры
+		double price = json["price"]?.Value<double>() ?? 0;
+		double thickness = json["thickness"]?.Value<double>() ?? 2.0;
+		bool isVisible = json["isVisible"]?.Value<bool>() ?? true;
+
+		// Парсим цвет из строки формата #AARRGGBB
+		Brush color = Brushes.Red; // значение по умолчанию
+		string? colorString = json["color"]?.ToString();
+		if (!string.IsNullOrEmpty(colorString) && colorString.StartsWith("#") && colorString.Length == 9)
+		{
+			try
+			{
+				byte a = Convert.ToByte(colorString.Substring(1, 2), 16);
+				byte r = Convert.ToByte(colorString.Substring(3, 2), 16);
+				byte g = Convert.ToByte(colorString.Substring(5, 2), 16);
+				byte b = Convert.ToByte(colorString.Substring(7, 2), 16);
+				color = new SolidColorBrush(System.Windows.Media.Color.FromArgb(a, r, g, b));
+			}
+			catch
+			{
+				// Если парсинг не удался, используем значение по умолчанию
+			}
+		}
+
+		var line = new HorizontalLine(price, color, thickness)
+		{
+			IsVisible = isVisible
+		};
+
+		return line;
+	}
 }
 

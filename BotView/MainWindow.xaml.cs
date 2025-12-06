@@ -127,6 +127,10 @@ namespace BotView
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            // Initialize technical analysis manager with the initial symbol
+            var taManager = chartView.GetTechnicalAnalysisManager();
+            await taManager.SetSymbolAsync("BTC/USDT");
+
             // Load real data instead of demo data
             await LoadRealData("binance", "BTC/USDT", "1d");
         }
@@ -282,6 +286,10 @@ namespace BotView
                 string symbol = selectedPair.Tag.ToString() ?? "BTC/USDT";
                 string timeframe = selectedTimeframe.Tag.ToString() ?? "1d";
                 
+                // Сохраняем инструменты текущей пары и загружаем инструменты новой пары
+                var taManager = chartView.GetTechnicalAnalysisManager();
+                await taManager.SetSymbolAsync(symbol);
+
                 await LoadRealData(exchange, symbol, timeframe);
             }
         }
@@ -470,13 +478,20 @@ namespace BotView
             }
         }
 
-        protected override void OnClosed(EventArgs e)
+        protected override async void OnClosed(EventArgs e)
         {
             try
             {
                 // Stop the timers
                 _metricsTimer?.Stop();
                 _renderTimeUpdateTimer?.Stop();
+                
+                // Save technical analysis tools before closing
+                if (chartView != null)
+                {
+                    var taManager = chartView.GetTechnicalAnalysisManager();
+                    await taManager.SaveToolsAsync();
+                }
                 
                 // Log final performance metrics before closing
                 _exchangeService?.LogDetailedPerformanceMetrics();
