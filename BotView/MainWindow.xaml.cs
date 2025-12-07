@@ -306,6 +306,18 @@ namespace BotView
             chartView.Cursor = Cursors.Cross;
         }
 
+        private void BtnTrendLine_Click(object sender, RoutedEventArgs e)
+        {
+            if (chartView == null)
+                return;
+
+            // Включаем режим создания трендовой линии
+            TechnicalAnalysisTool.StartCreating(TechnicalAnalysisToolType.TrendLine);
+            
+            // Меняем курсор на Cross (перекрестие)
+            chartView.Cursor = Cursors.Cross;
+        }
+
         private void BtnShowMetrics_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -478,7 +490,7 @@ namespace BotView
             }
         }
 
-        protected override async void OnClosed(EventArgs e)
+        protected override void OnClosed(EventArgs e)
         {
             try
             {
@@ -490,7 +502,7 @@ namespace BotView
                 if (chartView != null)
                 {
                     var taManager = chartView.GetTechnicalAnalysisManager();
-                    await taManager.SaveToolsAsync();
+                    taManager.SaveTools();
                 }
                 
                 // Log final performance metrics before closing

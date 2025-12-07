@@ -65,7 +65,7 @@ namespace BotView.Services
 				Directory.CreateDirectory(directory);
 
 			string json = data.ToString(Formatting.Indented);
-			await File.WriteAllTextAsync(FilePath, json);
+			await File.WriteAllTextAsync(FilePath, json).ConfigureAwait(false);
 		}
 
 		/// <summary>Асинхронно загружает JArray из файла</summary>
@@ -74,7 +74,7 @@ namespace BotView.Services
 			if (!File.Exists(FilePath))
 				return null;
 
-			string json = await File.ReadAllTextAsync(FilePath);
+			string json = await File.ReadAllTextAsync(FilePath).ConfigureAwait(false);
 			return JArray.Parse(json);
 		}
 	}

@@ -38,6 +38,32 @@ public class TechnicalAnalysisManager
 		return Path.Combine(DataFolder, safeFileName);
 	}
 
+	/// <summary>Синхронно сохраняет все инструменты в JSON-файл для текущего символа</summary>
+	public void SaveTools()
+	{
+		if (string.IsNullOrEmpty(CurrentSymbol))
+			return;
+
+		try
+		{
+			string filePath = GetFilePath(CurrentSymbol);
+			var jsonService = new JsonService(filePath);
+
+			var toolsArray = new JArray();
+			foreach (var tool in tools)
+			{
+				toolsArray.Add(tool.toJson());
+			}
+
+			jsonService.SaveArray(toolsArray);
+			Debug.WriteLine($"Saved {tools.Count} tools to {filePath}");
+		}
+		catch (Exception ex)
+		{
+			Debug.WriteLine($"Error saving tools: {ex.Message}");
+		}
+	}
+
 	/// <summary>Асинхронно сохраняет все инструменты в JSON-файл для текущего символа</summary>
 	public async Task SaveToolsAsync()
 	{
@@ -55,7 +81,7 @@ public class TechnicalAnalysisManager
 				toolsArray.Add(tool.toJson());
 			}
 
-			await jsonService.SaveArrayAsync(toolsArray);
+			await jsonService.SaveArrayAsync(toolsArray).ConfigureAwait(false);
 			Debug.WriteLine($"Saved {tools.Count} tools to {filePath}");
 		}
 		catch (Exception ex)
@@ -75,7 +101,7 @@ public class TechnicalAnalysisManager
 			string filePath = GetFilePath(CurrentSymbol);
 			var jsonService = new JsonService(filePath);
 
-			var toolsArray = await jsonService.LoadArrayAsync();
+			var toolsArray = await jsonService.LoadArrayAsync().ConfigureAwait(false);
 			if (toolsArray == null)
 			{
 				Debug.WriteLine($"No tools file found for {CurrentSymbol}");
@@ -111,7 +137,7 @@ public class TechnicalAnalysisManager
 		return type switch
 		{
 			"HorizontalLine" => HorizontalLine.FromJson(json),
-			// Добавить другие типы инструментов по мере необходимости
+			"TrendLine" => TrendLine.FromJson(json),
 			_ => null
 		};
 	}
@@ -122,7 +148,7 @@ public class TechnicalAnalysisManager
 		// Сохраняем инструменты для текущего символа (если есть)
 		if (!string.IsNullOrEmpty(CurrentSymbol))
 		{
-			await SaveToolsAsync();
+			await SaveToolsAsync().ConfigureAwait(false);
 		}
 
 		// Очищаем текущие инструменты
@@ -132,7 +158,7 @@ public class TechnicalAnalysisManager
 		CurrentSymbol = symbol;
 
 		// Загружаем инструменты для нового символа
-		await LoadToolsAsync();
+		await LoadToolsAsync().ConfigureAwait(false);
 	}
 
 	/// <summary>

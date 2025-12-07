@@ -30,11 +30,26 @@ public abstract class TechnicalAnalysisTool
 	/// <summary>Тип инструмента, который сейчас создаётся</summary>
 	public static TechnicalAnalysisToolType CreatingToolType { get; set; } = TechnicalAnalysisToolType.None;
 
+	/// <summary>Шаг создания для многоточечных инструментов (0 = не начато, 1 = первая точка размещена)</summary>
+	public static int CreationStep { get; set; } = 0;
+
+	/// <summary>Первая точка при создании многоточечного инструмента</summary>
+	public static ChartCoordinates? FirstPointCoords { get; set; } = null;
+
 	/// <summary>Начинает режим создания инструмента указанного типа</summary>
 	public static void StartCreating(TechnicalAnalysisToolType toolType)
 	{
 		IsCreatingTool = true;
 		CreatingToolType = toolType;
+		CreationStep = 0;
+		FirstPointCoords = null;
+	}
+
+	/// <summary>Устанавливает первую точку для многоточечного инструмента</summary>
+	public static void SetFirstPoint(ChartCoordinates coords)
+	{
+		FirstPointCoords = coords;
+		CreationStep = 1;
 	}
 
 	/// <summary>Завершает режим создания инструмента</summary>
@@ -42,6 +57,8 @@ public abstract class TechnicalAnalysisTool
 	{
 		IsCreatingTool = false;
 		CreatingToolType = TechnicalAnalysisToolType.None;
+		CreationStep = 0;
+		FirstPointCoords = null;
 	}
 
 	// === СТАТИЧЕСКИЕ СВОЙСТВА ДЛЯ РЕЖИМА РЕДАКТИРОВАНИЯ ===
@@ -52,18 +69,29 @@ public abstract class TechnicalAnalysisTool
 	/// <summary>Ссылка на инструмент, который сейчас редактируется</summary>
 	public static TechnicalAnalysisTool? EditingTool { get; private set; } = null;
 
+	/// <summary>Индекс редактируемой контрольной точки (-1 = не редактируется точка, 0+ = индекс точки)</summary>
+	public static int EditingControlPointIndex { get; set; } = -1;
+
 	/// <summary>Начинает режим редактирования указанного инструмента</summary>
-	public static void StartEditing(TechnicalAnalysisTool tool)
+	public static void StartEditing(TechnicalAnalysisTool tool, int controlPointIndex = -1)
 	{
 		IsEditingTool = true;
 		EditingTool = tool;
+		EditingControlPointIndex = controlPointIndex;
 	}
 
 	/// <summary>Завершает режим редактирования инструмента</summary>
 	public static void StopEditing()
 	{
+		// Сбрасываем флаг редактирования на инструменте
+		if (EditingTool is TrendLine trendLine)
+		{
+			trendLine.IsBeingEdited = false;
+		}
+		
 		IsEditingTool = false;
 		EditingTool = null;
+		EditingControlPointIndex = -1;
 	}
 
 	// === СВОЙСТВА ЭКЗЕМПЛЯРА ===

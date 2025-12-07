@@ -142,7 +142,7 @@ public class HorizontalLine : TechnicalAnalysisTool
 		bool isVisible = json["isVisible"]?.Value<bool>() ?? true;
 
 		// Парсим цвет из строки формата #AARRGGBB
-		Brush color = Brushes.Red; // значение по умолчанию
+		Brush color = Brushes.Red; // значение по умолчанию (уже заморожено)
 		string? colorString = json["color"]?.ToString();
 		if (!string.IsNullOrEmpty(colorString) && colorString.StartsWith("#") && colorString.Length == 9)
 		{
@@ -152,7 +152,9 @@ public class HorizontalLine : TechnicalAnalysisTool
 				byte r = Convert.ToByte(colorString.Substring(3, 2), 16);
 				byte g = Convert.ToByte(colorString.Substring(5, 2), 16);
 				byte b = Convert.ToByte(colorString.Substring(7, 2), 16);
-				color = new SolidColorBrush(System.Windows.Media.Color.FromArgb(a, r, g, b));
+				var brush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(a, r, g, b));
+				brush.Freeze(); // Делаем потокобезопасным
+				color = brush;
 			}
 			catch
 			{

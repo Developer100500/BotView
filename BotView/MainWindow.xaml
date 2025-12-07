@@ -62,6 +62,7 @@
                 <Separator Margin="2"/>
                 <TextBlock Text="Инструменты" Margin="2"/>
                 <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2" Click="BtnHorizontalLine_Click"/>
+                <Button Name="btnTrendLine" Content="Трендовая линия" Margin="2" Click="BtnTrendLine_Click"/>
 
                 <Separator Margin="2"/>
                 <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2" Click="BtnShowMetrics_Click"/>
