@@ -1,8 +1,18 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using BotView.Chart.IndicatorPane;
 
 namespace BotView.Chart;
+
+/// <summary>Identifies which pane the mouse is currently interacting with</summary>
+public enum ChartPane
+{
+	None,
+	Main,       // Candlestick chart pane
+	Indicator,  // Indicator pane at bottom
+	Divider     // Divider between panes
+}
 
 /// <summary>
 /// Контроллер графика - содержит всю логику управления камерой, конвертации координат и обработки мыши
@@ -14,7 +24,9 @@ public class ChartController
 	// === MOUSE INTERACTION STATE ===
 	private bool isDragging = false;
 	private bool isScaleZooming = false;
+	private bool isDraggingDivider = false;
 	private ScaleZoomMode scaleZoomMode = ScaleZoomMode.None;
+	private ChartPane activePane = ChartPane.None;
 	private Point lastMousePosition;
 
 	/// <summary>
@@ -23,8 +35,9 @@ public class ChartController
 	private enum ScaleZoomMode
 	{
 		None,
-		TimeScale,   // Масштабирование по времени (горизонтальная ось)
-		PriceScale   // Масштабирование по цене (вертикальная ось)
+		TimeScale,        // Масштабирование по времени (горизонтальная ось)
+		PriceScale,       // Масштабирование по цене (вертикальная ось) - main pane
+		IndicatorScale    // Масштабирование по значению индикатора (вертикальная ось) - indicator pane
 	}
 
 	/// <summary>
@@ -73,42 +86,42 @@ public class ChartController
 	}
 
 	/// <summary>
-	/// Конвертация из World координат в View координаты (пиксели на экране)
+	/// Конвертация из World координат в View координаты (пиксели на экране) для main pane
 	/// Принимает экземпляр Coordinates для World Coordinates
 	/// Возвращает экземпляр Coordinates для View Coordinates
 	/// </summary>
 	public Coordinates WorldToView(Coordinates worldCoords)
 	{
-		// Вычисляем сколько пикселей на единицу мирового пространства
+		// Вычисляем сколько пикселей на единицу мирового пространства (using MainPaneHeight)
 		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-		double pixelsPerPriceUnit = model.ChartHeight / model.PriceRangeInViewport;
+		double pixelsPerPriceUnit = model.MainPaneHeight / model.PriceRangeInViewport;
 
 		// Вычисляем позицию относительно камеры
 		double relativeX = worldCoords.x - model.CameraPosition.x;
 		double relativeY = worldCoords.y - model.CameraPosition.y;
 
-		// Конвертируем в экранные координаты (центрируем в viewport)
+		// Конвертируем в экранные координаты (центрируем в main pane viewport)
 		double screenX = model.LeftMargin + model.ChartWidth / 2 + (relativeX * pixelsPerSecond);
-		double screenY = model.TopMargin + model.ChartHeight / 2 - (relativeY * pixelsPerPriceUnit); // Flip Y
+		double screenY = model.TopMargin + model.MainPaneHeight / 2 - (relativeY * pixelsPerPriceUnit); // Flip Y
 
 		return new Coordinates(screenX, screenY);
 	}
 
 	/// <summary>
-	/// Конвертация из View координат (пиксели) в World координаты
+	/// Конвертация из View координат (пиксели) в World координаты для main pane
 	/// Полезно для обработки мыши
 	/// Принимает экземпляр Coordinates для View Coordinates
 	/// Возвращает экземпляр Coordinates для World Coordinates
 	/// </summary>
 	public Coordinates ViewToWorld(Coordinates viewCoords)
 	{
-		// Вычисляем сколько пикселей на единицу мирового пространства
+		// Вычисляем сколько пикселей на единицу мирового пространства (using MainPaneHeight)
 		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-		double pixelsPerPriceUnit = model.ChartHeight / model.PriceRangeInViewport;
+		double pixelsPerPriceUnit = model.MainPaneHeight / model.PriceRangeInViewport;
 
-		// Конвертируем экранную позицию в относительную позицию в viewport
+		// Конвертируем экранную позицию в относительную позицию в main pane viewport
 		double relativeScreenX = viewCoords.x - model.LeftMargin - model.ChartWidth / 2;
-		double relativeScreenY = -(viewCoords.y - model.TopMargin - model.ChartHeight / 2); // Flip Y
+		double relativeScreenY = -(viewCoords.y - model.TopMargin - model.MainPaneHeight / 2); // Flip Y
 
 		// Конвертируем в мировое пространство
 		double worldX = model.CameraPosition.x + (relativeScreenX / pixelsPerSecond);
@@ -137,9 +150,78 @@ public class ChartController
 		return WorldToChart(worldCoords);
 	}
 
-	/// <summary>
-	/// Обновляет viewport на основе текущей позиции камеры
-	/// </summary>
+	// === INDICATOR PANE COORDINATE METHODS ===
+
+	/// <summary>Converts indicator value and time to View coordinates in the indicator pane</summary>
+	public Coordinates IndicatorToView(DateTime time, double indicatorValue)
+	{
+		// X coordinate uses shared time axis
+		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
+		double timeOffsetSeconds = (time - model.WorldOriginTime).TotalSeconds;
+		double relativeX = timeOffsetSeconds - model.CameraPosition.x;
+		double screenX = model.LeftMargin + model.ChartWidth / 2 + (relativeX * pixelsPerSecond);
+
+		// Y coordinate uses indicator pane's own scale
+		double pixelsPerUnit = model.IndicatorPaneHeight / model.IndicatorRangeInViewport;
+		double relativeY = indicatorValue - model.IndicatorCameraY;
+		double screenY = model.IndicatorPaneTop + model.IndicatorPaneHeight / 2 - (relativeY * pixelsPerUnit);
+
+		return new Coordinates(screenX, screenY);
+	}
+
+	/// <summary>Converts View coordinates in the indicator pane to time and indicator value</summary>
+	public (DateTime time, double value) ViewToIndicator(Coordinates viewCoords)
+	{
+		// X coordinate uses shared time axis
+		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
+		double relativeScreenX = viewCoords.x - model.LeftMargin - model.ChartWidth / 2;
+		double worldX = model.CameraPosition.x + (relativeScreenX / pixelsPerSecond);
+		DateTime time = model.WorldOriginTime.AddSeconds(worldX);
+
+		// Y coordinate uses indicator pane's own scale
+		double pixelsPerUnit = model.IndicatorPaneHeight / model.IndicatorRangeInViewport;
+		double relativeScreenY = -(viewCoords.y - model.IndicatorPaneTop - model.IndicatorPaneHeight / 2);
+		double value = model.IndicatorCameraY + (relativeScreenY / pixelsPerUnit);
+
+		return (time, value);
+	}
+
+	/// <summary>Updates the indicator viewport based on indicator camera position</summary>
+	public void UpdateIndicatorViewport()
+	{
+		double minValue = model.IndicatorCameraY - model.IndicatorRangeInViewport / 2;
+		double maxValue = model.IndicatorCameraY + model.IndicatorRangeInViewport / 2;
+		model.IndicatorViewport = new IndicatorViewport(minValue, maxValue);
+	}
+
+	/// <summary>Detects which pane a point is in</summary>
+	public ChartPane DetectPane(Point point)
+	{
+		// Check if in divider area
+		if (point.Y >= model.DividerY && point.Y <= model.DividerY + model.DividerHeight &&
+			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
+		{
+			return ChartPane.Divider;
+		}
+
+		// Check if in main pane
+		if (point.Y >= model.TopMargin && point.Y < model.DividerY &&
+			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
+		{
+			return ChartPane.Main;
+		}
+
+		// Check if in indicator pane
+		if (point.Y > model.IndicatorPaneTop && point.Y <= model.IndicatorPaneTop + model.IndicatorPaneHeight &&
+			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
+		{
+			return ChartPane.Indicator;
+		}
+
+		return ChartPane.None;
+	}
+
+	/// <summary>Обновляет viewport на основе текущей позиции камеры</summary>
 	public void UpdateViewportFromCamera()
 	{
 		// Вычисляем границы viewport в chart координатах
@@ -162,6 +244,9 @@ public class ChartController
 			topLeftChart.time,       // minTime
 			bottomRightChart.time    // maxTime
 		);
+
+		// Also update indicator viewport
+		UpdateIndicatorViewport();
 
 		// Помечаем все инструменты технического анализа для перерисовки при изменении viewport
 		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
@@ -221,9 +306,9 @@ public class ChartController
 	/// <param name="deltaScreenY">Изменение по Y экрана (пиксели)</param>
 	public void PanByPixels(double deltaScreenX, double deltaScreenY)
 	{
-		// Конвертируем пиксельное смещение в мировое смещение
+		// Конвертируем пиксельное смещение в мировое смещение (using MainPaneHeight for Y)
 		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-		double pixelsPerPriceUnit = model.ChartHeight / model.PriceRangeInViewport;
+		double pixelsPerPriceUnit = model.MainPaneHeight / model.PriceRangeInViewport;
 
 		double deltaWorldX = -deltaScreenX / pixelsPerSecond; // Отрицательное для естественного перетаскивания
 		double deltaWorldY = deltaScreenY / pixelsPerPriceUnit;  // Flip Y
@@ -296,9 +381,9 @@ public class ChartController
 	/// <param name="priceZoomFactor">Фактор масштабирования по цене</param>
 	public void ZoomAxis(double timeZoomFactor, double priceZoomFactor)
 	{
-		// Используем центр экрана как точку фокуса
+		// Используем центр main pane как точку фокуса
 		double centerScreenX = model.LeftMargin + model.ChartWidth / 2;
-		double centerScreenY = model.TopMargin + model.ChartHeight / 2;
+		double centerScreenY = model.TopMargin + model.MainPaneHeight / 2;
 			
 		Coordinates centerView = new Coordinates(centerScreenX, centerScreenY);
 		Coordinates centerWorld = ViewToWorld(centerView);
@@ -316,6 +401,14 @@ public class ChartController
 	public MouseInteractionResult HandleMouseLeftButtonDown(Point mousePos)
 	{
 		lastMousePosition = mousePos;
+		activePane = DetectPane(mousePos);
+
+		// Check if clicking on divider
+		if (activePane == ChartPane.Divider)
+		{
+			isDraggingDivider = true;
+			return new MouseInteractionResult { ShouldCaptureMouse = true, Cursor = Cursors.SizeNS };
+		}
 			
 		// Проверяем, кликнул ли пользователь в области шкал
 		ScaleZoomMode detectedMode = DetectScaleArea(mousePos);
@@ -325,7 +418,8 @@ public class ChartController
 			// Начинаем масштабирование через шкалы
 			isScaleZooming = true;
 			scaleZoomMode = detectedMode;
-			return new MouseInteractionResult { ShouldCaptureMouse = true, Cursor = detectedMode == ScaleZoomMode.TimeScale ? Cursors.SizeWE : Cursors.SizeNS };
+			Cursor cursor = detectedMode == ScaleZoomMode.TimeScale ? Cursors.SizeWE : Cursors.SizeNS;
+			return new MouseInteractionResult { ShouldCaptureMouse = true, Cursor = cursor };
 		}
 		else
 		{
@@ -342,7 +436,9 @@ public class ChartController
 	{
 		isDragging = false;
 		isScaleZooming = false;
+		isDraggingDivider = false;
 		scaleZoomMode = ScaleZoomMode.None;
+		activePane = ChartPane.None;
 	}
 
 	/// <summary>
@@ -352,7 +448,14 @@ public class ChartController
 	/// <returns>Курсор для установки</returns>
 	public Cursor? HandleMouseMove(Point currentPosition)
 	{
-		if (isScaleZooming)
+		if (isDraggingDivider)
+		{
+			// Handle divider dragging to resize panes
+			HandleDividerDrag(currentPosition.Y);
+			lastMousePosition = currentPosition;
+			return Cursors.SizeNS;
+		}
+		else if (isScaleZooming)
 		{
 			// Масштабирование через шкалы
 			double deltaX = currentPosition.X - lastMousePosition.X;
@@ -376,15 +479,44 @@ public class ChartController
 		}
 		else
 		{
+			// Check if hovering over divider
+			ChartPane hoverPane = DetectPane(currentPosition);
+			if (hoverPane == ChartPane.Divider)
+			{
+				return Cursors.SizeNS;
+			}
+
 			// Изменяем курсор при наведении на шкалы
 			ScaleZoomMode hoverMode = DetectScaleArea(currentPosition);
 			return hoverMode switch
 			{
 				ScaleZoomMode.TimeScale => Cursors.SizeWE,
 				ScaleZoomMode.PriceScale => Cursors.SizeNS,
+				ScaleZoomMode.IndicatorScale => Cursors.SizeNS,
 				_ => Cursors.Arrow
 			};
 		}
+	}
+
+	/// <summary>Handles divider dragging to resize panes</summary>
+	private void HandleDividerDrag(double newY)
+	{
+		// Calculate available height for panes (excluding margins and divider)
+		double totalAvailableHeight = model.ChartHeight - model.DividerHeight;
+		
+		// Calculate new main pane height based on mouse position
+		double newMainPaneHeight = newY - model.TopMargin;
+		
+		// Calculate the new ratio
+		double newRatio = 1.0 - (newMainPaneHeight / totalAvailableHeight);
+		
+		// Clamp to valid range
+		newRatio = Math.Clamp(newRatio, model.MinIndicatorPaneRatio, model.MaxIndicatorPaneRatio);
+		
+		model.IndicatorPaneHeightRatio = newRatio;
+		
+		// Trigger viewport update and redraw
+		ViewportChanged?.Invoke();
 	}
 
 	/// <summary>
@@ -408,20 +540,27 @@ public class ChartController
 	{
 		const double tolerance = 15; // Погрешность в пикселях
 
-		// Проверяем область шкалы времени (внизу)
-		double timeScaleY = model.TopMargin + model.ChartHeight;
+		// Проверяем область шкалы времени (внизу под indicator pane)
+		double timeScaleY = model.IndicatorPaneTop + model.IndicatorPaneHeight;
 		if (point.Y >= timeScaleY - tolerance && point.Y <= timeScaleY + model.BottomMargin &&
 			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
 		{
 			return ScaleZoomMode.TimeScale;
 		}
 
-		// Проверяем область шкалы цены (справа)
+		// Проверяем область шкалы цены main pane (справа от main pane)
 		double priceScaleX = model.LeftMargin + model.ChartWidth;
 		if (point.X >= priceScaleX - tolerance && point.X <= priceScaleX + model.RightMargin &&
-			point.Y >= model.TopMargin && point.Y <= model.TopMargin + model.ChartHeight)
+			point.Y >= model.TopMargin && point.Y < model.DividerY)
 		{
 			return ScaleZoomMode.PriceScale;
+		}
+
+		// Проверяем область шкалы индикатора (справа от indicator pane)
+		if (point.X >= priceScaleX - tolerance && point.X <= priceScaleX + model.RightMargin &&
+			point.Y > model.IndicatorPaneTop && point.Y <= model.IndicatorPaneTop + model.IndicatorPaneHeight)
+		{
+			return ScaleZoomMode.IndicatorScale;
 		}
 
 		return ScaleZoomMode.None;
@@ -450,7 +589,7 @@ public class ChartController
 				break;
 
 			case ScaleZoomMode.PriceScale:
-				// Масштабирование по цене (вверх-вниз)
+				// Масштабирование по цене (вверх-вниз) for main pane
 				// Положительное deltaY = движение вниз = увеличение масштаба (zoom out)
 				// Отрицательное deltaY = движение вверх = уменьшение масштаба (zoom in)
 				double priceZoomFactor = 1.0 + (deltaY * sensitivity);
@@ -459,7 +598,25 @@ public class ChartController
 				// Масштабируем только по цене, время оставляем без изменений
 				ZoomAxis(1.0, priceZoomFactor);
 				break;
+
+			case ScaleZoomMode.IndicatorScale:
+				// Масштабирование по значению индикатора (вверх-вниз) for indicator pane
+				double indicatorZoomFactor = 1.0 + (deltaY * sensitivity);
+				indicatorZoomFactor = Math.Clamp(indicatorZoomFactor, 0.5, 2.0);
+				
+				ZoomIndicatorAxis(indicatorZoomFactor);
+				break;
 		}
+	}
+
+	/// <summary>Zooms the indicator pane Y-axis independently</summary>
+	public void ZoomIndicatorAxis(double zoomFactor)
+	{
+		model.IndicatorRangeInViewport *= zoomFactor;
+		model.IndicatorRangeInViewport = Math.Clamp(model.IndicatorRangeInViewport, 1, 10000);
+		
+		UpdateIndicatorViewport();
+		ViewportChanged?.Invoke();
 	}
 
 	// === PUBLIC API METHODS ===
