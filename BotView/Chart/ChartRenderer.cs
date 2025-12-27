@@ -15,6 +15,9 @@ public class ChartRenderer
 
 	public bool RedrawAllTechnicalTools { get; set; } = false;
 
+	/// <summary>Текущие координаты мыши для превью инструмента (устанавливается из ChartView)</summary>
+	public ChartCoordinates? CurrentMouseChartCoords { get; set; } = null;
+
 
 	public ChartRenderer(ChartModel model, ChartController controller)
 	{
@@ -41,6 +44,9 @@ public class ChartRenderer
 
 		// Draw technical analysis tools
 		DrawTechnicalAnalysisTools(drawingContext);
+
+		// Draw tool creation preview
+		DrawToolCreationPreview(drawingContext);
 	}
 
 	/// <summary>
@@ -390,6 +396,63 @@ public class ChartRenderer
 	public void RequestRedrawAllTechnicalTools()
 	{
 		RedrawAllTechnicalTools = true;
+	}
+
+	/// <summary>Отрисовка превью создаваемого инструмента</summary>
+	private void DrawToolCreationPreview(DrawingContext drawingContext)
+	{
+		if (!TechnicalAnalysisTool.IsCreatingTool || !CurrentMouseChartCoords.HasValue)
+			return;
+
+		var currentPoint = CurrentMouseChartCoords.Value;
+
+		// Превью для TrendLine (шаг 1: рисуем линию от первой точки к курсору)
+		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendLine &&
+			TechnicalAnalysisTool.CreationStep == 1 &&
+			TechnicalAnalysisTool.FirstPointCoords.HasValue)
+		{
+			DrawLinePreview(drawingContext, TechnicalAnalysisTool.FirstPointCoords.Value, currentPoint, 
+				Color.FromArgb(128, 0, 120, 255));
+		}
+
+		// Превью для TrendChannel
+		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendChannel)
+		{
+			// Шаг 1: рисуем первую линию от первой точки к курсору
+			if (TechnicalAnalysisTool.CreationStep == 1 &&
+				TechnicalAnalysisTool.FirstPointCoords.HasValue)
+			{
+				DrawLinePreview(drawingContext, TechnicalAnalysisTool.FirstPointCoords.Value, currentPoint, 
+					Color.FromArgb(128, 0, 180, 0));
+			}
+
+			// Шаг 2: первая линия готова, рисуем превью параллельной линии
+			if (TechnicalAnalysisTool.CreationStep == 2 &&
+				TechnicalAnalysisTool.CreatingToolInstance is TrendChannel previewChannel)
+			{
+				// Вычисляем смещение параллельной линии на основе текущей позиции мыши
+				double previewOffset = currentPoint.price - previewChannel.StartPrice;
+				previewChannel.DrawPreviewParallelLine(drawingContext, controller.ChartToView, previewOffset);
+			}
+		}
+	}
+
+	/// <summary>Отрисовка пунктирной линии превью</summary>
+	private void DrawLinePreview(DrawingContext drawingContext, ChartCoordinates start, ChartCoordinates end, Color color)
+	{
+		var startView = controller.ChartToView(start);
+		var endView = controller.ChartToView(end);
+
+		if (double.IsNaN(startView.x) || double.IsNaN(startView.y) ||
+			double.IsNaN(endView.x) || double.IsNaN(endView.y))
+			return;
+
+		var previewPen = new Pen(new SolidColorBrush(color), 2.0);
+		previewPen.DashStyle = DashStyles.Dash;
+
+		drawingContext.DrawLine(previewPen,
+			new Point(startView.x, startView.y),
+			new Point(endView.x, endView.y));
 	}
 }
 

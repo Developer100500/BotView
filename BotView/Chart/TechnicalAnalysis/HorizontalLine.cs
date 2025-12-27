@@ -17,6 +17,18 @@ public class HorizontalLine : TechnicalAnalysisTool
  
 	public double Thickness { get; set; }
 
+	/// <summary>Получает тип курсора для наведения на инструмент</summary>
+	public override System.Windows.Input.Cursor GetHoverCursor()
+	{
+		return System.Windows.Input.Cursors.SizeNS;
+	}
+
+	/// <summary>Получает тип курсора для редактирования инструмента</summary>
+	public override System.Windows.Input.Cursor GetEditCursor()
+	{
+		return System.Windows.Input.Cursors.SizeNS;
+	}
+
 	/// <summary>
 	/// Конструктор горизонтальной линии
 	/// </summary>
@@ -142,7 +154,7 @@ public class HorizontalLine : TechnicalAnalysisTool
 		bool isVisible = json["isVisible"]?.Value<bool>() ?? true;
 
 		// Парсим цвет из строки формата #AARRGGBB
-		Brush color = Brushes.Red; // значение по умолчанию (уже заморожено)
+		Brush color = Brushes.Red; // значение по умолчанию
 		string? colorString = json["color"]?.ToString();
 		if (!string.IsNullOrEmpty(colorString) && colorString.StartsWith("#") && colorString.Length == 9)
 		{

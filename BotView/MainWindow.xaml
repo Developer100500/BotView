@@ -63,6 +63,7 @@
                 <TextBlock Text="Инструменты" Margin="2"/>
                 <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2" Click="BtnHorizontalLine_Click"/>
                 <Button Name="btnTrendLine" Content="Трендовая линия" Margin="2" Click="BtnTrendLine_Click"/>
+                <Button Name="btnTrendChannel" Content="Трендовый канал" Margin="2" Click="BtnTrendChannel_Click"/>
 
                 <Separator Margin="2"/>
                 <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2" Click="BtnShowMetrics_Click"/>

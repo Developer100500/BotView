@@ -12,6 +12,7 @@ public enum TechnicalAnalysisToolType
 	HorizontalLine,
 	VerticalLine,
 	TrendLine,
+	TrendChannel,
 	Rectangle,
 	// Добавить другие типы по мере необходимости
 }
@@ -30,11 +31,17 @@ public abstract class TechnicalAnalysisTool
 	/// <summary>Тип инструмента, который сейчас создаётся</summary>
 	public static TechnicalAnalysisToolType CreatingToolType { get; set; } = TechnicalAnalysisToolType.None;
 
-	/// <summary>Шаг создания для многоточечных инструментов (0 = не начато, 1 = первая точка размещена)</summary>
+	/// <summary>Шаг создания для многоточечных инструментов (0 = не начато, 1 = первая точка размещена, 2 = вторая точка размещена для 3-точечных)</summary>
 	public static int CreationStep { get; set; } = 0;
 
 	/// <summary>Первая точка при создании многоточечного инструмента</summary>
 	public static ChartCoordinates? FirstPointCoords { get; set; } = null;
+
+	/// <summary>Вторая точка при создании 3-точечного инструмента (например, TrendChannel)</summary>
+	public static ChartCoordinates? SecondPointCoords { get; set; } = null;
+
+	/// <summary>Временный инструмент, создаваемый в процессе (для 3-точечных инструментов)</summary>
+	public static TechnicalAnalysisTool? CreatingToolInstance { get; set; } = null;
 
 	/// <summary>Начинает режим создания инструмента указанного типа</summary>
 	public static void StartCreating(TechnicalAnalysisToolType toolType)
@@ -43,6 +50,8 @@ public abstract class TechnicalAnalysisTool
 		CreatingToolType = toolType;
 		CreationStep = 0;
 		FirstPointCoords = null;
+		SecondPointCoords = null;
+		CreatingToolInstance = null;
 	}
 
 	/// <summary>Устанавливает первую точку для многоточечного инструмента</summary>
@@ -52,6 +61,13 @@ public abstract class TechnicalAnalysisTool
 		CreationStep = 1;
 	}
 
+	/// <summary>Устанавливает вторую точку для 3-точечного инструмента</summary>
+	public static void SetSecondPoint(ChartCoordinates coords)
+	{
+		SecondPointCoords = coords;
+		CreationStep = 2;
+	}
+
 	/// <summary>Завершает режим создания инструмента</summary>
 	public static void StopCreating()
 	{
@@ -59,6 +75,8 @@ public abstract class TechnicalAnalysisTool
 		CreatingToolType = TechnicalAnalysisToolType.None;
 		CreationStep = 0;
 		FirstPointCoords = null;
+		SecondPointCoords = null;
+		CreatingToolInstance = null;
 	}
 
 	// === СТАТИЧЕСКИЕ СВОЙСТВА ДЛЯ РЕЖИМА РЕДАКТИРОВАНИЯ ===
@@ -84,10 +102,7 @@ public abstract class TechnicalAnalysisTool
 	public static void StopEditing()
 	{
 		// Сбрасываем флаг редактирования на инструменте
-		if (EditingTool is TrendLine trendLine)
-		{
-			trendLine.IsBeingEdited = false;
-		}
+		EditingTool?.SetEditMode(false);
 		
 		IsEditingTool = false;
 		EditingTool = null;
@@ -104,6 +119,56 @@ public abstract class TechnicalAnalysisTool
 	/// После каждого Draw() ставится в false
 	/// </summary>
 	public bool NeedsRedrawing { get; set; } = true;
+
+	// === ВИРТУАЛЬНЫЕ МЕТОДЫ ДЛЯ РЕДАКТИРОВАНИЯ ===
+
+	/// <summary>Поддерживает ли инструмент контрольные точки для редактирования</summary>
+	public virtual bool SupportsControlPoints => false;
+
+	/// <summary>Находится ли инструмент в режиме редактирования</summary>
+	public virtual bool IsBeingEdited { get; set; } = false;
+
+	/// <summary>Устанавливает режим редактирования инструмента</summary>
+	public virtual void SetEditMode(bool editing)
+	{
+		IsBeingEdited = editing;
+	}
+
+	/// <summary>
+	/// Получает индекс контрольной точки под курсором
+	/// </summary>
+	/// <returns>Индекс точки или -1 если не найдено</returns>
+	public virtual int GetControlPointIndex(
+		Coordinates viewCoords,
+		Func<ChartCoordinates, Coordinates> chartToViewConverter,
+		double tolerance = -1)
+	{
+		return -1; // По умолчанию нет контрольных точек
+	}
+
+	/// <summary>Обновляет позицию указанной контрольной точки</summary>
+	public virtual void UpdateControlPoint(int controlPointIndex, ChartCoordinates chartCoords)
+	{
+		// По умолчанию ничего не делает
+	}
+
+	/// <summary>Получает тип курсора для наведения на инструмент</summary>
+	public virtual System.Windows.Input.Cursor GetHoverCursor()
+	{
+		return System.Windows.Input.Cursors.Hand;
+	}
+
+	/// <summary>Получает тип курсора для редактирования инструмента</summary>
+	public virtual System.Windows.Input.Cursor GetEditCursor()
+	{
+		return System.Windows.Input.Cursors.SizeAll;
+	}
+
+	/// <summary>Получает тип курсора для конкретной контрольной точки</summary>
+	public virtual System.Windows.Input.Cursor GetControlPointCursor(int controlPointIndex)
+	{
+		return System.Windows.Input.Cursors.Cross;
+	}
 
 	/// <summary>Абстрактный метод для отрисовки инструмента</summary>
 	/// <param name="drawingContext">Контекст отрисовки WPF</param>

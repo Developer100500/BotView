@@ -43,8 +43,8 @@ public class TrendLine : TechnicalAnalysisTool
 	/// <summary>Стиль линии (сплошная, прерывистая, пунктирная)</summary>
 	public LineStyle Style { get; set; }
 
-	/// <summary>Флаг, указывающий что линия сейчас в режиме редактирования (показывать контрольные точки)</summary>
-	public bool IsBeingEdited { get; set; } = false;
+	/// <summary>Поддерживает контрольные точки</summary>
+	public override bool SupportsControlPoints => true;
 
 	/// <summary>Конструктор трендовой линии</summary>
 	public TrendLine(DateTime startTime, double startPrice, DateTime endTime, double endPrice, 
@@ -209,7 +209,7 @@ public class TrendLine : TechnicalAnalysisTool
 	}
 
 	/// <summary>Определяет индекс контрольной точки под курсором (0=начало, 1=конец, -1=не найдено)</summary>
-	public int GetControlPointIndex(
+	public override int GetControlPointIndex(
 		Coordinates viewCoords,
 		Func<ChartCoordinates, Coordinates> chartToViewConverter,
 		double tolerance = -1)
@@ -241,7 +241,7 @@ public class TrendLine : TechnicalAnalysisTool
 	/// <summary>Обновляет позицию указанной контрольной точки</summary>
 	/// <param name="controlPointIndex">0 = начальная точка, 1 = конечная точка</param>
 	/// <param name="chartCoords">Новые координаты точки</param>
-	public void UpdateControlPoint(int controlPointIndex, ChartCoordinates chartCoords)
+	public override void UpdateControlPoint(int controlPointIndex, ChartCoordinates chartCoords)
 	{
 		if (controlPointIndex == 0)
 		{
