@@ -435,6 +435,15 @@ public class ChartRenderer
 				previewChannel.DrawPreviewParallelLine(drawingContext, controller.ChartToView, previewOffset);
 			}
 		}
+
+		// Превью для Rectangle (шаг 1: рисуем прямоугольник от первой точки к курсору)
+		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.Rectangle &&
+			TechnicalAnalysisTool.CreationStep == 1 &&
+			TechnicalAnalysisTool.FirstPointCoords.HasValue)
+		{
+			DrawRectanglePreview(drawingContext, TechnicalAnalysisTool.FirstPointCoords.Value, currentPoint,
+				Color.FromArgb(128, 255, 165, 0)); // Оранжевый цвет
+		}
 	}
 
 	/// <summary>Отрисовка пунктирной линии превью</summary>
@@ -453,6 +462,51 @@ public class ChartRenderer
 		drawingContext.DrawLine(previewPen,
 			new Point(startView.x, startView.y),
 			new Point(endView.x, endView.y));
+	}
+
+	/// <summary>Отрисовка пунктирного прямоугольника превью</summary>
+	private void DrawRectanglePreview(DrawingContext drawingContext, ChartCoordinates corner1, ChartCoordinates corner2, Color color)
+	{
+		// Конвертируем углы в View координаты
+		var c1View = controller.ChartToView(corner1);
+		var c2View = controller.ChartToView(corner2);
+
+		if (double.IsNaN(c1View.x) || double.IsNaN(c1View.y) ||
+			double.IsNaN(c2View.x) || double.IsNaN(c2View.y))
+			return;
+
+		// Рисуем полупрозрачную заливку (светло-зеленую)
+		var fillBrush = new SolidColorBrush(Color.FromArgb(32, 144, 238, 144));
+		fillBrush.Freeze();
+		var rectGeometry = new RectangleGeometry(new Rect(
+			Math.Min(c1View.x, c2View.x),
+			Math.Min(c1View.y, c2View.y),
+			Math.Abs(c2View.x - c1View.x),
+			Math.Abs(c2View.y - c1View.y)
+		));
+		drawingContext.DrawGeometry(fillBrush, null, rectGeometry);
+
+		var previewPen = new Pen(new SolidColorBrush(color), 2.0);
+		previewPen.DashStyle = DashStyles.Dash;
+
+		// Рисуем 4 стороны прямоугольника
+		// Верхняя/нижняя горизонтальные линии
+		drawingContext.DrawLine(previewPen,
+			new Point(c1View.x, c1View.y),
+			new Point(c2View.x, c1View.y));
+
+		drawingContext.DrawLine(previewPen,
+			new Point(c1View.x, c2View.y),
+			new Point(c2View.x, c2View.y));
+
+		// Левая/правая вертикальные линии
+		drawingContext.DrawLine(previewPen,
+			new Point(c1View.x, c1View.y),
+			new Point(c1View.x, c2View.y));
+
+		drawingContext.DrawLine(previewPen,
+			new Point(c2View.x, c1View.y),
+			new Point(c2View.x, c2View.y));
 	}
 }
 

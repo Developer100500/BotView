@@ -139,6 +139,7 @@ public class TechnicalAnalysisManager
 			"HorizontalLine" => HorizontalLine.FromJson(json),
 			"TrendLine" => TrendLine.FromJson(json),
 			"TrendChannel" => TrendChannel.FromJson(json),
+			"Rectangle" => Rectangle.FromJson(json),
 			_ => null
 		};
 	}

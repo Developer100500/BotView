@@ -327,6 +327,15 @@ namespace BotView
 			TechnicalAnalysisTool.StartCreating(TechnicalAnalysisToolType.TrendChannel);
         }
 
+        private void BtnRectangle_Click(object sender, RoutedEventArgs e)
+        {
+            if (chartView == null)
+                return;
+
+            chartView.Cursor = Cursors.Cross;
+            TechnicalAnalysisTool.StartCreating(TechnicalAnalysisToolType.Rectangle);
+        }
+
         private void BtnShowMetrics_Click(object sender, RoutedEventArgs e)
         {
             try

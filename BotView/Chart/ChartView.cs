@@ -268,6 +268,14 @@ public class ChartView : FrameworkElement
 			return;
 		}
 
+		// Обработка создания прямоугольника (2 клика)
+		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.Rectangle)
+		{
+			HandleRectangleCreation(chartCoords);
+			e.Handled = true;
+			return;
+		}
+
 		// Обработка одноточечных инструментов (например, HorizontalLine)
 		TechnicalAnalysisTool? newTool = TechnicalAnalysisTool.CreatingToolType switch
 		{
@@ -359,6 +367,36 @@ public class ChartView : FrameworkElement
 			channel.ParallelOffset = parallelOffset;
 
 			model.TechnicalAnalysisManager.AddTool(channel, TechnicalAnalysisToolType.TrendChannel);
+			TechnicalAnalysisTool.StopCreating();
+			this.Cursor = Cursors.Arrow;
+			InvalidateVisual();
+		}
+	}
+
+	/// <summary>Обработка создания прямоугольника (два клика)</summary>
+	private void HandleRectangleCreation(ChartCoordinates chartCoords)
+	{
+		if (TechnicalAnalysisTool.CreationStep == 0)
+		{
+			// Первый клик: сохраняем первый угол
+			TechnicalAnalysisTool.SetFirstPoint(chartCoords);
+			InvalidateVisual();
+		}
+		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.FirstPointCoords.HasValue)
+		{
+			// Второй клик: создаём прямоугольник по диагонали
+			var firstPoint = TechnicalAnalysisTool.FirstPointCoords.Value;
+			var newTool = new TechnicalAnalysis.Rectangle(
+				startTime: firstPoint.time,
+				startPrice: firstPoint.price,
+				endTime: chartCoords.time,
+				endPrice: chartCoords.price,
+				color: Brushes.Orange,
+				thickness: 2.0,
+				style: LineStyle.Solid
+			);
+
+			model.TechnicalAnalysisManager.AddTool(newTool, TechnicalAnalysisToolType.Rectangle);
 			TechnicalAnalysisTool.StopCreating();
 			this.Cursor = Cursors.Arrow;
 			InvalidateVisual();

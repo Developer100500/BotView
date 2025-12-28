@@ -6,16 +6,18 @@
         xmlns:local="clr-namespace:BotView"
         xmlns:chart="clr-namespace:BotView.Chart"
         mc:Ignorable="d"
-        Title="MainWindow" Height="800" Width="800">
+        Title="MainWindow" Height="800" Width="1200">
     <DockPanel>
         <!-- Header -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
-            <Label Content="BotView" FontSize="18" FontWeight="Bold"/>
+            <Label Content="BotView" FontSize="18" FontWeight="Bold" Width="100"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Separator Margin="2"/>
-                <Label Content="Биржа:" FontSize="10"/>
-                <ComboBox Name="cmbExchange" Margin="2" SelectionChanged="CmbExchange_SelectionChanged">
+                <Label Content="Биржа:" FontSize="12"/>
+                <ComboBox Name="cmbExchange"
+                          Margin="2" Height="Auto"
+                          SelectionChanged="CmbExchange_SelectionChanged">
                     <ComboBoxItem Content="Binance" Tag="binance" IsSelected="True"/>
                     <ComboBoxItem Content="Bybit" Tag="bybit"/>
                     <ComboBoxItem Content="OKX" Tag="okx"/>
@@ -23,8 +25,9 @@
                 </ComboBox>
 
                 <Separator Margin="2"/>
-                <Label Content="Timeframe:" FontSize="10"/>
+                <Label Content="Timeframe:" FontSize="12"/>
                 <ComboBox Name="cmbTimeframe" Margin="2"
+                          FontSize="14" FontWeight="Bold"
                           SelectionChanged="CmbTimeframe_SelectionChanged"
                           Height="Auto" MaxHeight="24">
                     <ComboBoxItem Content="1m" Tag="1m"/>
@@ -35,7 +38,8 @@
                     <ComboBoxItem Content="1w" Tag="1w"/>
                 </ComboBox>
             </StackPanel>
-            
+            <TextBox Focusable="True" Text="Search coins" Width="120" FontSize="14" Margin="8,0,0,0"/>
+
         </StackPanel>
         
         <!-- Status Bar at Bottom -->
@@ -64,6 +68,7 @@
                 <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2" Click="BtnHorizontalLine_Click"/>
                 <Button Name="btnTrendLine" Content="Трендовая линия" Margin="2" Click="BtnTrendLine_Click"/>
                 <Button Name="btnTrendChannel" Content="Трендовый канал" Margin="2" Click="BtnTrendChannel_Click"/>
+                <Button Name="btnRectangle" Content="Прямоугольник" Margin="2" Click="BtnRectangle_Click"/>
 
                 <Separator Margin="2"/>
                 <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2" Click="BtnShowMetrics_Click"/>
