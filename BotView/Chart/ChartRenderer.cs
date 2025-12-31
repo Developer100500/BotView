@@ -46,12 +46,6 @@ public class ChartRenderer
 
 		// Draw technical analysis tools in main pane
 		DrawTechnicalAnalysisTools(drawingContext);
-		
-		// Draw tool creation preview
-		DrawToolCreationPreview(drawingContext);
-		
-		
-		/* INDICATORS PANE RENDERING */
 
 		// Draw divider between panes
 		DrawDivider(drawingContext);

@@ -37,9 +37,9 @@ namespace BotView
             LoadTradingPairsFromDatabase();
             
             // Initialize services with logger
-            _dataProvider = new DataProvider();
-            var logger = new ConsoleExchangeLogger();
-            _exchangeService = new ExchangeService(_dataProvider, logger);
+            _dataProvider = App.DataProvider;
+            var logger = App.ExchangeLogger;
+            _exchangeService = App.ExchangeService; //new ExchangeService(_dataProvider, logger);
             
             // Set up performance metrics timer (log metrics every 5 minutes)
             _metricsTimer = new System.Windows.Threading.DispatcherTimer();
@@ -276,7 +276,9 @@ namespace BotView
         private async void LstTradingPairs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // Проверяем что все необходимые объекты инициализированы
-            if (_exchangeService == null || chartView == null || cmbExchange == null || cmbTimeframe == null || lstTradingPairs == null) return;
+            if (_exchangeService == null || chartView == null || cmbExchange == null ||
+                cmbTimeframe == null || lstTradingPairs == null)
+                return;
             
             var selectedExchange = cmbExchange.SelectedItem as ComboBoxItem;
             var selectedPair = lstTradingPairs.SelectedItem as ListBoxItem;
