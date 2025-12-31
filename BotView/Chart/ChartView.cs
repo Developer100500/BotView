@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using BotView.Chart.TechnicalAnalysis;
+using BotView.Chart.IndicatorPane;
 
 namespace BotView.Chart;
 /**
@@ -669,7 +670,9 @@ public class ChartView : FrameworkElement
 	public void SetCandlestickData(CandlestickData newData)
 	{
 		controller.SetCandlestickData(newData);
-		InvalidateVisual();
+		
+		// Recalculate all indicators with new data
+		RecalculateIndicators();
 	}
 
 	/// <summary>
@@ -748,6 +751,124 @@ public class ChartView : FrameworkElement
 	public ChartCoordinates ViewToChart(Coordinates viewCoords)
 	{
 		return controller.ViewToChart(viewCoords);
+	}
+
+	// === INDICATOR PANE API ===
+
+	/// <summary>Adds an indicator to the indicator pane</summary>
+	public void AddIndicator(Indicator indicator)
+	{
+		model.Indicators.Add(indicator);
+		AutoFitIndicatorViewport();
+		InvalidateVisual();
+	}
+
+	/// <summary>Removes an indicator by ID</summary>
+	public void RemoveIndicator(string indicatorId)
+	{
+		model.Indicators.RemoveAll(i => i.Id == indicatorId);
+		AutoFitIndicatorViewport();
+		InvalidateVisual();
+	}
+
+	/// <summary>Clears all indicators from the indicator pane</summary>
+	public void ClearIndicators()
+	{
+		model.Indicators.Clear();
+		InvalidateVisual();
+	}
+
+	/// <summary>Gets all indicators</summary>
+	public List<Indicator> GetIndicators()
+	{
+		return model.Indicators;
+	}
+
+	/// <summary>Sets the indicator pane height ratio (0.1 to 0.5)</summary>
+	public void SetIndicatorPaneRatio(double ratio)
+	{
+		model.IndicatorPaneHeightRatio = Math.Clamp(ratio, model.MinIndicatorPaneRatio, model.MaxIndicatorPaneRatio);
+		InvalidateVisual();
+	}
+
+	/// <summary>Auto-fits the indicator viewport to show all indicator data</summary>
+	public void AutoFitIndicatorViewport()
+	{
+		if (model.Indicators.Count == 0)
+		{
+			model.IndicatorCameraY = 50;
+			model.IndicatorRangeInViewport = 100;
+			return;
+		}
+
+		double minValue = double.MaxValue;
+		double maxValue = double.MinValue;
+
+		foreach (var indicator in model.Indicators)
+		{
+			if (!indicator.IsVisible || indicator.Points.Count == 0)
+				continue;
+
+			var (indicatorMin, indicatorMax) = indicator.GetValueRange();
+			minValue = Math.Min(minValue, indicatorMin);
+			maxValue = Math.Max(maxValue, indicatorMax);
+		}
+
+		if (minValue == double.MaxValue || maxValue == double.MinValue)
+		{
+			model.IndicatorCameraY = 50;
+			model.IndicatorRangeInViewport = 100;
+			return;
+		}
+
+		// Add 10% padding
+		double range = maxValue - minValue;
+		double padding = range * 0.1;
+		minValue -= padding;
+		maxValue += padding;
+
+		model.IndicatorCameraY = (minValue + maxValue) / 2;
+		model.IndicatorRangeInViewport = Math.Max(maxValue - minValue, 1);
+		
+		controller.UpdateIndicatorViewport();
+	}
+
+	/// <summary>Adds RSI indicator calculated from current candlestick data</summary>
+	/// <param name="period">RSI period (default 14)</param>
+	/// <returns>The created RSI indicator</returns>
+	public RSIIndicator AddRSI(int period = 14)
+	{
+		// Remove existing RSI if present
+		RemoveIndicator("rsi");
+
+		var rsi = new RSIIndicator(period);
+		rsi.Calculate(model.CandlestickData, controller);
+		
+		model.Indicators.Add(rsi);
+		
+		// RSI is always 0-100, set viewport accordingly
+		model.IndicatorCameraY = 50;
+		model.IndicatorRangeInViewport = 110; // Slight padding
+		controller.UpdateIndicatorViewport();
+		
+		InvalidateVisual();
+		return rsi;
+	}
+
+	/// <summary>Recalculates all indicators (call after candlestick data changes)</summary>
+	public void RecalculateIndicators()
+	{
+		foreach (var indicator in model.Indicators)
+		{
+			if (indicator is RSIIndicator rsi)
+			{
+				rsi.Calculate(model.CandlestickData, controller);
+			}
+			// Add other indicator types here as needed
+		}
+		
+		AutoFitIndicatorViewport();
+		InvalidateVisual();
 	}
 
 }

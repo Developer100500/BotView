@@ -55,6 +55,8 @@ namespace BotView
             
             // Загружаем демонстрационные данные после инициализации
             this.Loaded += MainWindow_Loaded;
+
+            chartView.AddIndicator(new Chart.IndicatorPane.RSIIndicator());
         }
 
         /// <summary>Инициализирует базу данных и заполняет тестовыми данными если нужно</summary>

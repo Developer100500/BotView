@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using BotView.Chart.TechnicalAnalysis;
+using BotView.Chart.IndicatorPane;
 
 namespace BotView.Chart;
 
@@ -25,13 +27,55 @@ public class ChartModel
 
 	// === DIMENSIONS AND MARGINS ===
 	public double ChartWidth { get; set; } = 0;
+	/// <summary>Total height of both panes combined (excluding margins)</summary>
 	public double ChartHeight { get; set; } = 0;
 
 	// Margins are constants
 	public double LeftMargin { get; } = 10;
-	public double RightMargin { get; } = 80;  // Увеличено для шкалы цены
+	public double RightMargin { get; } = 60;  // Увеличено для шкалы цены
 	public double TopMargin { get; } = 20;
 	public double BottomMargin { get; } = 40; // Увеличено для шкалы времени
+
+	// === INDICATOR PANE STATE ===
+	/// <summary>Ratio of indicator pane height to total chart height (0.0 to 1.0)</summary>
+	public double IndicatorPaneHeightRatio { get; set; } = 0.25;
+
+	/// <summary>Height of the divider between panes in pixels</summary>
+	public double DividerHeight { get; } = 2;
+
+	/// <summary>Minimum height ratio for indicator pane</summary>
+	public double MinIndicatorPaneRatio { get; } = 0.1;
+
+	/// <summary>Maximum height ratio for indicator pane</summary>
+	public double MaxIndicatorPaneRatio { get; } = 0.5;
+
+	/// <summary>Height of main candlestick pane in pixels</summary>
+	public double MainPaneHeight => ChartHeight > DividerHeight 
+		? (ChartHeight - DividerHeight) * (1.0 - IndicatorPaneHeightRatio) 
+		: 0;
+
+	/// <summary>Height of indicator pane in pixels</summary>
+	public double IndicatorPaneHeight => ChartHeight > DividerHeight 
+		? (ChartHeight - DividerHeight) * IndicatorPaneHeightRatio 
+		: 0;
+
+	/// <summary>Y position of the divider (top edge) in view coordinates</summary>
+	public double DividerY => TopMargin + MainPaneHeight;
+
+	/// <summary>Y position where the indicator pane starts</summary>
+	public double IndicatorPaneTop => DividerY + DividerHeight;
+
+	/// <summary>Viewport for indicator pane Y-axis (min/max values)</summary>
+	public IndicatorViewport IndicatorViewport { get; set; } = new IndicatorViewport(0, 100);
+
+	/// <summary>Range of indicator values visible in viewport</summary>
+	public double IndicatorRangeInViewport { get; set; } = 100;
+
+	/// <summary>Camera Y position for indicator pane (in indicator value units)</summary>
+	public double IndicatorCameraY { get; set; } = 50;
+
+	/// <summary>Collection of indicators to display</summary>
+	public List<Indicator> Indicators { get; } = new List<Indicator>();
 
 	// === TECHNICAL ANALYSIS TOOLS ===
 	public TechnicalAnalysisManager TechnicalAnalysisManager { get; }
