@@ -883,9 +883,6 @@ public class ChartController
 			return time.ToString("dd.MM.yy");
 	}
 
-	/// <summary>
-	/// Форматирует подпись цены
-	/// </summary>
 	public string FormatPriceLabel(double price)
 	{
 		// Определяем количество знаков после запятой на основе величины цены
@@ -902,9 +899,7 @@ public class ChartController
 	}
 }
 
-/// <summary>
-/// Результат обработки мыши для передачи информации обратно в View
-/// </summary>
+/// <summary>Результат обработки мыши для передачи информации обратно в View</summary>
 public class MouseInteractionResult
 {
 	public bool ShouldCaptureMouse { get; set; }

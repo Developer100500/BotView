@@ -70,7 +70,7 @@
                 <Button Name="btnTrendChannel" Content="Трендовый канал" Margin="2" Click="BtnTrendChannel_Click"/>
                 <Button Name="btnRectangle" Content="Прямоугольник" Margin="2" Click="BtnRectangle_Click"/>
 
-                <Separator Margin="2"/>
+                <Separator Margin="2,8,2,8"/>
                 <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2" Click="BtnShowMetrics_Click"/>
                 <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2" Click="BtnExportMetrics_Click"/>
                 

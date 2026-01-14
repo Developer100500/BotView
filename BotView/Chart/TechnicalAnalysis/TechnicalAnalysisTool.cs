@@ -31,14 +31,13 @@ public abstract class TechnicalAnalysisTool
 	/// <summary>Тип инструмента, который сейчас создаётся</summary>
 	public static TechnicalAnalysisToolType CreatingToolType { get; set; } = TechnicalAnalysisToolType.None;
 
-	/// <summary>Шаг создания для многоточечных инструментов (0 = не начато, 1 = первая точка размещена, 2 = вторая точка размещена для 3-точечных)</summary>
+	/// <summary>Шаг создания для многоточечных инструментов
+	/// (0 = не начато, 1 = первая точка размещена, 2 = вторая точка размещена для 3-точечных)
+	/// </summary>
 	public static int CreationStep { get; set; } = 0;
 
-	/// <summary>Первая точка при создании многоточечного инструмента</summary>
-	public static ChartCoordinates? FirstPointCoords { get; set; } = null;
-
-	/// <summary>Вторая точка при создании 3-точечного инструмента (например, TrendChannel)</summary>
-	public static ChartCoordinates? SecondPointCoords { get; set; } = null;
+	/// <summary>Точки при создании многоточечного инструмента (индекс соответствует CreationStep)</summary>
+	public static ChartCoordinates?[] CreationPoints { get; set; } = new ChartCoordinates?[3];
 
 	/// <summary>Временный инструмент, создаваемый в процессе (для 3-точечных инструментов)</summary>
 	public static TechnicalAnalysisTool? CreatingToolInstance { get; set; } = null;
@@ -49,24 +48,10 @@ public abstract class TechnicalAnalysisTool
 		IsCreatingTool = true;
 		CreatingToolType = toolType;
 		CreationStep = 0;
-		FirstPointCoords = null;
-		SecondPointCoords = null;
+		CreationPoints = new ChartCoordinates?[3];
 		CreatingToolInstance = null;
 	}
 
-	/// <summary>Устанавливает первую точку для многоточечного инструмента</summary>
-	public static void SetFirstPoint(ChartCoordinates coords)
-	{
-		FirstPointCoords = coords;
-		CreationStep = 1;
-	}
-
-	/// <summary>Устанавливает вторую точку для 3-точечного инструмента</summary>
-	public static void SetSecondPoint(ChartCoordinates coords)
-	{
-		SecondPointCoords = coords;
-		CreationStep = 2;
-	}
 
 	/// <summary>Завершает режим создания инструмента</summary>
 	public static void StopCreating()
@@ -74,8 +59,7 @@ public abstract class TechnicalAnalysisTool
 		IsCreatingTool = false;
 		CreatingToolType = TechnicalAnalysisToolType.None;
 		CreationStep = 0;
-		FirstPointCoords = null;
-		SecondPointCoords = null;
+		CreationPoints = new ChartCoordinates?[3];
 		CreatingToolInstance = null;
 	}
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -251,7 +251,9 @@ public class ChartView : FrameworkElement
 	private void HandleToolCreation(MouseButtonEventArgs e)
 	{
 		Point mousePos = e.GetPosition(this);
-		var chartCoords = controller.ViewToChart(new Coordinates(mousePos.X, mousePos.Y));
+		ChartCoordinates chartCoords = controller.ViewToChart(new Coordinates(mousePos.X, mousePos.Y));
+
+		this.Cursor = Cursors.Cross;
 
 		// Обработка многоточечных инструментов (TrendLine - 2 клика)
 		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendLine)
@@ -305,13 +307,14 @@ public class ChartView : FrameworkElement
 		if (TechnicalAnalysisTool.CreationStep == 0)
 		{
 			// Первый клик: сохраняем первую точку
-			TechnicalAnalysisTool.SetFirstPoint(chartCoords);
+			TechnicalAnalysisTool.CreationPoints[0] = chartCoords;
+			TechnicalAnalysisTool.CreationStep = 1;
 			InvalidateVisual();
 		}
-		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.FirstPointCoords.HasValue)
+		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.CreationPoints[0].HasValue)
 		{
 			// Второй клик: создаём линию
-			var firstPoint = TechnicalAnalysisTool.FirstPointCoords.Value;
+			var firstPoint = TechnicalAnalysisTool.CreationPoints[0].Value;
 			var newTool = new TrendLine(
 				startTime: firstPoint.time,
 				startPrice: firstPoint.price,
@@ -335,13 +338,15 @@ public class ChartView : FrameworkElement
 		if (TechnicalAnalysisTool.CreationStep == 0)
 		{
 			// Первый клик: сохраняем первую точку
-			TechnicalAnalysisTool.SetFirstPoint(chartCoords);
+			TechnicalAnalysisTool.CreationPoints[0] = chartCoords;
+			TechnicalAnalysisTool.CreationStep = 1;
+
 			InvalidateVisual();
 		}
-		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.FirstPointCoords.HasValue)
+		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.CreationPoints[0].HasValue)
 		{
 			// Второй клик: создаём первую линию канала и переходим к шагу 2
-			var firstPoint = TechnicalAnalysisTool.FirstPointCoords.Value;
+			var firstPoint = TechnicalAnalysisTool.CreationPoints[0].Value;
 			
 			// Создаём временный канал с нулевым offset для превью
 			var channel = new TrendChannel(
@@ -355,7 +360,7 @@ public class ChartView : FrameworkElement
 				style: LineStyle.Solid
 			);
 
-			TechnicalAnalysisTool.SecondPointCoords = chartCoords;
+			TechnicalAnalysisTool.CreationPoints[1] = chartCoords;
 			TechnicalAnalysisTool.CreatingToolInstance = channel;
 			TechnicalAnalysisTool.CreationStep = 2;
 			InvalidateVisual();
@@ -380,13 +385,14 @@ public class ChartView : FrameworkElement
 		if (TechnicalAnalysisTool.CreationStep == 0)
 		{
 			// Первый клик: сохраняем первый угол
-			TechnicalAnalysisTool.SetFirstPoint(chartCoords);
+			TechnicalAnalysisTool.CreationPoints[0] = chartCoords;
+			TechnicalAnalysisTool.CreationStep = 1;
 			InvalidateVisual();
 		}
-		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.FirstPointCoords.HasValue)
+		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.CreationPoints[0].HasValue)
 		{
 			// Второй клик: создаём прямоугольник по диагонали
-			var firstPoint = TechnicalAnalysisTool.FirstPointCoords.Value;
+			var firstPoint = TechnicalAnalysisTool.CreationPoints[0].Value;
 			var newTool = new TechnicalAnalysis.Rectangle(
 				startTime: firstPoint.time,
 				startPrice: firstPoint.price,
@@ -517,6 +523,13 @@ public class ChartView : FrameworkElement
 	protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
 	{
 		base.OnMouseLeftButtonUp(e);
+
+		//if (TechnicalAnalysisTool.IsCreatingTool)
+		//{
+		//	TechnicalAnalysisTool.CreationStep++;
+		//	InvalidateVisual();
+		//	return;
+		//}
 
 		// Если редактировали инструмент — завершаем редактирование
 		if (TechnicalAnalysisTool.IsEditingTool)

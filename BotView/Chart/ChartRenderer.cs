@@ -13,7 +13,7 @@ public class ChartRenderer
 {
 	private readonly ChartModel model;
 	private readonly ChartController controller;
-	private IndicatorRenderer? indicatorRenderer;
+	private readonly IndicatorRenderer? indicatorRenderer;
 
 	public bool RedrawAllTechnicalTools { get; set; } = false;
 
@@ -46,6 +46,8 @@ public class ChartRenderer
 
 		// Draw technical analysis tools in main pane
 		DrawTechnicalAnalysisTools(drawingContext);
+
+		DrawToolCreationPreview(drawingContext);
 
 		// Draw divider between panes
 		DrawDivider(drawingContext);
@@ -85,9 +87,7 @@ public class ChartRenderer
 		drawingContext.DrawRectangle(indicatorBg, new Pen(Brushes.Gray, 1), indicatorRect);
 	}
 
-	/// <summary>
-	/// Отрисовка всех свечей
-	/// </summary>
+	/// <summary>Отрисовка всех свечей</summary>
 	private void DrawCandlesticks(DrawingContext context, OHLCV[] candles)
 	{
 		for (int i = 0; i < candles.Length; i++)
@@ -567,9 +567,9 @@ public class ChartRenderer
 		// Превью для TrendLine (шаг 1: рисуем линию от первой точки к курсору)
 		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendLine &&
 			TechnicalAnalysisTool.CreationStep == 1 &&
-			TechnicalAnalysisTool.FirstPointCoords.HasValue)
+			TechnicalAnalysisTool.CreationPoints[0].HasValue)
 		{
-			DrawLinePreview(drawingContext, TechnicalAnalysisTool.FirstPointCoords.Value, currentPoint, 
+			DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint, 
 				Color.FromArgb(128, 0, 120, 255));
 		}
 
@@ -578,9 +578,9 @@ public class ChartRenderer
 		{
 			// Шаг 1: рисуем первую линию от первой точки к курсору
 			if (TechnicalAnalysisTool.CreationStep == 1 &&
-				TechnicalAnalysisTool.FirstPointCoords.HasValue)
+				TechnicalAnalysisTool.CreationPoints[0].HasValue)
 			{
-				DrawLinePreview(drawingContext, TechnicalAnalysisTool.FirstPointCoords.Value, currentPoint, 
+				DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint, 
 					Color.FromArgb(128, 0, 180, 0));
 			}
 
@@ -597,9 +597,9 @@ public class ChartRenderer
 		// Превью для Rectangle (шаг 1: рисуем прямоугольник от первой точки к курсору)
 		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.Rectangle &&
 			TechnicalAnalysisTool.CreationStep == 1 &&
-			TechnicalAnalysisTool.FirstPointCoords.HasValue)
+			TechnicalAnalysisTool.CreationPoints[0].HasValue)
 		{
-			DrawRectanglePreview(drawingContext, TechnicalAnalysisTool.FirstPointCoords.Value, currentPoint,
+			DrawRectanglePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint,
 				Color.FromArgb(128, 255, 165, 0)); // Оранжевый цвет
 		}
 	}
