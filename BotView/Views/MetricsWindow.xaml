@@ -1,0 +1,16 @@
+<Window x:Class="BotView.Views.MetricsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Метрики производительности" 
+        Width="600" 
+        Height="400"
+        WindowStartupLocation="CenterOwner">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" 
+                  HorizontalScrollBarVisibility="Auto" 
+                  Margin="10">
+        <TextBlock x:Name="MetricsTextBlock"
+                   FontFamily="Consolas"
+                   FontSize="12"
+                   TextWrapping="NoWrap"/>
+    </ScrollViewer>
+</Window>

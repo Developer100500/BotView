@@ -732,12 +732,11 @@ public class ChartView : FrameworkElement
 	}
 
 	/// <summary>
-	/// Позиционирует камеру так, чтобы последняя свечка была видна справа
-	/// Центр камеры располагается посередине между левым краем viewport и последней свечкой
+	/// Прокручивает график так, чтобы последняя свеча касалась правой границы области отрисовки.
 	/// </summary>
-	public void PositionToLastCandle()
+	public void SnapLastCandleToRightEdge()
 	{
-		controller.PositionToLastCandle();
+		controller.SnapLastCandleToRightEdge();
 		InvalidateVisual();
 	}
 

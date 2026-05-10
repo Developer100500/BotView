@@ -719,28 +719,33 @@ public class ChartController
 	}
 
 	/// <summary>
-	/// Позиционирует камеру так, чтобы последняя свечка была видна справа
-	/// Центр камеры располагается посередине между левым краем viewport и последней свечкой
+	/// Позиционирует камеру так, чтобы тело последней свечи касалось правой границы viewport.
 	/// </summary>
-	public void PositionToLastCandle()
+	public void SnapLastCandleToRightEdge()
 	{
 		if (model.CandlestickData.candles == null || model.CandlestickData.candles.Length == 0)
 			return;
 
-		DateTime lastCandleTime = model.CandlestickData.endTime;
-			
-		// Вычисляем позицию центра камеры:
-		// Последняя свечка должна быть на расстоянии 1/2 от правого края viewport
-		// Это означает, что центр камеры смещен влево на 1/2 от полного диапазона времени
-		TimeSpan halfRange = TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2);
-		DateTime centerTime = lastCandleTime.Subtract(halfRange);
-			
-		// Сохраняем текущую позицию по цене
-		ChartCoordinates currentCameraChart = WorldToChart(model.CameraPosition);
-		double centerPrice = currentCameraChart.price;
-			
-		ChartCoordinates newCenterChart = new ChartCoordinates(centerTime, centerPrice);
-		model.CameraPosition = ChartToWorld(newCenterChart);
+		int lastIndex = model.CandlestickData.candles.Length - 1;
+		DateTime lastCandleTime = GetCandleTime(lastIndex);
+
+		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
+		if (pixelsPerSecond <= 0)
+			return;
+
+		double halfViewportSeconds = model.TimeRangeInViewport.TotalSeconds / 2.0;
+		double candleHalfWidthSeconds = (GetCandleWidthPixels() / 2.0) / pixelsPerSecond;
+
+		// Смещаем центр камеры так, чтобы правая грань тела свечи касалась правой границы области графика.
+		double targetOffsetSeconds = halfViewportSeconds - candleHalfWidthSeconds;
+
+		ChartCoordinates lastCandleChart = new ChartCoordinates(lastCandleTime, model.WorldOriginPrice);
+		Coordinates lastCandleWorld = ChartToWorld(lastCandleChart);
+
+		model.CameraPosition = new Coordinates(
+			lastCandleWorld.x - targetOffsetSeconds,
+			model.CameraPosition.y
+		);
 
 		UpdateViewportFromCamera();
 	}

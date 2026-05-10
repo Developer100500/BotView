@@ -61,7 +61,7 @@
             <StackPanel Grid.Column="0" Background="LightGray" Margin="5">
                 <Label Content="Управление графиком" FontWeight="Bold" HorizontalAlignment="Center"/>
 
-                <Button Name="btnPositionToLast" Content="К последней свечке" Margin="2" Click="BtnPositionToLast_Click"/>
+                <Button Name="btnSnapLastToRight" Content="Прижать вправо" Margin="2" Click="BtnSnapLastToRight_Click"/>
 
                 <Separator Margin="2"/>
                 <TextBlock Text="Инструменты" Margin="2"/>
