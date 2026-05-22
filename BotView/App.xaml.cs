@@ -42,8 +42,8 @@ namespace BotView
                 DataProviderLogger = new ConsoleDataProviderLogger();
                 ExchangeLogger = new ConsoleExchangeLogger();
 
-                // Создание DataProvider с логгером
-                DataProvider = new DataProvider(DataProviderLogger);
+                var dataProvider = new DataProvider();
+                DataProvider = dataProvider;
 
                 // Получение настроек из конфигурации
                 var cacheSettings = ExchangeConfig.GetCacheSettings();
@@ -51,12 +51,12 @@ namespace BotView
 
                 // Создание ExchangeService с настройками из конфигурации и логгером
                 ExchangeService = new ExchangeService(
-                    dataProvider: DataProvider,
                     logger: ExchangeLogger,
                     cacheExpirationMinutes: cacheSettings.ExpirationMinutes,
                     maxRetryAttempts: connectionSettings.MaxRetryAttempts,
                     baseRetryDelaySeconds: connectionSettings.RetryDelaySeconds
                 );
+                dataProvider.SetExchangeService(ExchangeService);
 
                 // Логирование успешной инициализации
                 System.Diagnostics.Debug.WriteLine("Services initialized successfully");
@@ -76,8 +76,8 @@ namespace BotView
                 // В случае ошибки создаем базовые сервисы
                 //DataProviderLogger = new ConsoleDataProviderLogger();
                 //ExchangeLogger = new ConsoleExchangeLogger();
-                //DataProvider = new DataProvider(DataProviderLogger);
-                //ExchangeService = new ExchangeService(DataProvider, ExchangeLogger);
+                //DataProvider = new DataProvider();
+                //ExchangeService = new ExchangeService(ExchangeLogger);
             }
         }
 

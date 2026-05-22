@@ -19,7 +19,6 @@ namespace BotView.Services
     public class ExchangeService : IExchangeService
     {
         private readonly Dictionary<string, Exchange> _exchanges;
-        private readonly IDataProvider _dataProvider;
         private readonly IExchangeLogger _logger;
         private readonly ExchangePerformanceMetrics _performanceMetrics;
         private readonly Dictionary<string, CandlestickData> _cache;
@@ -39,14 +38,12 @@ namespace BotView.Services
         /// <summary>
         /// Initializes a new instance of ExchangeService
         /// </summary>
-        /// <param name="dataProvider">Data provider for converting CCXT data</param>
         /// <param name="logger">Logger for exchange operations (optional)</param>
         /// <param name="cacheExpirationMinutes">Cache expiration time in minutes (default: 5)</param>
         /// <param name="maxRetryAttempts">Maximum number of retry attempts for failed requests (default: 3)</param>
         /// <param name="baseRetryDelaySeconds">Base delay between retry attempts in seconds (default: 1)</param>
-        public ExchangeService(IDataProvider dataProvider, IExchangeLogger logger = null, int cacheExpirationMinutes = 5, int maxRetryAttempts = 3, int baseRetryDelaySeconds = 1)
+        public ExchangeService(IExchangeLogger logger = null, int cacheExpirationMinutes = 5, int maxRetryAttempts = 3, int baseRetryDelaySeconds = 1)
         {
-            _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
             _logger = logger;
             _performanceMetrics = new ExchangePerformanceMetrics();
             _exchanges = new Dictionary<string, Exchange>();
@@ -126,7 +123,7 @@ namespace BotView.Services
                     _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true);
                     
                     // Convert CCXT data to application format
-                    var result = _dataProvider.ConvertFromCCXT(ccxtData, timeframe);
+                    var result = CandlestickDataConverter.ConvertFromCCXT(ccxtData, timeframe);
                     
                     // Log successful data retrieval
                     _logger?.LogDataReceived(normalizedExchange, symbol, result.candles.Length, timeframe);

@@ -1,12 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using Xunit;
 using Moq;
 using BotView.Services;
-using BotView.Chart;
 using BotView.Interfaces;
-using BotView.Exceptions;
 
 namespace BotView.Tests
 {
@@ -16,33 +13,23 @@ namespace BotView.Tests
     /// </summary>
     public class ExchangeServiceTests
     {
-        private readonly Mock<IDataProvider> _mockDataProvider;
         private readonly Mock<IExchangeLogger> _mockLogger;
         private readonly ExchangeService _exchangeService;
 
         public ExchangeServiceTests()
         {
-            _mockDataProvider = new Mock<IDataProvider>();
             _mockLogger = new Mock<IExchangeLogger>();
-            _exchangeService = new ExchangeService(_mockDataProvider.Object, _mockLogger.Object, 
+            _exchangeService = new ExchangeService(_mockLogger.Object, 
                 cacheExpirationMinutes: 1, maxRetryAttempts: 2, baseRetryDelaySeconds: 1);
         }
 
         #region Constructor Tests
 
         [Fact]
-        public void Constructor_NullDataProvider_ThrowsArgumentNullException()
-        {
-            // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => 
-                new ExchangeService(null, _mockLogger.Object));
-        }
-
-        [Fact]
         public void Constructor_ValidParameters_CreatesInstance()
         {
             // Act
-            var service = new ExchangeService(_mockDataProvider.Object, _mockLogger.Object);
+            var service = new ExchangeService(_mockLogger.Object);
 
             // Assert
             Assert.NotNull(service);
@@ -181,27 +168,17 @@ namespace BotView.Tests
         [Fact]
         public async Task GetCandlestickDataAsync_ValidParameters_ReturnsData()
         {
-            // Arrange
-            var expectedData = CreateSampleCandlestickData();
-            _mockDataProvider.Setup(x => x.ConvertFromCCXT(It.IsAny<List<ccxt.OHLCV>>(), It.IsAny<string>()))
-                .Returns(expectedData);
-
             // Act
             var result = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h");
 
             // Assert
-            Assert.Equal(expectedData.timeframe, result.timeframe);
-            Assert.Equal(expectedData.candles.Length, result.candles.Length);
+            Assert.Equal("1h", result.timeframe);
+            Assert.True(result.candles.Length > 0);
         }
 
         [Fact]
         public async Task GetCandlestickDataAsync_CaseInsensitiveExchange_ReturnsData()
         {
-            // Arrange
-            var expectedData = CreateSampleCandlestickData();
-            _mockDataProvider.Setup(x => x.ConvertFromCCXT(It.IsAny<List<ccxt.OHLCV>>(), It.IsAny<string>()))
-                .Returns(expectedData);
-
             // Act
             var result = await _exchangeService.GetCandlestickDataAsync("BINANCE", "BTC/USDT", "1h");
 
@@ -216,11 +193,6 @@ namespace BotView.Tests
         [Fact]
         public async Task GetCandlestickDataAsync_SameRequestTwice_UsesCacheOnSecondCall()
         {
-            // Arrange
-            var expectedData = CreateSampleCandlestickData();
-            _mockDataProvider.Setup(x => x.ConvertFromCCXT(It.IsAny<List<ccxt.OHLCV>>(), It.IsAny<string>()))
-                .Returns(expectedData);
-
             // Act
             var result1 = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h");
             var result2 = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h");
@@ -256,18 +228,6 @@ namespace BotView.Tests
         #endregion
 
         #region Error Handling Tests
-
-        [Fact]
-        public async Task GetCandlestickDataAsync_DataProviderThrowsException_PropagatesException()
-        {
-            // Arrange
-            _mockDataProvider.Setup(x => x.ConvertFromCCXT(It.IsAny<List<ccxt.OHLCV>>(), It.IsAny<string>()))
-                .Throws(new DataConversionException("Test error", DataConversionErrorType.InvalidFormat));
-
-            // Act & Assert
-            await Assert.ThrowsAsync<DataConversionException>(() => 
-                _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h"));
-        }
 
         #endregion
 
@@ -369,23 +329,5 @@ namespace BotView.Tests
 
         #endregion
 
-        #region Helper Methods
-
-        private CandlestickData CreateSampleCandlestickData()
-        {
-            var candles = new OHLCV[]
-            {
-                new OHLCV(1504541580000L, 4235.4, 4240.6, 4230.0, 4230.7, 37.72941911),
-                new OHLCV(1504541640000L, 4230.7, 4238.1, 4225.3, 4235.2, 42.15832156),
-                new OHLCV(1504541700000L, 4235.2, 4245.8, 4232.1, 4240.5, 35.89471234)
-            };
-
-            var beginTime = DateTimeOffset.FromUnixTimeMilliseconds(1504541580000L).DateTime;
-            var endTime = DateTimeOffset.FromUnixTimeMilliseconds(1504541700000L).DateTime;
-
-            return new CandlestickData("1h", beginTime, endTime, candles);
-        }
-
-        #endregion
     }
 }

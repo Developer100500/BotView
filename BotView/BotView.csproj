@@ -15,4 +15,8 @@
     <PackageReference Include="TALib.NETCore" Version="0.5.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Controllers\" />
+  </ItemGroup>
+
 </Project>

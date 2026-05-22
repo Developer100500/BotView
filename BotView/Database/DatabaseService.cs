@@ -1,6 +1,10 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using Microsoft.Data.Sqlite;
 using BotView.Database.Models;
+using BotView.Models;
 
 namespace BotView.Database
 {
@@ -21,7 +25,48 @@ namespace BotView.Database
             return new SqliteConnection(_connectionString);
         }
 
-        /// <summary>Инициализирует базу данных: создаёт таблицы если их нет</summary>
+        /// <summary> Ensures the database is reachable, schema exists, and seeds test data when TradingPairs is empty. </summary>
+        /// <exception cref="InvalidOperationException">Thrown when the database cannot be opened.</exception>
+        public void EnsureInitialized()
+        {
+            if (!TestConnection())
+                throw new InvalidOperationException("Unable to connect to the database.");
+
+            Initialize();
+
+            if (!HasTradingPairs())
+            {
+                SeedTestData();
+                Debug.WriteLine("Database seeded with test data.");
+            }
+        }
+
+        /// <summary> Returns all trading pairs as UI models; first item is marked selected. </summary>
+        public List<TradingPairModel> GetTradingPairModels()
+        {
+            try
+            {
+                var pairs = GetAllTradingPairs();
+                var models = new List<TradingPairModel>();
+                bool isFirst = true;
+
+                foreach (var pair in pairs)
+                {
+                    models.Add(new TradingPairModel(pair.Symbol, isFirst));
+                    isFirst = false;
+                }
+
+                Debug.WriteLine($"Loaded {models.Count} trading pairs from database.");
+                return models;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading trading pairs: {ex.Message}");
+                return new List<TradingPairModel>();
+            }
+        }
+
+        /// <summary>Initializes the database: creates tables if they do not exist</summary>
         public void Initialize()
         {
             using var connection = CreateConnection();

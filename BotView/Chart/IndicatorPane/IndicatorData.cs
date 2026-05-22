@@ -8,8 +8,8 @@ namespace BotView.Chart.IndicatorPane;
 /// <summary>Viewport for indicator pane Y-axis (min/max indicator values)</summary>
 public struct IndicatorViewport
 {
-	public double MinValue { get; set; }
-	public double MaxValue { get; set; }
+	public double MinValue { get; set; } = 0;
+	public double MaxValue { get; set; } = 100;
 
 	public IndicatorViewport(double minValue, double maxValue)
 	{

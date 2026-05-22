@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using BotView.Interfaces;
 
-namespace BotView.Controllers
+namespace BotView.Services
 {
     public class MetricsController
     {

@@ -834,13 +834,13 @@ public class ChartView : FrameworkElement
 		}
 
 		// Add 10% padding
-		double range = maxValue - minValue;
-		double padding = range * 0.1;
-		minValue -= padding;
-		maxValue += padding;
+		//double range = maxValue - minValue;
+		//double padding = range * 0.1;
+		//minValue -= padding;
+		//maxValue += padding;
 
-		model.IndicatorCameraY = (minValue + maxValue) / 2;
-		model.IndicatorRangeInViewport = Math.Max(maxValue - minValue, 1);
+		//model.IndicatorCameraY = (minValue + maxValue) / 2;
+		//model.IndicatorRangeInViewport = Math.Max(maxValue - minValue, 1);
 		
 		controller.UpdateIndicatorViewport();
 	}

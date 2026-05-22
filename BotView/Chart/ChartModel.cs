@@ -34,7 +34,7 @@ public class ChartModel
 	public double LeftMargin { get; } = 10;
 	public double RightMargin { get; } = 60;  // Увеличено для шкалы цены
 	public double TopMargin { get; } = 20;
-	public double BottomMargin { get; } = 40; // Увеличено для шкалы времени
+	public double BottomMargin { get; } = 30; // Увеличено для шкалы времени
 
 	// === INDICATOR PANE STATE ===
 	/// <summary>Ratio of indicator pane height to total chart height (0.0 to 1.0)</summary>

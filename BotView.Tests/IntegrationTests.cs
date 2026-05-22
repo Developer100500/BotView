@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 using Xunit;
 using BotView.Services;
 using BotView.Chart;
-using BotView.Interfaces;
 using BotView.Exceptions;
+using BotView.Interfaces;
 
 namespace BotView.Tests
 {
@@ -18,12 +18,10 @@ namespace BotView.Tests
     public class IntegrationTests
     {
         private readonly IExchangeService _exchangeService;
-        private readonly IDataProvider _dataProvider;
 
         public IntegrationTests()
         {
-            _dataProvider = new DataProvider();
-            _exchangeService = new ExchangeService(_dataProvider, null, 
+            _exchangeService = new ExchangeService(null, 
                 cacheExpirationMinutes: 1, maxRetryAttempts: 3, baseRetryDelaySeconds: 1);
         }
 

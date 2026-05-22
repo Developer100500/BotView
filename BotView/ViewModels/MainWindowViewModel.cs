@@ -2,15 +2,17 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using BotView.Controllers;
+using BotView.Database;
+using BotView.Interfaces;
 using BotView.Models;
+using BotView.Services;
 
 namespace BotView.ViewModels
 {
     public class MainWindowViewModel : INotifyPropertyChanged
     {
-        private readonly DatabaseController _databaseController;
-        private readonly DataLoadController _dataLoadController;
+        private readonly DatabaseService _databaseService;
+        private readonly IDataProvider _dataProvider;
         private readonly MetricsController _metricsController;
 
         private string _selectedExchange = "binance";
@@ -19,12 +21,12 @@ namespace BotView.ViewModels
         private double _renderTime;
 
         public MainWindowViewModel(
-            DatabaseController databaseController,
-            DataLoadController dataLoadController,
+            DatabaseService databaseService,
+            IDataProvider dataProvider,
             MetricsController metricsController)
         {
-            _databaseController = databaseController;
-            _dataLoadController = dataLoadController;
+            _databaseService = databaseService;
+            _dataProvider = dataProvider;
             _metricsController = metricsController;
 
             TradingPairs = new ObservableCollection<TradingPairModel>();
@@ -84,15 +86,16 @@ namespace BotView.ViewModels
             }
         }
 
-        public bool InitializeDatabase()
+        /// <summary> Initializes the local database (schema and seed when empty). </summary>
+        public void InitializeDatabase()
         {
-            return _databaseController.Initialize();
+            _databaseService.EnsureInitialized();
         }
 
         public void LoadTradingPairs()
         {
             TradingPairs.Clear();
-            var pairs = _databaseController.GetTradingPairs();
+            var pairs = _databaseService.GetTradingPairModels();
             foreach (var pair in pairs)
             {
                 TradingPairs.Add(pair);
@@ -101,12 +104,12 @@ namespace BotView.ViewModels
 
         public async Task<Chart.CandlestickData?> LoadDataAsync()
         {
-            return await _dataLoadController.LoadDataAsync(SelectedExchange, SelectedSymbol, SelectedTimeframe);
+            return await _dataProvider.LoadDataAsync(SelectedExchange, SelectedSymbol, SelectedTimeframe);
         }
 
         public Chart.CandlestickData LoadDemoData()
         {
-            return _dataLoadController.LoadDemoData(SelectedTimeframe);
+            return _dataProvider.LoadDemoData(SelectedTimeframe);
         }
 
         public string GetFormattedMetrics()

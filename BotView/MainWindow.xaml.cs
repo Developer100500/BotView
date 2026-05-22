@@ -5,8 +5,8 @@ using System.Windows.Input;
 using BotView.Chart;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Database;
-using BotView.Controllers;
 using BotView.ViewModels;
+using BotView.Services;
 
 namespace BotView
 {
@@ -21,19 +21,26 @@ namespace BotView
         {
             InitializeComponent();
             
-            // Initialize ViewModel with controllers
+            // Initialize ViewModel with controllers (services)
             var databaseService = new DatabaseService();
-            var databaseController = new DatabaseController(databaseService);
-            var dataLoadController = new DataLoadController(App.ExchangeService);
             var metricsController = new MetricsController(App.ExchangeService);
             
-            _viewModel = new MainWindowViewModel(databaseController, dataLoadController, metricsController);
+            _viewModel = new MainWindowViewModel(databaseService, App.DataProvider, metricsController);
             DataContext = _viewModel;
             
             // Initialize database and load trading pairs
-            if (!_viewModel.InitializeDatabase())
+            try
             {
-                MessageBox.Show("Не удалось подключиться к базе данных.", "Ошибка БД", MessageBoxButton.OK, MessageBoxImage.Error);
+                _viewModel.InitializeDatabase();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Database initialization failed: {ex.Message}");
+                MessageBox.Show(
+                    $"Не удалось инициализировать базу данных.\n\n{ex.Message}",
+                    "Ошибка БД",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
             _viewModel.LoadTradingPairs();
             LoadTradingPairsToUI();
