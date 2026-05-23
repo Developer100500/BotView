@@ -1,8 +1,7 @@
 using System;
 using System.Diagnostics;
-using BotView.Chart;
-using BotView.Interfaces;
 using BotView.Models;
+using BotView.Interfaces;
 
 namespace BotView.Services
 {

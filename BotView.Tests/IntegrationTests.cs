@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Xunit;
 using BotView.Services;
-using BotView.Chart;
+using BotView.Models;
 using BotView.Exceptions;
 using BotView.Interfaces;
 

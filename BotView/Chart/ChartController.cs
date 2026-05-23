@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using BotView.Chart.IndicatorPane;
+using BotView.Models;
 
 namespace BotView.Chart;
 

@@ -1,5 +1,3 @@
-using BotView.Chart;
-
 namespace BotView.Models
 {
     public static class DemoDataGenerator

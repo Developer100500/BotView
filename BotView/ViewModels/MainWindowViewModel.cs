@@ -102,12 +102,12 @@ namespace BotView.ViewModels
             }
         }
 
-        public async Task<Chart.CandlestickData?> LoadDataAsync()
+        public async Task<CandlestickData?> LoadDataAsync()
         {
             return await _dataProvider.LoadDataAsync(SelectedExchange, SelectedSymbol, SelectedTimeframe);
         }
 
-        public Chart.CandlestickData LoadDemoData()
+        public CandlestickData LoadDemoData()
         {
             return _dataProvider.LoadDemoData(SelectedTimeframe);
         }

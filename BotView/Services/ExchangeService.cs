@@ -7,7 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Diagnostics;
 using ccxt;
-using BotView.Chart;
+using BotView.Models;
 using BotView.Interfaces;
 using BotView.Exceptions;
 
@@ -181,6 +181,73 @@ namespace BotView.Services
             var finalErrorType = DetermineErrorType(lastException);
             throw new ExchangeException(normalizedExchange, 
                 $"Failed to get candlestick data from {exchange} after {_maxRetryAttempts} attempts: {lastException?.Message}", 
+                finalErrorType, lastException);
+        }
+
+        /// <summary> Gets raw OHLCV candles from exchange for advanced pagination scenarios. </summary>
+        public async Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500)
+        {
+            if (string.IsNullOrWhiteSpace(exchange))
+                throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchange));
+
+            if (string.IsNullOrWhiteSpace(symbol))
+                throw new ArgumentException("Symbol cannot be null or empty", nameof(symbol));
+
+            if (string.IsNullOrWhiteSpace(timeframe))
+                throw new ArgumentException("Timeframe cannot be null or empty", nameof(timeframe));
+
+            if (limit <= 0)
+                throw new ArgumentException("Limit must be greater than zero", nameof(limit));
+
+            var normalizedExchange = exchange.ToLowerInvariant();
+
+            if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
+                throw new NotSupportedException($"Exchange '{exchange}' is not supported");
+
+            if (!SupportedTimeframes.Contains(timeframe))
+                throw new NotSupportedException($"Timeframe '{timeframe}' is not supported");
+
+            Exception lastException = null;
+
+            for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++)
+            {
+                var stopwatch = Stopwatch.StartNew();
+                try
+                {
+                    var exchangeInstance = GetExchangeInstance(normalizedExchange);
+                    var data = await exchangeInstance.FetchOHLCV(symbol, timeframe, since, limit);
+
+                    stopwatch.Stop();
+                    _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true, symbol, timeframe);
+                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true);
+
+                    return data;
+                }
+                catch (Exception ex)
+                {
+                    stopwatch.Stop();
+                    lastException = ex;
+                    var errorType = DetermineErrorType(ex);
+
+                    _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false, symbol, timeframe);
+                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false);
+                    _logger?.LogError(normalizedExchange, ex, $"Attempt {attempt}/{_maxRetryAttempts} for raw FetchOHLCV");
+
+                    if (!ShouldRetry(errorType, attempt))
+                    {
+                        break;
+                    }
+
+                    if (attempt < _maxRetryAttempts)
+                    {
+                        await Task.Delay(CalculateRetryDelay(attempt));
+                    }
+                }
+            }
+
+            var finalErrorType = DetermineErrorType(lastException);
+            throw new ExchangeException(normalizedExchange,
+                $"Failed to fetch OHLCV from {exchange} after {_maxRetryAttempts} attempts: {lastException?.Message}",
                 finalErrorType, lastException);
         }
 

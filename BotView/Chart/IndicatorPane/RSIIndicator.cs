@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
 using TALib;
+using BotView.Models;
 
 namespace BotView.Chart.IndicatorPane;
 

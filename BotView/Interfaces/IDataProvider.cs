@@ -1,4 +1,4 @@
-using BotView.Chart;
+using BotView.Models;
 
 namespace BotView.Interfaces
 {

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BotView.Chart;
+using BotView.Models;
 using BotView.Exceptions;
 
 namespace BotView.Services

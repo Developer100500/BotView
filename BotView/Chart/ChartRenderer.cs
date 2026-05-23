@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart.IndicatorPane;
+using BotView.Models;
 
 namespace BotView.Chart;
 

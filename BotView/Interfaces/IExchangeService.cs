@@ -1,5 +1,6 @@
-using BotView.Chart;
+using BotView.Models;
 using BotView.Services;
+using ccxt;
 
 namespace BotView.Interfaces
 {
@@ -24,6 +25,9 @@ namespace BotView.Interfaces
         /// <param name="exchange">Exchange name</param>
         /// <returns>List of available trading pair symbols</returns>
         Task<List<string>> GetAvailableSymbolsAsync(string exchange);
+
+        /// <summary> Gets raw OHLCV candles from exchange with optional since timestamp. </summary>
+        Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500);
 
         /// <summary>
         /// Tests connection to specified exchange

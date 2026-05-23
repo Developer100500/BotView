@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart.IndicatorPane;
+using BotView.Models;
 
 namespace BotView.Chart;
 
@@ -13,6 +14,7 @@ public class ChartModel
 	// === DATA ===
 	public CandlestickData CandlestickData { get; set; }
 	public string Timeframe { get; set; } = string.Empty;
+	public int PollInterval { get; set; } = 250; // milliseconds
 
 	// === CAMERA STATE ===
 	public Coordinates CameraPosition { get; set; } = new Coordinates(0, 0);
