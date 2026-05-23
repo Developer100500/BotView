@@ -15,6 +15,8 @@ namespace BotView
         public static IExchangeService ExchangeService { get; private set; } = null!;
         public static IExchangeLogger ExchangeLogger { get; private set; } = null!;
         public static IDataProviderLogger DataProviderLogger { get; private set; } = null!;
+        public static IMarketDataService MarketDataService { get; private set; } = null!;
+        public static TimeSpan RealtimePollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
         // Доступ к конфигурации бирж через статический класс
         public static List<string> AvailableExchanges => ExchangeConfig.AvailableExchanges;
@@ -58,6 +60,9 @@ namespace BotView
                 );
                 dataProvider.SetExchangeService(ExchangeService);
 
+                var candleStore = new CandleStore();
+                MarketDataService = new MarketDataService(ExchangeService, candleStore, RealtimePollInterval);
+
                 // Логирование успешной инициализации
                 System.Diagnostics.Debug.WriteLine("Services initialized successfully");
                 System.Diagnostics.Debug.WriteLine($"Default exchange: {Defaults.Exchange}");
@@ -85,6 +90,11 @@ namespace BotView
         {
             // Логирование завершения приложения
             System.Diagnostics.Debug.WriteLine("Application shutting down");
+
+            if (MarketDataService != null)
+            {
+                MarketDataService.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
             
             base.OnExit(e);
         }

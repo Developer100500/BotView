@@ -1,10 +1,12 @@
 ﻿using System.Diagnostics;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using BotView.Chart;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Database;
+using BotView.Interfaces;
 using BotView.ViewModels;
 using BotView.Services;
 
@@ -16,7 +18,10 @@ namespace BotView
         private readonly MainWindowViewModel _viewModel;
         private readonly System.Windows.Threading.DispatcherTimer _metricsTimer;
         private readonly System.Windows.Threading.DispatcherTimer _renderTimeUpdateTimer;
-        
+        private IMarketDataSubscription? _subscription;
+        private CandleCacheKey _currentKey;
+        private int _loadingOlder;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -57,6 +62,7 @@ namespace BotView
             _renderTimeUpdateTimer.Tick += RenderTimeUpdateTimer_Tick;
             _renderTimeUpdateTimer.Start();
             
+            chartView.LeftEdgeApproached += OnLeftEdgeApproached;
             this.Loaded += MainWindow_Loaded;
             chartView.AddIndicator(new Chart.IndicatorPane.RSIIndicator());
         }
@@ -92,30 +98,42 @@ namespace BotView
         {
             var taManager = chartView.GetTechnicalAnalysisManager();
             await taManager.SetSymbolAsync(_viewModel.SelectedSymbol);
-            await LoadRealData();
+            await SwitchSubscriptionAsync();
         }
 
-        private async Task LoadRealData()
+        /// <summary> Switches market data subscription and loads initial chart snapshot. </summary>
+        private async Task SwitchSubscriptionAsync()
         {
             try
             {
                 this.Cursor = Cursors.Wait;
-                
-                var candlestickData = await _viewModel.LoadDataAsync();
-                
-                if (candlestickData.HasValue)
+
+                _subscription?.Dispose();
+                _subscription = null;
+
+                var key = new CandleCacheKey(
+                    _viewModel.SelectedExchange,
+                    _viewModel.SelectedSymbol,
+                    _viewModel.SelectedTimeframe,
+                    250);
+                _currentKey = key;
+
+                var sub = await App.MarketDataService.SubscribeAsync(key, initialHistory: 250);
+                _subscription = sub;
+
+                var data = App.MarketDataService.BuildChartData(key);
+                Dispatcher.Invoke(() =>
                 {
-                    var data = candlestickData.Value;
-                    Dispatcher.Invoke(() =>
-                    {
-                        chartView.SetCandlestickData(data);
-                        chartView.FitToData();
-                    });
-                }
-                else
-                {
-                    throw new Exception("Failed to load data from exchange");
-                }
+                    chartView.SetCandlestickData(data);
+                    chartView.SnapLastCandleToRightEdge();
+                });
+
+                sub.LiveCandleTicked += c =>
+                    Dispatcher.InvokeAsync(() => chartView.UpdateLastCandle(c));
+                sub.CandleClosed += (closed, newOpen) =>
+                    Dispatcher.InvokeAsync(() => chartView.OnCandleClosed(closed, newOpen));
+                sub.OlderCandlesLoaded += arr =>
+                    Dispatcher.InvokeAsync(() => chartView.PrependCandles(arr));
             }
             catch (Exception ex)
             {
@@ -127,7 +145,7 @@ namespace BotView
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning
                     );
-                    
+
                     var demoData = _viewModel.LoadDemoData();
                     chartView.SetCandlestickData(demoData);
                     chartView.FitToData();
@@ -136,6 +154,24 @@ namespace BotView
             finally
             {
                 this.Cursor = Cursors.Arrow;
+            }
+        }
+
+        /// <summary> Loads older candles when viewport approaches left edge. </summary>
+        private async void OnLeftEdgeApproached()
+        {
+            if (Interlocked.CompareExchange(ref _loadingOlder, 1, 0) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await App.MarketDataService.LoadOlderAsync(_currentKey, count: 250);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _loadingOlder, 0);
             }
         }
 
@@ -160,7 +196,7 @@ namespace BotView
                 _viewModel.SelectedSymbol = selectedPair.Tag.ToString() ?? "BTC/USDT";
                 _viewModel.SelectedTimeframe = selectedTimeframe.Tag.ToString() ?? "1d";
                 
-                await LoadRealData();
+                await SwitchSubscriptionAsync();
             }
         }
 
@@ -178,7 +214,7 @@ namespace BotView
                 _viewModel.SelectedSymbol = selectedPair.Tag.ToString() ?? "BTC/USDT";
                 _viewModel.SelectedTimeframe = selectedTimeframe.Tag.ToString() ?? "1d";
                 
-                await LoadRealData();
+                await SwitchSubscriptionAsync();
             }
         }
 
@@ -200,7 +236,7 @@ namespace BotView
                 var taManager = chartView.GetTechnicalAnalysisManager();
                 await taManager.SetSymbolAsync(_viewModel.SelectedSymbol);
 
-                await LoadRealData();
+                await SwitchSubscriptionAsync();
             }
         }
 
@@ -310,6 +346,8 @@ namespace BotView
             {
                 _metricsTimer?.Stop();
                 _renderTimeUpdateTimer?.Stop();
+
+                _subscription?.Dispose();
                 
                 if (chartView != null)
                 {

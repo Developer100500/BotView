@@ -7,4 +7,7 @@ public interface IMarketDataService : IAsyncDisposable
     
     /// <summary> Догружает <paramref name="count"/> свечей старее текущей самой левой; идемпотентно. </summary>
     Task<int> LoadOlderAsync(CandleCacheKey key, int count, CancellationToken ct = default);
+
+    /// <summary> Builds chart snapshot from closed history and current live candle. </summary>
+    CandlestickData BuildChartData(CandleCacheKey key);
 }

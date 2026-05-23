@@ -91,6 +91,9 @@ public class ChartView : FrameworkElement
 	/// <summary>Время последней отрисовки в миллисекундах</summary>
 	public double LastRenderTimeMs { get; private set; }
 
+	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
+	public event Action? LeftEdgeApproached;
+
 	public ChartView() : base()
 	{
 		// Инициализируем модель (она создаст тестовые данные и инструменты)
@@ -104,6 +107,7 @@ public class ChartView : FrameworkElement
 		
 		// Подписываемся на изменение viewport для перерисовки
 		controller.ViewportChanged += () => InvalidateVisual();
+		controller.LeftEdgeApproached += () => LeftEdgeApproached?.Invoke();
 
 		// Делаем контрол фокусируемым для обработки клавиатуры
 		Focusable = true;
@@ -634,6 +638,29 @@ public class ChartView : FrameworkElement
 		
 		// Recalculate all indicators with new data
 		RecalculateIndicators();
+	}
+
+	/// <summary> Prepends older candles to the left edge of chart data. </summary>
+	public void PrependCandles(OHLCV[] older)
+	{
+		controller.PrependCandles(older);
+		RecalculateIndicators();
+		InvalidateVisual();
+	}
+
+	/// <summary> Updates the last candle with live market data. </summary>
+	public void UpdateLastCandle(OHLCV candle)
+	{
+		controller.UpdateLastCandle(candle);
+		InvalidateVisual();
+	}
+
+	/// <summary> Finalizes closed candle and appends newly opened live candle. </summary>
+	public void OnCandleClosed(OHLCV closed, OHLCV newOpen)
+	{
+		controller.AppendLiveCandle(closed, newOpen);
+		RecalculateIndicators();
+		InvalidateVisual();
 	}
 
 	/// <summary>

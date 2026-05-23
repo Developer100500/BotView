@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using BotView.Chart.IndicatorPane;
@@ -41,10 +42,11 @@ public class ChartController
 		IndicatorScale    // Масштабирование по значению индикатора (вертикальная ось) - indicator pane
 	}
 
-	/// <summary>
-	/// Событие изменения viewport (для уведомления о необходимости перерисовки)
-	/// </summary>
+	/// <summary> Событие изменения viewport (для уведомления о необходимости перерисовки) </summary>
 	public event Action? ViewportChanged;
+
+	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
+	public event Action? LeftEdgeApproached;
 
 	/// <summary>
 	/// Конструктор ChartController
@@ -252,6 +254,16 @@ public class ChartController
 		// Помечаем все инструменты технического анализа для перерисовки при изменении viewport
 		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
 
+		var candles = model.CandlestickData.candles;
+		if (candles?.Length > 0)
+		{
+			var threshold = ParseTimeframe(model.Timeframe) * 20;
+			if (model.Viewport.minTime - model.CandlestickData.beginTime < threshold)
+			{
+				LeftEdgeApproached?.Invoke();
+			}
+		}
+
 		// Уведомляем об изменении viewport
 		ViewportChanged?.Invoke();
 	}
@@ -267,15 +279,17 @@ public class ChartController
 		// Calculate data range
 		model.UpdateDataRange();
 
-		// Position camera at center of data in world coordinates
-		model.CameraPosition = new Coordinates(0, 0);
-
 		// Set initial zoom to fit all data with some padding
 		TimeSpan dataTimeRange = model.CandlestickData.endTime - model.CandlestickData.beginTime;
 		model.TimeRangeInViewport = TimeSpan.FromTicks((long)(dataTimeRange.Ticks * 1.5)); // 50% padding
 
 		double dataRangeY = (model.Viewport.maxPrice - model.Viewport.minPrice) * 1.2; // 20% padding
 		model.PriceRangeInViewport = dataRangeY;
+
+		// Position camera near the current market price instead of the stale test-data origin.
+		var lastCandle = model.CandlestickData.candles[^1];
+		var centerTime = model.CandlestickData.endTime.Subtract(TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2));
+		model.CameraPosition = ChartToWorld(new ChartCoordinates(centerTime, lastCandle.close));
 
 		// Помечаем все инструменты для перерисовки при первоначальной загрузке
 		//model.TechnicalAnalysisManager.MarkAllToolsForRedrawing(); // Скорее всего это не нужно, т.к. по-умолчанию ChartRenderer имеет флаг RedrawAllTechincalTools установленный в true
@@ -644,6 +658,99 @@ public class ChartController
 		}
 	}
 
+	/// <summary> Prepends older candles to the left edge of chart data. </summary>
+	public void PrependCandles(OHLCV[] older)
+	{
+		if (older == null || older.Length == 0)
+		{
+			return;
+		}
+
+		var existing = model.CandlestickData.candles ?? Array.Empty<OHLCV>();
+		var merged = older
+			.Concat(existing)
+			.GroupBy(c => c.timestamp)
+			.Select(g => g.Last())
+			.OrderBy(c => c.timestamp)
+			.ToArray();
+
+		model.CandlestickData = new CandlestickData(
+			model.CandlestickData.timeframe,
+			merged[0].GetDateTime(),
+			merged[^1].GetDateTime(),
+			merged);
+
+		model.UpdateDataRange();
+		ViewportChanged?.Invoke();
+	}
+
+	/// <summary> Updates or appends the last candle in chart data. </summary>
+	public void UpdateLastCandle(OHLCV updated)
+	{
+		var data = model.CandlestickData;
+		var candles = data.candles;
+		if (candles == null || candles.Length == 0)
+		{
+			model.CandlestickData = new CandlestickData(
+				data.timeframe,
+				updated.GetDateTime(),
+				updated.GetDateTime(),
+				new[] { updated });
+			ViewportChanged?.Invoke();
+			return;
+		}
+
+		if (candles[^1].timestamp == updated.timestamp)
+		{
+			candles[^1] = updated;
+			data.endTime = updated.GetDateTime();
+		}
+		else if (updated.timestamp > candles[^1].timestamp)
+		{
+			var next = new OHLCV[candles.Length + 1];
+			Array.Copy(candles, next, candles.Length);
+			next[^1] = updated;
+			candles = next;
+			data.endTime = updated.GetDateTime();
+		}
+		else
+		{
+			return;
+		}
+
+		data.candles = candles;
+		model.CandlestickData = data;
+		ViewportChanged?.Invoke();
+	}
+
+	/// <summary> Finalizes closed candle and appends newly opened live candle. </summary>
+	public void AppendLiveCandle(OHLCV closed, OHLCV newOpen)
+	{
+		var data = model.CandlestickData;
+		var candles = data.candles;
+		if (candles == null || candles.Length == 0)
+		{
+			model.CandlestickData = new CandlestickData(
+				data.timeframe,
+				newOpen.GetDateTime(),
+				newOpen.GetDateTime(),
+				new[] { newOpen });
+			model.UpdateDataRange();
+			ViewportChanged?.Invoke();
+			return;
+		}
+
+		candles[^1] = closed;
+		var next = new OHLCV[candles.Length + 1];
+		Array.Copy(candles, next, candles.Length);
+		next[^1] = newOpen;
+		data.candles = next;
+		data.endTime = newOpen.GetDateTime();
+		model.CandlestickData = data;
+		model.UpdateDataRange();
+		ViewportChanged?.Invoke();
+	}
+
 	/// <summary>
 	/// Центрирует график на определенном времени
 	/// </summary>
@@ -695,7 +802,7 @@ public class ChartController
 		TimeSpan halfRange = TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2);
 		DateTime centerTime = lastCandleTime.Subtract(halfRange);
 			
-		double centerPrice = (model.Viewport.maxPrice + model.Viewport.minPrice) / 2;
+		double centerPrice = model.CandlestickData.candles[^1].close;
 			
 		ChartCoordinates centerChart = new ChartCoordinates(centerTime, centerPrice);
 		model.CameraPosition = ChartToWorld(centerChart);
@@ -740,12 +847,12 @@ public class ChartController
 		// Смещаем центр камеры так, чтобы правая грань тела свечи касалась правой границы области графика.
 		double targetOffsetSeconds = halfViewportSeconds - candleHalfWidthSeconds;
 
-		ChartCoordinates lastCandleChart = new ChartCoordinates(lastCandleTime, model.WorldOriginPrice);
-		Coordinates lastCandleWorld = ChartToWorld(lastCandleChart);
+		var lastCandle = model.CandlestickData.candles[lastIndex];
+		Coordinates lastCandleWorld = ChartToWorld(new ChartCoordinates(lastCandleTime, lastCandle.close));
 
 		model.CameraPosition = new Coordinates(
 			lastCandleWorld.x - targetOffsetSeconds,
-			model.CameraPosition.y
+			lastCandleWorld.y
 		);
 
 		UpdateViewportFromCamera();
