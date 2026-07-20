@@ -145,7 +145,7 @@ public class ChartRenderer
 
 		// Устанавливаем цвета в зависимости от типа свечи
 		Brush bodyBrush = isBullish ? Brushes.LightGreen : Brushes.LightCoral;
-		Pen bodyPen = new Pen(isBullish ? Brushes.Green : Brushes.Red, 2);
+		Pen bodyPen = new Pen(isBullish ? Brushes.Green : Brushes.Red, 1);
 		Pen wickPen = new Pen(Brushes.Black, 1.5);
 
 		// Создаем clipping region для main pane only
@@ -295,7 +295,7 @@ public class ChartRenderer
 					new Point(scaleX + tickWidth, viewCoords.y));
 
 				// Отрисовываем подпись цены
-				string priceText = controller.FormatPriceLabel(currentPrice);
+				string priceText = controller.FormatPriceLabel(currentPrice, priceInterval);
 				FormattedText formattedText = new FormattedText(
 					priceText,
 					System.Globalization.CultureInfo.CurrentCulture,

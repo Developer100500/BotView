@@ -125,7 +125,9 @@ namespace BotView
                 Dispatcher.Invoke(() =>
                 {
                     chartView.SetCandlestickData(data);
+                    chartView.ResetTimeScaleToTimeframe();
                     chartView.SnapLastCandleToRightEdge();
+                    chartView.ResetPriceScaleToCurrentPrice();
                 });
 
                 sub.LiveCandleTicked += c =>

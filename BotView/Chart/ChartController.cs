@@ -271,31 +271,18 @@ public class ChartController
 #endregion
 #region === CAMERA CONTROL METHODS ===
 
-	/// <summary>
-	/// Инициализация камеры (вызывается один раз при старте)
-	/// </summary>
+	/// <summary> Инициализация камеры (вызывается один раз при старте) </summary>
 	public void InitializeCamera()
 	{
-		// Calculate data range
 		model.UpdateDataRange();
 
-		// Set initial zoom to fit all data with some padding
-		TimeSpan dataTimeRange = model.CandlestickData.endTime - model.CandlestickData.beginTime;
-		model.TimeRangeInViewport = TimeSpan.FromTicks((long)(dataTimeRange.Ticks * 1.5)); // 50% padding
+		ResetTimeScaleToTimeframe();
 
-		double dataRangeY = (model.Viewport.maxPrice - model.Viewport.minPrice) * 1.2; // 20% padding
-		model.PriceRangeInViewport = dataRangeY;
-
-		// Position camera near the current market price instead of the stale test-data origin.
 		var lastCandle = model.CandlestickData.candles[^1];
 		var centerTime = model.CandlestickData.endTime.Subtract(TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2));
 		model.CameraPosition = ChartToWorld(new ChartCoordinates(centerTime, lastCandle.close));
 
-		// Помечаем все инструменты для перерисовки при первоначальной загрузке
-		//model.TechnicalAnalysisManager.MarkAllToolsForRedrawing(); // Скорее всего это не нужно, т.к. по-умолчанию ChartRenderer имеет флаг RedrawAllTechincalTools установленный в true
-
-		// Update viewport based on camera
-		UpdateViewportFromCamera();
+		ResetPriceScaleToCurrentPrice();
 	}
 
 	/// <summary>
@@ -358,7 +345,8 @@ public class ChartController
 		if (model.TimeRangeInViewport.TotalDays > 3650) // максимум 10 лет
 			model.TimeRangeInViewport = TimeSpan.FromDays(3650);
 
-		model.PriceRangeInViewport = Math.Clamp(model.PriceRangeInViewport, 0.01, 1000000);
+		// Нижний предел достаточно мал для низких цен (например 0.0552 × 10% = 0.00552)
+		model.PriceRangeInViewport = Math.Clamp(model.PriceRangeInViewport, 1e-8, 1000000);
 
 		// Корректируем позицию камеры чтобы точка фокуса осталась в той же экранной позиции
 		model.CameraPosition = new Coordinates(
@@ -783,30 +771,50 @@ public class ChartController
 		if (model.CandlestickData.candles == null || model.CandlestickData.candles.Length == 0)
 			return;
 
-		// Вычисляем временной диапазон данных
 		TimeSpan dataTimeRange = model.CandlestickData.endTime - model.CandlestickData.beginTime;
 		model.TimeRangeInViewport = TimeSpan.FromTicks((long)(dataTimeRange.Ticks * 1.2)); // 20% padding
 
-		// Вычисляем ценовой диапазон данных
-		double dataRangeY = (model.Viewport.maxPrice - model.Viewport.minPrice) * 1.2; // 20% padding
-		model.PriceRangeInViewport = dataRangeY;
-
-		// Позиционируем камеру так, чтобы последняя свечка была справа
-		// Центр камеры должен быть посередине между левым краем viewport и последней свечкой
 		DateTime lastCandleTime = model.CandlestickData.endTime;
-			
-		// Вычисляем время левого края viewport (камера - половина диапазона)
-		DateTime leftEdgeTime = lastCandleTime.Subtract(TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2));
-			
-		// Центр камеры находится посередине между левым краем и последней свечкой
 		TimeSpan halfRange = TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2);
 		DateTime centerTime = lastCandleTime.Subtract(halfRange);
-			
 		double centerPrice = model.CandlestickData.candles[^1].close;
-			
+
 		ChartCoordinates centerChart = new ChartCoordinates(centerTime, centerPrice);
 		model.CameraPosition = ChartToWorld(centerChart);
 
+		ResetPriceScaleToCurrentPrice();
+	}
+
+	/// <summary> Сбрасывает вертикальный масштаб: ±5% от текущей цены на всю высоту экрана </summary>
+	public void ResetPriceScaleToCurrentPrice()
+	{
+		var candles = model.CandlestickData.candles;
+		if (candles == null || candles.Length == 0)
+			return;
+
+		double currentPrice = candles[^1].close;
+		if (!double.IsFinite(currentPrice) || Math.Abs(currentPrice) < double.Epsilon)
+			return;
+
+		// Полный видимый диапазон = 10% цены: 5% вниз и 5% вверх от текущей цены
+		model.PriceRangeInViewport = Math.Abs(currentPrice) * 0.20;
+
+		Coordinates priceWorld = ChartToWorld(new ChartCoordinates(DateTime.Now, currentPrice));
+		model.CameraPosition = new Coordinates(model.CameraPosition.x, priceWorld.y);
+
+		UpdateViewportFromCamera();
+	}
+
+	/// <summary> Сбрасывает горизонтальный масштаб: фиксированное число свечей текущего таймфрейма в ширину экрана </summary>
+	public void ResetTimeScaleToTimeframe()
+	{
+		const int targetVisibleCandles = 100;
+
+		TimeSpan candleDuration = ParseTimeframe(model.Timeframe);
+		if (candleDuration <= TimeSpan.Zero)
+			return;
+
+		model.TimeRangeInViewport = TimeSpan.FromTicks(candleDuration.Ticks * targetVisibleCandles);
 		UpdateViewportFromCamera();
 	}
 
@@ -949,23 +957,64 @@ public class ChartController
 	public double CalculateOptimalPriceInterval()
 	{
 		double priceRange = model.Viewport.maxPrice - model.Viewport.minPrice;
-			
-		// Целевое количество меток на экране (примерно 5-10)
-		int targetTickCount = 10;
+		if (priceRange <= 0 || !double.IsFinite(priceRange))
+			return 1;
+
+		int targetTickCount = GetTargetPriceSectionCount();
 		double rawInterval = priceRange / targetTickCount;
 
-		// Округляем до "красивого" числа
-		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(rawInterval)));
-		double normalizedInterval = rawInterval / magnitude;
+		return RoundUpToNicePriceStep(rawInterval);
+	}
 
-		if (normalizedInterval <= 1)
-			return magnitude;
-		else if (normalizedInterval <= 2)
-			return 2 * magnitude;
-		else if (normalizedInterval <= 5)
-			return 5 * magnitude;
-		else
-			return 10 * magnitude;
+	/// <summary> Возвращает целевое число ценовых секций по высоте main pane </summary>
+	private int GetTargetPriceSectionCount()
+	{
+		const double pixelsPerSection = 55;
+		const int minSections = 4;
+		const int maxSections = 10;
+
+		if (model.MainPaneHeight <= 0)
+			return maxSections;
+
+		int sections = (int)Math.Round(model.MainPaneHeight / pixelsPerSection);
+		return Math.Clamp(sections, minSections, maxSections);
+	}
+
+	/// <summary> Округляет шаг цены вверх до ряда 1 / 2 / 2.5 / 5 / 10 × 10ⁿ </summary>
+	private static double RoundUpToNicePriceStep(double rawStep)
+	{
+		if (rawStep <= 0 || !double.IsFinite(rawStep))
+			return 1;
+
+		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(rawStep)));
+		double normalized = rawStep / magnitude;
+
+		double niceNormalized = normalized switch
+		{
+			<= 1.0 => 1.0,
+			<= 2.0 => 2.0,
+			<= 2.5 => 2.5,
+			<= 5.0 => 5.0,
+			_ => 10.0
+		};
+
+		return niceNormalized * magnitude;
+	}
+
+	/// <summary> Определяет число знаков после запятой по шагу цены </summary>
+	private static int GetDecimalPlacesForPriceStep(double priceInterval)
+	{
+		if (priceInterval <= 0 || !double.IsFinite(priceInterval))
+			return 4;
+
+		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(priceInterval)));
+		double normalized = priceInterval / magnitude;
+		int baseDecimals = (int)Math.Max(0, -Math.Floor(Math.Log10(magnitude)));
+
+		if (Math.Abs(normalized - 2.5) < 0.01)
+			return baseDecimals + 1;
+
+		return baseDecimals;
 	}
 
 	/// <summary>
@@ -996,19 +1045,12 @@ public class ChartController
 			return time.ToString("dd.MM.yy");
 	}
 
-	public string FormatPriceLabel(double price)
+	/// <summary> Форматирует подпись цены с учётом шага шкалы </summary>
+	public string FormatPriceLabel(double price, double? priceInterval = null)
 	{
-		// Определяем количество знаков после запятой на основе величины цены
-		if (Math.Abs(price) >= 1000)
-			return price.ToString("F0");
-		else if (Math.Abs(price) >= 100)
-			return price.ToString("F1");
-		else if (Math.Abs(price) >= 10)
-			return price.ToString("F2");
-		else if (Math.Abs(price) >= 1)
-			return price.ToString("F3");
-		else
-			return price.ToString("F4");
+		double interval = priceInterval ?? CalculateOptimalPriceInterval();
+		int decimals = GetDecimalPlacesForPriceStep(interval);
+		return price.ToString($"F{decimals}");
 	}
 }
 

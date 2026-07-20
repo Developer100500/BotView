@@ -715,6 +715,20 @@ public class ChartView : FrameworkElement
 		InvalidateVisual();
 	}
 
+	/// <summary> Сбрасывает вертикальный масштаб по текущей цене и высоте панели </summary>
+	public void ResetPriceScaleToCurrentPrice()
+	{
+		controller.ResetPriceScaleToCurrentPrice();
+		InvalidateVisual();
+	}
+
+	/// <summary> Сбрасывает горизонтальный масштаб под текущий таймфрейм </summary>
+	public void ResetTimeScaleToTimeframe()
+	{
+		controller.ResetTimeScaleToTimeframe();
+		InvalidateVisual();
+	}
+
 	/// <summary>
 	/// Масштабирование только по одной оси с сохранением фокуса на центре экрана
 	/// </summary>

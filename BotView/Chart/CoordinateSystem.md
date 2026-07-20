@@ -107,6 +107,27 @@ ChartCoordinates mouseChart = ViewToChart(mouseView);
 - `CenterOnTime(time)`: Центрирование на времени
 - `CenterOnPrice(price)`: Центрирование на цене
 - `FitToData()`: Подгонка под все данные
+- `ResetTimeScaleToTimeframe()`: Сброс X-масштаба: ~80 свечей текущего таймфрейма
+- `ResetPriceScaleToCurrentPrice()`: Сброс Y-масштаба: ±5% от текущей цены
+
+### Автомасштаб цены
+
+При смене инструмента или таймфрейма:
+1. Загружаются новые свечи (`SetCandlestickData`)
+2. Горизонтальный масштаб сбрасывается (`ResetTimeScaleToTimeframe`) — ~80 свечей текущего TF
+3. Последняя свеча прижимается к правому краю (`SnapLastCandleToRightEdge`)
+4. Вертикальный масштаб сбрасывается (`ResetPriceScaleToCurrentPrice`)
+
+Расчёт X-диапазона:
+- `timeRangeInViewport = длительность_свечи × 80`
+- Примеры: `1d` → 80 дней, `15m` → 20 часов, `1h` → ~3.3 дня
+
+Расчёт Y-диапазона:
+- Текущая цена = последняя `close`
+- `priceRangeInViewport = abs(price) × 10%` (5% вниз + 5% вверх)
+- Камера по Y на текущей цене
+
+Горизонтальное позиционирование, live-обновления и подгрузка истории не пересчитывают масштабы.
 
 ## Интерактивность
 
