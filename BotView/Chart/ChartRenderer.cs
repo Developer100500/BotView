@@ -49,6 +49,7 @@ public class ChartRenderer
 		DrawTechnicalAnalysisTools(drawingContext);
 
 		DrawToolCreationPreview(drawingContext);
+		DrawCurrentPriceIndicator(drawingContext);
 
 		// Draw divider between panes
 		DrawDivider(drawingContext);
@@ -188,6 +189,76 @@ public class ChartRenderer
 			// Убираем clipping
 			drawingContext.Pop();
 		}
+	}
+
+	/// <summary>Отрисовывает пунктир от текущей свечи и метку рыночной цены на шкале</summary>
+	private void DrawCurrentPriceIndicator(DrawingContext drawingContext)
+	{
+		var candles = model.CandlestickData.candles;
+		if (candles == null || candles.Length == 0)
+			return;
+
+		int lastIndex = candles.Length - 1;
+		OHLCV currentCandle = candles[lastIndex];
+		double currentPrice = currentCandle.close;
+		if (!double.IsFinite(currentPrice) ||
+			currentPrice < model.Viewport.minPrice ||
+			currentPrice > model.Viewport.maxPrice)
+		{
+			return;
+		}
+
+		DateTime candleTime = controller.GetCandleTime(lastIndex);
+		Coordinates currentPriceView = controller.ChartToView(new ChartCoordinates(candleTime, currentPrice));
+		double scaleX = model.LeftMargin + model.ChartWidth;
+		double candleRight = currentPriceView.x + controller.GetCandleWidthPixels() / 2;
+		double lineStartX = Math.Max(model.LeftMargin, candleRight);
+
+		Brush indicatorBrush = currentCandle.close >= currentCandle.open
+			? Brushes.Green
+			: Brushes.Red;
+		Pen indicatorPen = new Pen(Brushes.LightGray, 1)
+		{
+			DashStyle = DashStyles.Dot
+		};
+
+		if (lineStartX < scaleX)
+		{
+			drawingContext.DrawLine(
+				indicatorPen,
+				new Point(lineStartX, currentPriceView.y),
+				new Point(scaleX, currentPriceView.y));
+		}
+
+		double priceInterval = controller.CalculateOptimalPriceInterval();
+		string priceText = controller.FormatPriceLabel(currentPrice, priceInterval);
+		FormattedText formattedText = new FormattedText(
+			priceText,
+			System.Globalization.CultureInfo.CurrentCulture,
+			FlowDirection.LeftToRight,
+			new Typeface("Arial"),
+			10,
+			Brushes.White,
+			96.0);
+
+		const double horizontalPadding = 4;
+		const double verticalPadding = 2;
+		double labelWidth = Math.Min(
+			model.RightMargin,
+			formattedText.Width + horizontalPadding * 2);
+		double labelHeight = formattedText.Height + verticalPadding * 2;
+		Rect labelRect = new Rect(
+			scaleX,
+			currentPriceView.y - labelHeight / 2,
+			labelWidth,
+			labelHeight);
+
+		drawingContext.DrawRectangle(indicatorBrush, null, labelRect);
+		drawingContext.DrawText(
+			formattedText,
+			new Point(
+				scaleX + horizontalPadding,
+				currentPriceView.y - formattedText.Height / 2));
 	}
 
 	/// <summary>Отрисовка шкалы времени (горизонтальная ось внизу indicator pane - shared)</summary>
