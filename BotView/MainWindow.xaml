@@ -3,7 +3,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:BotView"
         xmlns:chart="clr-namespace:BotView.Chart"
         mc:Ignorable="d"
         Title="MainWindow" Height="800" Width="1200">
@@ -17,38 +16,30 @@
                 <Label Content="Биржа:" FontSize="12"/>
                 <ComboBox Name="cmbExchange"
                           Margin="2" Height="Auto"
-                          SelectionChanged="CmbExchange_SelectionChanged">
-                    <ComboBoxItem Content="Binance" Tag="binance" IsSelected="True"/>
-                    <ComboBoxItem Content="Bybit" Tag="bybit"/>
-                    <ComboBoxItem Content="OKX" Tag="okx"/>
-                    <ComboBoxItem Content="Kraken" Tag="kraken"/>
-                </ComboBox>
+                          ItemsSource="{Binding Exchanges}"
+                          DisplayMemberPath="DisplayName"
+                          SelectedValuePath="Id"
+                          SelectedValue="{Binding SelectedExchange, Mode=TwoWay}"/>
 
                 <Separator Margin="2"/>
                 <Label Content="Timeframe:" FontSize="12"/>
                 <ComboBox Name="cmbTimeframe" Margin="2"
                           FontSize="14" FontWeight="Bold"
-                          SelectionChanged="CmbTimeframe_SelectionChanged"
-                          Height="Auto" MaxHeight="24">
-                    <ComboBoxItem Content="1m" Tag="1m"/>
-                    <ComboBoxItem Content="5m" Tag="5m"/>
-                    <ComboBoxItem Content="15m" Tag="15m"/>
-                    <ComboBoxItem Content="1h" Tag="1h"/>
-                    <ComboBoxItem Content="1d" Tag="1d" IsSelected="True"/>
-                    <ComboBoxItem Content="1w" Tag="1w"/>
-                </ComboBox>
+                          Height="Auto" MaxHeight="24"
+                          ItemsSource="{Binding Timeframes}"
+                          SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}"/>
             </StackPanel>
             <TextBox Focusable="True" Text="Search coins" Width="120" FontSize="14" Margin="8,0,0,0"/>
 
         </StackPanel>
-        
+
         <!-- Status Bar at Bottom -->
         <StatusBar DockPanel.Dock="Bottom" Height="30" Name="statusBar">
             <StatusBarItem>
-                <TextBlock Name="fpsCounter" Text="Render: -- ms" Margin="5,0"/>
+                <TextBlock Name="fpsCounter" Text="{Binding RenderTimeText}" Margin="5,0"/>
             </StatusBarItem>
         </StatusBar>
-        
+
         <!-- Main Content Area with Grid -->
         <Grid>
             <Grid.ColumnDefinitions>
@@ -56,42 +47,49 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="100" />
             </Grid.ColumnDefinitions>
-            
+
             <!-- Left Menu Panel -->
             <StackPanel Grid.Column="0" Background="LightGray" Margin="5">
                 <Label Content="Управление графиком" FontWeight="Bold" HorizontalAlignment="Center"/>
 
-                <Button Name="btnSnapLastToRight" Content="Прижать вправо" Margin="2" Click="BtnSnapLastToRight_Click"/>
+                <Button Name="btnSnapLastToRight" Content="Прижать вправо" Margin="2"
+                        Command="{Binding SnapLastToRightCommand}"/>
 
                 <Separator Margin="2"/>
                 <TextBlock Text="Инструменты" Margin="2"/>
-                <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2" Click="BtnHorizontalLine_Click"/>
-                <Button Name="btnTrendLine" Content="Трендовая линия" Margin="2" Click="BtnTrendLine_Click"/>
-                <Button Name="btnTrendChannel" Content="Трендовый канал" Margin="2" Click="BtnTrendChannel_Click"/>
-                <Button Name="btnRectangle" Content="Прямоугольник" Margin="2" Click="BtnRectangle_Click"/>
+                <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2"
+                        Command="{Binding StartHorizontalLineCommand}"/>
+                <Button Name="btnTrendLine" Content="Трендовая линия" Margin="2"
+                        Command="{Binding StartTrendLineCommand}"/>
+                <Button Name="btnTrendChannel" Content="Трендовый канал" Margin="2"
+                        Command="{Binding StartTrendChannelCommand}"/>
+                <Button Name="btnRectangle" Content="Прямоугольник" Margin="2"
+                        Command="{Binding StartRectangleCommand}"/>
 
                 <Separator Margin="2,8,2,8"/>
-                <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2" Click="BtnShowMetrics_Click"/>
-                <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2" Click="BtnExportMetrics_Click"/>
-                
+                <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2"
+                        Command="{Binding ShowMetricsCommand}"/>
+                <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2"
+                        Command="{Binding ExportMetricsCommand}"/>
+
                 <Separator Margin="2"/>
                 <TextBlock Text="Инструкции:" FontSize="10" FontWeight="Bold" Margin="2"/>
                 <TextBlock Text="• Перетаскивание мышью для панорамирования" FontSize="9" TextWrapping="Wrap" Margin="2"/>
                 <TextBlock Text="• Колесо мыши для масштабирования" FontSize="9" TextWrapping="Wrap" Margin="2"/>
             </StackPanel>
-            
+
             <!-- Chart View - Takes all remaining space -->
             <chart:ChartView Grid.Column="1" x:Name="chartView" />
 
             <!-- Right Panel -->
             <StackPanel Grid.Column="2" Background="LightGray" Margin="5">
                 <Label Content="Торговые пары" FontWeight="Bold" HorizontalAlignment="Center"/>
-                <ListBox Name="lstTradingPairs" Margin="2" SelectionChanged="LstTradingPairs_SelectionChanged">
-                    <!-- Items loaded from database -->
-                </ListBox>
+                <ListBox Name="lstTradingPairs" Margin="2"
+                         ItemsSource="{Binding TradingPairs}"
+                         DisplayMemberPath="Symbol"
+                         SelectedValuePath="Symbol"
+                         SelectedValue="{Binding SelectedSymbol, Mode=TwoWay}"/>
             </StackPanel>
         </Grid>
     </DockPanel>
-
-
 </Window>
