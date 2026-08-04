@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using BotView.Chart;
 using BotView.Chart.TechnicalAnalysis;
@@ -26,6 +27,7 @@ namespace BotView
             _viewModel = new MainWindowViewModel(
                 databaseService,
                 App.DataProvider,
+                App.ExchangeService,
                 App.MarketDataService,
                 metricsController);
             DataContext = _viewModel;
@@ -79,6 +81,41 @@ namespace BotView
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             await _viewModel.StartAsync();
+        }
+
+        private void TxtSymbolSearch_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel.SearchResults.Count > 0)
+            {
+                _viewModel.IsSearchDropdownOpen = true;
+            }
+        }
+
+        private void TxtSymbolSearch_LostFocus(object sender, RoutedEventArgs e)
+        {
+            // Delay so ListBox click can run before popup closes.
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!txtSymbolSearch.IsKeyboardFocusWithin)
+                {
+                    _viewModel.IsSearchDropdownOpen = false;
+                }
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private void SearchResults_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ListBox listBox)
+            {
+                return;
+            }
+
+            var item = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+            if (item?.DataContext is string symbol)
+            {
+                _viewModel.SelectSearchResultCommand.Execute(symbol);
+                e.Handled = true;
+            }
         }
 
         private void OnChartSnapshotReady(CandlestickData data, bool useLiveLayout)

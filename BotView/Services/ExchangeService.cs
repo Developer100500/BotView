@@ -278,13 +278,22 @@ namespace BotView.Services
                 {
                     var exchangeInstance = GetExchangeInstance(normalizedExchange);
                     var markets = await exchangeInstance.LoadMarkets();
+
+                    var symbols = markets.Values
+                        .Where(m => m.active != false)
+                        .Where(m => m.spot == true)
+                        .Select(m => m.symbol)
+                        .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
                     
                     stopwatch.Stop();
                     _logger?.LogApiRequest(normalizedExchange, "LoadMarkets", stopwatch.Elapsed, true);
                     _performanceMetrics.RecordApiRequest(normalizedExchange, "LoadMarkets", stopwatch.Elapsed, true);
-                    _logger?.LogInfo($"Loaded {markets.Count} symbols", normalizedExchange);
+                    _logger?.LogInfo($"Loaded {symbols.Count} active spot symbols (of {markets.Count} markets)", normalizedExchange);
                     
-                    return markets.Keys.ToList();
+                    return symbols;
                 }
                 catch (Exception ex)
                 {

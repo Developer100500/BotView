@@ -15,9 +15,11 @@ namespace BotView.ViewModels
     public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
         private const int HistoryBatchSize = 250;
+        private const int MaxSearchResults = 50;
 
         private readonly DatabaseService _databaseService;
         private readonly IDataProvider _dataProvider;
+        private readonly IExchangeService _exchangeService;
         private readonly IMarketDataService _marketDataService;
         private readonly MetricsController _metricsController;
         private readonly Timer _metricsTimer;
@@ -25,22 +27,30 @@ namespace BotView.ViewModels
         private string _selectedExchange = "binance";
         private string _selectedSymbol = "BTC/USDT";
         private string _selectedTimeframe = "1d";
+        private string _searchText = string.Empty;
+        private string _busyMessage = string.Empty;
         private double _renderTime;
         private bool _isBusy;
         private bool _isReady;
+        private bool _isSearchDropdownOpen;
         private bool _suppressSelectionReload;
+        private bool _suppressSearchUpdate;
         private IMarketDataSubscription? _subscription;
         private CandleCacheKey _currentKey;
         private int _loadingOlder;
+        private int _reloadGeneration;
+        private List<string> _allSymbols = new();
 
         public MainWindowViewModel(
             DatabaseService databaseService,
             IDataProvider dataProvider,
+            IExchangeService exchangeService,
             IMarketDataService marketDataService,
             MetricsController metricsController)
         {
             _databaseService = databaseService;
             _dataProvider = dataProvider;
+            _exchangeService = exchangeService;
             _marketDataService = marketDataService;
             _metricsController = metricsController;
 
@@ -58,6 +68,7 @@ namespace BotView.ViewModels
             };
 
             TradingPairs = new ObservableCollection<TradingPairModel>();
+            SearchResults = new ObservableCollection<string>();
 
             SnapLastToRightCommand = new RelayCommand(() => SnapLastToRightRequested?.Invoke());
             StartHorizontalLineCommand = new RelayCommand(() =>
@@ -70,6 +81,7 @@ namespace BotView.ViewModels
                 DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.Rectangle));
             ShowMetricsCommand = new RelayCommand(ShowMetrics);
             ExportMetricsCommand = new RelayCommand(ExportMetrics);
+            SelectSearchResultCommand = new RelayCommand(SelectSearchResult);
 
             _metricsTimer = new Timer(
                 _ => LogMetrics(),
@@ -81,6 +93,7 @@ namespace BotView.ViewModels
         public ObservableCollection<ExchangeOption> Exchanges { get; }
         public ObservableCollection<string> Timeframes { get; }
         public ObservableCollection<TradingPairModel> TradingPairs { get; }
+        public ObservableCollection<string> SearchResults { get; }
 
         public string SelectedExchange
         {
@@ -94,7 +107,7 @@ namespace BotView.ViewModels
 
                 _selectedExchange = value;
                 OnPropertyChanged();
-                _ = ReloadChartAsync();
+                _ = OnExchangeChangedAsync();
             }
         }
 
@@ -131,6 +144,41 @@ namespace BotView.ViewModels
             }
         }
 
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                if (_searchText == value)
+                {
+                    return;
+                }
+
+                _searchText = value ?? string.Empty;
+                OnPropertyChanged();
+
+                if (!_suppressSearchUpdate)
+                {
+                    UpdateSearchResults();
+                }
+            }
+        }
+
+        public bool IsSearchDropdownOpen
+        {
+            get => _isSearchDropdownOpen;
+            set
+            {
+                if (_isSearchDropdownOpen == value)
+                {
+                    return;
+                }
+
+                _isSearchDropdownOpen = value;
+                OnPropertyChanged();
+            }
+        }
+
         public double RenderTime
         {
             get => _renderTime;
@@ -164,6 +212,21 @@ namespace BotView.ViewModels
             }
         }
 
+        public string BusyMessage
+        {
+            get => _busyMessage;
+            private set
+            {
+                if (_busyMessage == value)
+                {
+                    return;
+                }
+
+                _busyMessage = value;
+                OnPropertyChanged();
+            }
+        }
+
         public ICommand SnapLastToRightCommand { get; }
         public ICommand StartHorizontalLineCommand { get; }
         public ICommand StartTrendLineCommand { get; }
@@ -171,6 +234,7 @@ namespace BotView.ViewModels
         public ICommand StartRectangleCommand { get; }
         public ICommand ShowMetricsCommand { get; }
         public ICommand ExportMetricsCommand { get; }
+        public ICommand SelectSearchResultCommand { get; }
 
         /// <summary> Full chart snapshot ready. Second arg: true = live layout, false = demo fit. </summary>
         public event Action<CandlestickData, bool>? ChartSnapshotReady;
@@ -200,13 +264,14 @@ namespace BotView.ViewModels
                     $"Не удалось инициализировать базу данных.\n\n{ex.Message}");
             }
 
-            LoadTradingPairs();
+            LoadFavoriteTradingPairs();
         }
 
         public async Task StartAsync()
         {
             _isReady = true;
             SymbolChanged?.Invoke(SelectedSymbol);
+            await LoadExchangeSymbolsAsync(SelectedExchange);
             await SwitchSubscriptionAsync();
         }
 
@@ -237,7 +302,7 @@ namespace BotView.ViewModels
             LogMetrics();
         }
 
-        private void LoadTradingPairs()
+        private void LoadFavoriteTradingPairs()
         {
             _suppressSelectionReload = true;
             try
@@ -262,6 +327,129 @@ namespace BotView.ViewModels
             }
         }
 
+        private async Task OnExchangeChangedAsync()
+        {
+            if (!_isReady || _suppressSelectionReload)
+            {
+                return;
+            }
+
+            await LoadExchangeSymbolsAsync(SelectedExchange);
+            await SwitchSubscriptionAsync();
+        }
+
+        private async Task LoadExchangeSymbolsAsync(string exchange)
+        {
+            var generation = Interlocked.Increment(ref _reloadGeneration);
+
+            try
+            {
+                SetBusy(true, $"Загрузка рынков {exchange}...");
+                var symbols = await _exchangeService.GetAvailableSymbolsAsync(exchange);
+
+                if (generation != _reloadGeneration)
+                {
+                    return;
+                }
+
+                _allSymbols = symbols;
+                UpdateSearchResults();
+
+                if (_allSymbols.Count > 0 &&
+                    !_allSymbols.Contains(SelectedSymbol, StringComparer.OrdinalIgnoreCase))
+                {
+                    var fallback = _allSymbols.FirstOrDefault(s =>
+                                       s.Equals("BTC/USDT", StringComparison.OrdinalIgnoreCase))
+                                   ?? _allSymbols[0];
+
+                    _suppressSelectionReload = true;
+                    try
+                    {
+                        _selectedSymbol = fallback;
+                        OnPropertyChanged(nameof(SelectedSymbol));
+                        SymbolChanged?.Invoke(_selectedSymbol);
+                    }
+                    finally
+                    {
+                        _suppressSelectionReload = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (generation != _reloadGeneration)
+                {
+                    return;
+                }
+
+                _allSymbols = new List<string>();
+                SearchResults.Clear();
+                IsSearchDropdownOpen = false;
+
+                Debug.WriteLine($"Failed to load markets for {exchange}: {ex.Message}");
+                ErrorOccurred?.Invoke(
+                    "Ошибка загрузки рынков",
+                    $"Не удалось загрузить торговые пары с биржи {exchange}:\n\n{ex.Message}");
+            }
+            finally
+            {
+                if (generation == _reloadGeneration)
+                {
+                    SetBusy(false);
+                }
+            }
+        }
+
+        private void UpdateSearchResults()
+        {
+            SearchResults.Clear();
+
+            var query = _searchText.Trim();
+            if (query.Length == 0 || _allSymbols.Count == 0)
+            {
+                IsSearchDropdownOpen = false;
+                return;
+            }
+
+            // Exact match after selecting from dropdown — keep field filled, hide popup.
+            if (_allSymbols.Any(s => s.Equals(query, StringComparison.OrdinalIgnoreCase)))
+            {
+                IsSearchDropdownOpen = false;
+                return;
+            }
+
+            foreach (var symbol in _allSymbols
+                         .Where(s => s.Contains(query, StringComparison.OrdinalIgnoreCase))
+                         .Take(MaxSearchResults))
+            {
+                SearchResults.Add(symbol);
+            }
+
+            IsSearchDropdownOpen = SearchResults.Count > 0;
+        }
+
+        private void SelectSearchResult(object? parameter)
+        {
+            if (parameter is not string symbol || string.IsNullOrWhiteSpace(symbol))
+            {
+                return;
+            }
+
+            _suppressSearchUpdate = true;
+            try
+            {
+                SearchText = symbol;
+            }
+            finally
+            {
+                _suppressSearchUpdate = false;
+            }
+
+            SearchResults.Clear();
+            IsSearchDropdownOpen = false;
+            SelectedSymbol = symbol;
+        }
+
         private async Task ReloadChartAsync()
         {
             if (!_isReady || _suppressSelectionReload)
@@ -274,9 +462,11 @@ namespace BotView.ViewModels
 
         private async Task SwitchSubscriptionAsync()
         {
+            var generation = Interlocked.Increment(ref _reloadGeneration);
+
             try
             {
-                IsBusy = true;
+                SetBusy(true, $"Загрузка {SelectedSymbol}...");
 
                 _subscription?.Dispose();
                 _subscription = null;
@@ -289,6 +479,13 @@ namespace BotView.ViewModels
                 _currentKey = key;
 
                 var sub = await _marketDataService.SubscribeAsync(key, initialHistory: HistoryBatchSize);
+
+                if (generation != _reloadGeneration)
+                {
+                    sub.Dispose();
+                    return;
+                }
+
                 _subscription = sub;
 
                 var data = _marketDataService.BuildChartData(key);
@@ -300,6 +497,11 @@ namespace BotView.ViewModels
             }
             catch (Exception ex)
             {
+                if (generation != _reloadGeneration)
+                {
+                    return;
+                }
+
                 ErrorOccurred?.Invoke(
                     "Ошибка подключения к бирже",
                     $"Ошибка загрузки данных с биржи {SelectedExchange}:\n\n{ex.Message}\n\nБудут загружены демонстрационные данные.");
@@ -309,8 +511,17 @@ namespace BotView.ViewModels
             }
             finally
             {
-                IsBusy = false;
+                if (generation == _reloadGeneration)
+                {
+                    SetBusy(false);
+                }
             }
+        }
+
+        private void SetBusy(bool isBusy, string message = "")
+        {
+            BusyMessage = isBusy ? message : string.Empty;
+            IsBusy = isBusy;
         }
 
         private void ShowMetrics()
