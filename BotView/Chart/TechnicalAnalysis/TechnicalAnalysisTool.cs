@@ -107,7 +107,7 @@ public abstract class TechnicalAnalysisTool
 	// === ВИРТУАЛЬНЫЕ МЕТОДЫ ДЛЯ РЕДАКТИРОВАНИЯ ===
 
 	/// <summary>Поддерживает ли инструмент контрольные точки для редактирования</summary>
-	public virtual bool SupportsControlPoints => false;
+	public virtual bool SupportsControlPoints => true;
 
 	/// <summary>Находится ли инструмент в режиме редактирования</summary>
 	public virtual bool IsBeingEdited { get; set; } = false;
@@ -152,6 +152,17 @@ public abstract class TechnicalAnalysisTool
 	public virtual System.Windows.Input.Cursor GetControlPointCursor(int controlPointIndex)
 	{
 		return System.Windows.Input.Cursors.Cross;
+	}
+
+	/// <summary>
+	/// Для плоских одноценовых инструментов (горизонтальная линия, луч и т.п.)
+	/// возвращает уровень цены и цвет метки на ценовой шкале.
+	/// </summary>
+	public virtual bool TryGetPriceScaleAnchor(out double price1, out double price2)
+	{
+		price1 = 0;
+		price2 = 0;
+		return false;
 	}
 
 	/// <summary>Абстрактный метод для отрисовки инструмента</summary>

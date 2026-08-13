@@ -29,6 +29,14 @@ public class HorizontalLine : TechnicalAnalysisTool
 		return System.Windows.Input.Cursors.SizeNS;
 	}
 
+	/// <summary>Один уровень цены для метки на шкале</summary>
+	public override bool TryGetPriceScaleAnchor(out double price1, out double price2)
+	{
+		price1 = Price;
+		price2 = 0;
+		return true;
+	}
+
 	/// <summary>
 	/// Конструктор горизонтальной линии
 	/// </summary>

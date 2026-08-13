@@ -45,23 +45,23 @@ public class ChartRenderer
 	public void Render(DrawingContext drawingContext)
 	{
 		controller.RefreshRenderCaches();
-		var frame = BuildRenderFrame();
+		var frameValues = BuildRenderFrame();
 
-		DrawMainPaneArea(drawingContext, frame);
-		DrawMainPaneGrid(drawingContext, frame);
-		DrawPriceScale(drawingContext, frame);
-		DrawCandlesticks(drawingContext, frame, model.CandlestickData.candles);
-		DrawTechnicalAnalysisTools(drawingContext, frame);
+		DrawMainPaneArea(drawingContext, frameValues);
+		DrawMainPaneGrid(drawingContext, frameValues);
+		DrawPriceScale(drawingContext, frameValues);
+		DrawCandlesticks(drawingContext, frameValues, model.CandlestickData.candles);
+		DrawTechnicalAnalysisTools(drawingContext, frameValues);
 		DrawToolCreationPreview(drawingContext);
-		DrawPriceIndicatorOfSelectedTool(drawingContext, frame);
-		DrawCurrentPriceIndicator(drawingContext, frame);
+		DrawPriceIndicatorOfSelectedTool(drawingContext, frameValues);
+		DrawCurrentPriceIndicator(drawingContext, frameValues);
 
-		DrawDivider(drawingContext, frame);
-		DrawIndicatorPaneArea(drawingContext, frame);
-		DrawIndicatorPaneGrid(drawingContext, frame);
-		DrawIndicatorScale(drawingContext, frame);
+		DrawDivider(drawingContext, frameValues);
+		DrawIndicatorPaneArea(drawingContext, frameValues);
+		DrawIndicatorPaneGrid(drawingContext, frameValues);
+		DrawIndicatorScale(drawingContext, frameValues);
 		indicatorRenderer?.Render(drawingContext);
-		DrawTimeScale(drawingContext, frame);
+		DrawTimeScale(drawingContext, frameValues);
 	}
 
 	/// <summary>Собирает layout и шаги шкал один раз на кадр</summary>
@@ -197,21 +197,35 @@ public class ChartRenderer
 		}
 	}
 
+	/// <summary>
+	/// Метка цены на шкале для выбранного плоского инструмента (горизонтальная линия, луч и т.п.)
+	/// </summary>
 	private void DrawPriceIndicatorOfSelectedTool(DrawingContext drawingContext, in RenderFrame frame)
 	{
 		var tool = TechnicalAnalysisTool.EditingTool;
-		if (tool is not HorizontalLine horizontalLine || !tool.IsBeingEdited)
+		if (tool == null || !tool.IsBeingEdited)
 			return;
 
-		double price = horizontalLine.Price;
-		if (!double.IsFinite(price) ||
-			price < model.Viewport.minPrice ||
-			price > model.Viewport.maxPrice)
+		if (!tool.TryGetPriceScaleAnchor(out double price1, out double price2))
+			return;
+
+		if (!double.IsFinite(price1) ||
+			price1 < model.Viewport.minPrice ||
+			price1 > model.Viewport.maxPrice)
 		{
 			return;
 		}
 
-		// TODO: draw price label on scale (frame.ScaleX / PriceToViewY)
+		DrawPriceScaleLabel(drawingContext, frame, price1, Brushes.Gray);
+
+		if (!double.IsFinite(price2) ||
+			price2 < model.Viewport.minPrice ||
+			price2 > model.Viewport.maxPrice)
+		{
+			return;
+		}
+
+		DrawPriceScaleLabel(drawingContext, frame, price2, Brushes.LightGray);
 	}
 
 	/// <summary>Отрисовывает пунктир от текущей свечи и метку рыночной цены на шкале</summary>
@@ -250,7 +264,20 @@ public class ChartRenderer
 				new Point(scaleX, priceY));
 		}
 
-		string priceText = controller.FormatPriceLabel(currentPrice, frame.PriceInterval);
+		DrawPriceScaleLabel(drawingContext, frame, currentPrice, indicatorBrush);
+	}
+
+	/// <summary>Рисует цветную метку цены на правой шкале</summary>
+	private void DrawPriceScaleLabel(
+		DrawingContext drawingContext,
+		in RenderFrame frame,
+		double price,
+		Brush backgroundBrush)
+	{
+		double priceY = controller.PriceToViewY(price);
+		double scaleX = frame.ScaleX;
+
+		string priceText = controller.FormatPriceLabel(price, frame.PriceInterval);
 		FormattedText formattedText = CreateLabelText(priceText, Brushes.White, 10);
 
 		const double horizontalPadding = 4;
@@ -265,7 +292,7 @@ public class ChartRenderer
 			labelWidth,
 			labelHeight);
 
-		drawingContext.DrawRectangle(indicatorBrush, null, labelRect);
+		drawingContext.DrawRectangle(backgroundBrush, null, labelRect);
 		drawingContext.DrawText(
 			formattedText,
 			new Point(

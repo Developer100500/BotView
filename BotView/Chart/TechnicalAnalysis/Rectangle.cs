@@ -341,6 +341,13 @@ public class Rectangle : TechnicalAnalysisTool
 		}
 	}
 
+	public override bool TryGetPriceScaleAnchor(out double price1, out double price2)
+	{
+		price1 = StartPrice;
+		price2 = EndPrice;
+		return true;
+	}
+
 	/// <summary>Сериализует прямоугольник в JObject</summary>
 	public override JObject toJson()
 	{
