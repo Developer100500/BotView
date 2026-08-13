@@ -48,6 +48,35 @@ public class ChartController
 	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
 	public event Action? LeftEdgeApproached;
 
+	// === RENDER / TRANSFORM CACHE (обновляется при изменении layout/camera/zoom) ===
+	private double cachedPixelsPerSecond;
+	private double cachedPixelsPerPriceUnit;
+	private double cachedPixelsPerIndicatorUnit;
+	private double cachedViewCenterX;
+	private double cachedViewCenterY;
+	private double cachedIndicatorViewCenterY;
+	private double cachedCameraX;
+	private double cachedCameraY;
+	private double cachedIndicatorCameraY;
+	private double cachedCandleWidthPixels = 2;
+	private string cachedTimeframeKey = string.Empty;
+	private TimeSpan cachedTimeframeSpan = TimeSpan.FromDays(1);
+	private double cachedPriceInterval = 1;
+	private TimeSpan cachedTimeInterval = TimeSpan.FromDays(1);
+	private double cachedIndicatorValueInterval = 1;
+
+	/// <summary>Ширина свечи в пикселях (из кэша последнего RefreshRenderCaches)</summary>
+	public double CandleWidthPixels => cachedCandleWidthPixels;
+
+	/// <summary>Оптимальный шаг цены (из кэша)</summary>
+	public double PriceInterval => cachedPriceInterval;
+
+	/// <summary>Оптимальный шаг времени (из кэша)</summary>
+	public TimeSpan TimeInterval => cachedTimeInterval;
+
+	/// <summary>Оптимальный шаг шкалы индикатора (из кэша)</summary>
+	public double IndicatorValueInterval => cachedIndicatorValueInterval;
+
 	/// <summary>
 	/// Конструктор ChartController
 	/// </summary>
@@ -55,6 +84,47 @@ public class ChartController
 	public ChartController(ChartModel model)
 	{
 		this.model = model ?? throw new ArgumentNullException(nameof(model));
+	}
+
+	/// <summary>
+	/// Пересчитывает коэффициенты преобразования, ширину свечи и шаги шкал.
+	/// Вызывать при изменении размера, камеры, zoom или в начале Render.
+	/// </summary>
+	public void RefreshRenderCaches()
+	{
+		if (cachedTimeframeKey != model.Timeframe)
+		{
+			cachedTimeframeKey = model.Timeframe;
+			cachedTimeframeSpan = ParseTimeframe(model.Timeframe);
+		}
+
+		double timeRangeSeconds = model.TimeRangeInViewport.TotalSeconds;
+		double mainPaneHeight = model.MainPaneHeight;
+		double indicatorPaneHeight = model.IndicatorPaneHeight;
+
+		cachedPixelsPerSecond = timeRangeSeconds > 0 ? model.ChartWidth / timeRangeSeconds : 0;
+		cachedPixelsPerPriceUnit = model.PriceRangeInViewport > 0
+			? mainPaneHeight / model.PriceRangeInViewport
+			: 0;
+		cachedPixelsPerIndicatorUnit = model.IndicatorRangeInViewport > 0
+			? indicatorPaneHeight / model.IndicatorRangeInViewport
+			: 0;
+
+		cachedViewCenterX = model.LeftMargin + model.ChartWidth / 2;
+		cachedViewCenterY = model.TopMargin + mainPaneHeight / 2;
+		cachedIndicatorViewCenterY = model.IndicatorPaneTop + indicatorPaneHeight / 2;
+		cachedCameraX = model.CameraPosition.x;
+		cachedCameraY = model.CameraPosition.y;
+		cachedIndicatorCameraY = model.IndicatorCameraY;
+
+		cachedCandleWidthPixels = Math.Clamp(
+			cachedTimeframeSpan.TotalSeconds * cachedPixelsPerSecond * 0.6,
+			2,
+			50);
+
+		cachedPriceInterval = CalculateOptimalPriceInterval();
+		cachedTimeInterval = CalculateOptimalTimeInterval();
+		cachedIndicatorValueInterval = CalculateOptimalIndicatorInterval();
 	}
 
 #region === COORDINATE CONVERSION METHODS ===
@@ -95,18 +165,10 @@ public class ChartController
 	/// </summary>
 	public Coordinates WorldToView(Coordinates worldCoords)
 	{
-		// Вычисляем сколько пикселей на единицу мирового пространства (using MainPaneHeight)
-		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-		double pixelsPerPriceUnit = model.MainPaneHeight / model.PriceRangeInViewport;
-
-		// Вычисляем позицию относительно камеры
-		double relativeX = worldCoords.x - model.CameraPosition.x;
-		double relativeY = worldCoords.y - model.CameraPosition.y;
-
-		// Конвертируем в экранные координаты (центрируем в main pane viewport)
-		double screenX = model.LeftMargin + model.ChartWidth / 2 + (relativeX * pixelsPerSecond);
-		double screenY = model.TopMargin + model.MainPaneHeight / 2 - (relativeY * pixelsPerPriceUnit); // Flip Y
-
+		double relativeX = worldCoords.x - cachedCameraX;
+		double relativeY = worldCoords.y - cachedCameraY;
+		double screenX = cachedViewCenterX + (relativeX * cachedPixelsPerSecond);
+		double screenY = cachedViewCenterY - (relativeY * cachedPixelsPerPriceUnit); // Flip Y
 		return new Coordinates(screenX, screenY);
 	}
 
@@ -118,17 +180,15 @@ public class ChartController
 	/// </summary>
 	public Coordinates ViewToWorld(Coordinates viewCoords)
 	{
-		// Вычисляем сколько пикселей на единицу мирового пространства (using MainPaneHeight)
-		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-		double pixelsPerPriceUnit = model.MainPaneHeight / model.PriceRangeInViewport;
+		double relativeScreenX = viewCoords.x - cachedViewCenterX;
+		double relativeScreenY = -(viewCoords.y - cachedViewCenterY); // Flip Y
 
-		// Конвертируем экранную позицию в относительную позицию в main pane viewport
-		double relativeScreenX = viewCoords.x - model.LeftMargin - model.ChartWidth / 2;
-		double relativeScreenY = -(viewCoords.y - model.TopMargin - model.MainPaneHeight / 2); // Flip Y
-
-		// Конвертируем в мировое пространство
-		double worldX = model.CameraPosition.x + (relativeScreenX / pixelsPerSecond);
-		double worldY = model.CameraPosition.y + (relativeScreenY / pixelsPerPriceUnit);
+		double worldX = cachedPixelsPerSecond > 0
+			? cachedCameraX + (relativeScreenX / cachedPixelsPerSecond)
+			: cachedCameraX;
+		double worldY = cachedPixelsPerPriceUnit > 0
+			? cachedCameraY + (relativeScreenY / cachedPixelsPerPriceUnit)
+			: cachedCameraY;
 
 		return new Coordinates(worldX, worldY);
 	}
@@ -139,8 +199,25 @@ public class ChartController
 	/// </summary>
 	internal Coordinates ChartToView(ChartCoordinates chartCoords)
 	{
-		Coordinates worldCoords = ChartToWorld(chartCoords);
-		return WorldToView(worldCoords);
+		double worldX = (chartCoords.time - model.WorldOriginTime).TotalSeconds;
+		double worldY = chartCoords.price - model.WorldOriginPrice;
+		double screenX = cachedViewCenterX + ((worldX - cachedCameraX) * cachedPixelsPerSecond);
+		double screenY = cachedViewCenterY - ((worldY - cachedCameraY) * cachedPixelsPerPriceUnit);
+		return new Coordinates(screenX, screenY);
+	}
+
+	/// <summary>X в View для времени (общий для OHLC одной свечи)</summary>
+	internal double TimeToViewX(DateTime time)
+	{
+		double worldX = (time - model.WorldOriginTime).TotalSeconds;
+		return cachedViewCenterX + ((worldX - cachedCameraX) * cachedPixelsPerSecond);
+	}
+
+	/// <summary>Y в View для цены</summary>
+	internal double PriceToViewY(double price)
+	{
+		double worldY = price - model.WorldOriginPrice;
+		return cachedViewCenterY - ((worldY - cachedCameraY) * cachedPixelsPerPriceUnit);
 	}
 
 	/// <summary>
@@ -158,33 +235,33 @@ public class ChartController
 	/// <summary>Converts indicator value and time to View coordinates in the indicator pane</summary>
 	public Coordinates IndicatorToView(DateTime time, double indicatorValue)
 	{
-		// X coordinate uses shared time axis
-		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
 		double timeOffsetSeconds = (time - model.WorldOriginTime).TotalSeconds;
-		double relativeX = timeOffsetSeconds - model.CameraPosition.x;
-		double screenX = model.LeftMargin + model.ChartWidth / 2 + (relativeX * pixelsPerSecond);
-
-		// Y coordinate uses indicator pane's own scale
-		double pixelsPerUnit = model.IndicatorPaneHeight / model.IndicatorRangeInViewport;
-		double relativeY = indicatorValue - model.IndicatorCameraY;
-		double screenY = model.IndicatorPaneTop + model.IndicatorPaneHeight / 2 - (relativeY * pixelsPerUnit);
-
+		double screenX = cachedViewCenterX + ((timeOffsetSeconds - cachedCameraX) * cachedPixelsPerSecond);
+		double relativeY = indicatorValue - cachedIndicatorCameraY;
+		double screenY = cachedIndicatorViewCenterY - (relativeY * cachedPixelsPerIndicatorUnit);
 		return new Coordinates(screenX, screenY);
+	}
+
+	/// <summary>Y в View для значения индикатора</summary>
+	internal double IndicatorValueToViewY(double indicatorValue)
+	{
+		double relativeY = indicatorValue - cachedIndicatorCameraY;
+		return cachedIndicatorViewCenterY - (relativeY * cachedPixelsPerIndicatorUnit);
 	}
 
 	/// <summary>Converts View coordinates in the indicator pane to time and indicator value</summary>
 	public (DateTime time, double value) ViewToIndicator(Coordinates viewCoords)
 	{
-		// X coordinate uses shared time axis
-		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-		double relativeScreenX = viewCoords.x - model.LeftMargin - model.ChartWidth / 2;
-		double worldX = model.CameraPosition.x + (relativeScreenX / pixelsPerSecond);
+		double relativeScreenX = viewCoords.x - cachedViewCenterX;
+		double worldX = cachedPixelsPerSecond > 0
+			? cachedCameraX + (relativeScreenX / cachedPixelsPerSecond)
+			: cachedCameraX;
 		DateTime time = model.WorldOriginTime.AddSeconds(worldX);
 
-		// Y coordinate uses indicator pane's own scale
-		double pixelsPerUnit = model.IndicatorPaneHeight / model.IndicatorRangeInViewport;
-		double relativeScreenY = -(viewCoords.y - model.IndicatorPaneTop - model.IndicatorPaneHeight / 2);
-		double value = model.IndicatorCameraY + (relativeScreenY / pixelsPerUnit);
+		double relativeScreenY = -(viewCoords.y - cachedIndicatorViewCenterY);
+		double value = cachedPixelsPerIndicatorUnit > 0
+			? cachedIndicatorCameraY + (relativeScreenY / cachedPixelsPerIndicatorUnit)
+			: cachedIndicatorCameraY;
 
 		return (time, value);
 	}
@@ -251,13 +328,15 @@ public class ChartController
 		// Also update indicator viewport
 		UpdateIndicatorViewport();
 
+		RefreshRenderCaches();
+
 		// Помечаем все инструменты технического анализа для перерисовки при изменении viewport
 		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
 
 		var candles = model.CandlestickData.candles;
 		if (candles?.Length > 0)
 		{
-			var threshold = ParseTimeframe(model.Timeframe) * 20;
+			var threshold = cachedTimeframeSpan * 20;
 			if (model.Viewport.minTime - model.CandlestickData.beginTime < threshold)
 			{
 				LeftEdgeApproached?.Invoke();
@@ -308,12 +387,12 @@ public class ChartController
 	/// <param name="deltaScreenY">Изменение по Y экрана (пиксели)</param>
 	public void PanByPixels(double deltaScreenX, double deltaScreenY)
 	{
-		// Конвертируем пиксельное смещение в мировое смещение (using MainPaneHeight for Y)
-		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-		double pixelsPerPriceUnit = model.MainPaneHeight / model.PriceRangeInViewport;
-
-		double deltaWorldX = -deltaScreenX / pixelsPerSecond; // Отрицательное для естественного перетаскивания
-		double deltaWorldY = deltaScreenY / pixelsPerPriceUnit;  // Flip Y
+		double deltaWorldX = cachedPixelsPerSecond > 0
+			? -deltaScreenX / cachedPixelsPerSecond
+			: 0;
+		double deltaWorldY = cachedPixelsPerPriceUnit > 0
+			? deltaScreenY / cachedPixelsPerPriceUnit
+			: 0;
 
 		Pan(deltaWorldX, deltaWorldY);
 	}
@@ -517,6 +596,8 @@ public class ChartController
 		newRatio = Math.Clamp(newRatio, model.MinIndicatorPaneRatio, model.MaxIndicatorPaneRatio);
 		
 		model.IndicatorPaneHeightRatio = newRatio;
+
+		RefreshRenderCaches();
 		
 		// Trigger viewport update and redraw
 		ViewportChanged?.Invoke();
@@ -631,18 +712,22 @@ public class ChartController
 	{
 		model.CandlestickData = newData;
 		model.Timeframe = newData.timeframe;
-			
+
 		// Пересчитываем диапазон данных
 		model.UpdateDataRange();
-			
+
 		// Помечаем все инструменты для перерисовки при смене данных (таймфрейм или торговая пара)
 		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
-			
+
 		// Если камера еще не инициализирована, инициализируем её
 		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0)
 		{
 			InitializeCamera();
 			model.IsInitialized = true;
+		}
+		else
+		{
+			RefreshRenderCaches();
 		}
 	}
 
@@ -887,8 +972,12 @@ public class ChartController
 
 			
 		// Fallback to calculation based on timeframe for backward compatibility
-		TimeSpan timeframeSpan = ParseTimeframe(model.Timeframe);
-		return model.CandlestickData.beginTime.Add(TimeSpan.FromTicks(timeframeSpan.Ticks * candleIndex));
+		if (cachedTimeframeKey != model.Timeframe)
+		{
+			cachedTimeframeKey = model.Timeframe;
+			cachedTimeframeSpan = ParseTimeframe(model.Timeframe);
+		}
+		return model.CandlestickData.beginTime.Add(TimeSpan.FromTicks(cachedTimeframeSpan.Ticks * candleIndex));
 	}
 
 	/// <summary>
@@ -916,14 +1005,24 @@ public class ChartController
 	/// </summary>
 	public double GetCandleWidthPixels()
 	{
-		TimeSpan timeframeSpan = ParseTimeframe(model.Timeframe);
-		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
-			
-		// Ширина свечи составляет 60% от доступного пространства для одного timeframe
-		double candleWidthPixels = timeframeSpan.TotalSeconds * pixelsPerSecond * 0.6;
-			
-		// Ограничиваем минимальную и максимальную ширину
-		return Math.Clamp(candleWidthPixels, 2, 50);
+		return cachedCandleWidthPixels;
+	}
+
+	/// <summary>Вычисляет оптимальный интервал для меток шкалы индикатора</summary>
+	public double CalculateOptimalIndicatorInterval()
+	{
+		var viewport = model.IndicatorViewport;
+		double valueRange = viewport.MaxValue - viewport.MinValue;
+		if (valueRange <= 0 || !double.IsFinite(valueRange))
+			return 1;
+
+		double rawInterval = valueRange / 5; // Target ~5 ticks
+		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(rawInterval, 0.001))));
+		double normalizedInterval = rawInterval / magnitude;
+		if (normalizedInterval <= 1) return magnitude;
+		if (normalizedInterval <= 2) return 2 * magnitude;
+		if (normalizedInterval <= 5) return 5 * magnitude;
+		return 10 * magnitude;
 	}
 
 	/// <summary>

@@ -16,11 +16,23 @@ public class ChartRenderer
 	private readonly ChartController controller;
 	private readonly IndicatorRenderer? indicatorRenderer;
 
+	// === Shared frozen drawing resources (never change) ===
+	private static readonly Typeface LabelTypeface = new Typeface("Arial");
+	private static readonly Pen BorderPen = CreateFrozenPen(Brushes.Gray, 1);
+	private static readonly Pen ScalePen = CreateFrozenPen(Brushes.Gray, 1);
+	private static readonly Pen TickPen = CreateFrozenPen(Brushes.DarkGray, 1);
+	private static readonly Pen WickPen = CreateFrozenPen(Brushes.Black, 1.5);
+	private static readonly Pen BullishBodyPen = CreateFrozenPen(Brushes.Green, 1);
+	private static readonly Pen BearishBodyPen = CreateFrozenPen(Brushes.Red, 1);
+	private static readonly Pen CurrentPriceDashPen = CreateFrozenDashedPen(Brushes.LightGray, 1, DashStyles.Dot);
+	private static readonly Pen GridPen = CreateFrozenDashedPen(Brushes.LightGray, 0.5, new DashStyle(new double[] { 2, 4 }, 0));
+	private static readonly Brush DividerBrush = CreateFrozenBrush(Color.FromRgb(180, 180, 180));
+	private static readonly Brush IndicatorBgBrush = CreateFrozenBrush(Color.FromRgb(250, 250, 252));
+
 	public bool RedrawAllTechnicalTools { get; set; } = false;
 
 	/// <summary>Текущие координаты мыши для превью инструмента (устанавливается из ChartView)</summary>
 	public ChartCoordinates? CurrentMouseChartCoords { get; set; } = null;
-
 
 	public ChartRenderer(ChartModel model, ChartController controller)
 	{
@@ -30,169 +42,180 @@ public class ChartRenderer
 	}
 
 	/// <summary>Главный метод отрисовки графика</summary>
-	/// <param name="drawingContext">Контекст отрисовки WPF</param>
 	public void Render(DrawingContext drawingContext)
 	{
-		// Draw main pane background
-		DrawMainPaneArea(drawingContext);
+		controller.RefreshRenderCaches();
+		var frame = BuildRenderFrame();
 
-		// Draw main pane grid lines
-		DrawMainPaneGrid(drawingContext);
-
-		// Draw main pane price scale (Y-axis on right)
-		DrawPriceScale(drawingContext);
-
-		// Draw the candlesticks in main pane
-		DrawCandlesticks(drawingContext, model.CandlestickData.candles);
-
-		// Draw technical analysis tools in main pane
-		DrawTechnicalAnalysisTools(drawingContext);
-
+		DrawMainPaneArea(drawingContext, frame);
+		DrawMainPaneGrid(drawingContext, frame);
+		DrawPriceScale(drawingContext, frame);
+		DrawCandlesticks(drawingContext, frame, model.CandlestickData.candles);
+		DrawTechnicalAnalysisTools(drawingContext, frame);
 		DrawToolCreationPreview(drawingContext);
-		DrawCurrentPriceIndicator(drawingContext);
+		DrawPriceIndicatorOfSelectedTool(drawingContext, frame);
+		DrawCurrentPriceIndicator(drawingContext, frame);
 
-		// Draw divider between panes
-		DrawDivider(drawingContext);
-
-		// Draw indicator pane
-		DrawIndicatorPaneArea(drawingContext);
-		DrawIndicatorPaneGrid(drawingContext);
-		DrawIndicatorScale(drawingContext);
-
-		// Draw indicators using the indicator renderer
+		DrawDivider(drawingContext, frame);
+		DrawIndicatorPaneArea(drawingContext, frame);
+		DrawIndicatorPaneGrid(drawingContext, frame);
+		DrawIndicatorScale(drawingContext, frame);
 		indicatorRenderer?.Render(drawingContext);
-
-		// Draw shared time scale (at bottom of indicator pane)
-		DrawTimeScale(drawingContext);
+		DrawTimeScale(drawingContext, frame);
 	}
 
-	/// <summary>Draw main pane background and border</summary>
-	private void DrawMainPaneArea(DrawingContext drawingContext)
+	/// <summary>Собирает layout и шаги шкал один раз на кадр</summary>
+	private RenderFrame BuildRenderFrame()
 	{
-		Rect mainRect = new Rect(model.LeftMargin, model.TopMargin, model.ChartWidth, model.MainPaneHeight);
-		drawingContext.DrawRectangle(Brushes.White, new Pen(Brushes.Gray, 1), mainRect);
+		double left = model.LeftMargin;
+		double top = model.TopMargin;
+		double chartWidth = model.ChartWidth;
+		double mainPaneHeight = model.MainPaneHeight;
+		double indicatorPaneTop = model.IndicatorPaneTop;
+		double indicatorPaneHeight = model.IndicatorPaneHeight;
+		double dividerY = model.DividerY;
+		double dividerHeight = model.DividerHeight;
+		double scaleX = left + chartWidth;
+		double timeScaleY = indicatorPaneTop + indicatorPaneHeight;
+
+		double priceInterval = controller.PriceInterval;
+		TimeSpan timeInterval = controller.TimeInterval;
+		double indicatorInterval = controller.IndicatorValueInterval;
+
+		double firstPriceTick = priceInterval > 0
+			? Math.Floor(model.Viewport.minPrice / priceInterval) * priceInterval
+			: model.Viewport.minPrice;
+		DateTime firstTimeTick = timeInterval > TimeSpan.Zero
+			? controller.RoundDownToInterval(model.Viewport.minTime, timeInterval)
+			: model.Viewport.minTime;
+
+		var indicatorViewport = model.IndicatorViewport;
+		double firstIndicatorTick = indicatorInterval > 0
+			? Math.Floor(indicatorViewport.MinValue / indicatorInterval) * indicatorInterval
+			: indicatorViewport.MinValue;
+
+		return new RenderFrame(
+			left,
+			top,
+			chartWidth,
+			mainPaneHeight,
+			indicatorPaneTop,
+			indicatorPaneHeight,
+			dividerY,
+			dividerHeight,
+			scaleX,
+			timeScaleY,
+			controller.CandleWidthPixels,
+			priceInterval,
+			timeInterval,
+			firstPriceTick,
+			firstTimeTick,
+			indicatorInterval,
+			firstIndicatorTick,
+			indicatorViewport.MaxValue,
+			new Rect(left, top, chartWidth, mainPaneHeight),
+			new Rect(left, dividerY, chartWidth, dividerHeight),
+			new Rect(left, indicatorPaneTop, chartWidth, indicatorPaneHeight));
 	}
 
-	/// <summary>Draw divider between main pane and indicator pane</summary>
-	private void DrawDivider(DrawingContext drawingContext)
+	private void DrawMainPaneArea(DrawingContext drawingContext, in RenderFrame frame)
 	{
-		Brush dividerBrush = new SolidColorBrush(Color.FromRgb(180, 180, 180));
-		Rect dividerRect = new Rect(model.LeftMargin, model.DividerY, model.ChartWidth, model.DividerHeight);
-		drawingContext.DrawRectangle(dividerBrush, null, dividerRect);
+		drawingContext.DrawRectangle(Brushes.White, BorderPen, frame.MainPaneRect);
 	}
 
-	/// <summary>Draw indicator pane background and border</summary>
-	private void DrawIndicatorPaneArea(DrawingContext drawingContext)
+	private void DrawDivider(DrawingContext drawingContext, in RenderFrame frame)
 	{
-		Brush indicatorBg = new SolidColorBrush(Color.FromRgb(250, 250, 252));
-		Rect indicatorRect = new Rect(model.LeftMargin, model.IndicatorPaneTop, model.ChartWidth, model.IndicatorPaneHeight);
-		drawingContext.DrawRectangle(indicatorBg, new Pen(Brushes.Gray, 1), indicatorRect);
+		drawingContext.DrawRectangle(DividerBrush, null, frame.DividerRect);
+	}
+
+	private void DrawIndicatorPaneArea(DrawingContext drawingContext, in RenderFrame frame)
+	{
+		drawingContext.DrawRectangle(IndicatorBgBrush, BorderPen, frame.IndicatorPaneRect);
 	}
 
 	/// <summary>Отрисовка всех свечей</summary>
-	private void DrawCandlesticks(DrawingContext context, OHLCV[] candles)
+	private void DrawCandlesticks(DrawingContext context, in RenderFrame frame, OHLCV[] candles)
 	{
-		for (int i = 0; i < candles.Length; i++)
-		{
-			if (candles[i].low > model.Viewport.maxPrice || candles[i].high < model.Viewport.minPrice)
-				continue; // skip if the candle is completely outside of price range (low > maxPrice or high < minPrice)
-
-			DateTime candleTime = controller.GetCandleTime(i);
-			if (candleTime < model.Viewport.minTime || candleTime > model.Viewport.maxTime)
-				continue;
-
-			DrawCandlestick(context, candles[i], i);
-		}
-	}
-
-	/// <summary>
-	/// Отрисовка одной свечи на основе времени и цены
-	/// </summary>
-	private void DrawCandlestick(DrawingContext drawingContext, OHLCV candlestick, int candleIndex)
-	{
-		// Вычисляем время свечи на основе индекса и timeframe
-		DateTime candleTime = controller.GetCandleTime(candleIndex);
-
-		// Создаем chart координаты для различных точек свечи
-		ChartCoordinates centerChart = new ChartCoordinates(candleTime, (candlestick.high + candlestick.low) / 2);
-		ChartCoordinates highChart = new ChartCoordinates(candleTime, candlestick.high);
-		ChartCoordinates lowChart = new ChartCoordinates(candleTime, candlestick.low);
-		ChartCoordinates openChart = new ChartCoordinates(candleTime, candlestick.open);
-		ChartCoordinates closeChart = new ChartCoordinates(candleTime, candlestick.close);
-
-		// Конвертируем в экранные координаты
-		Coordinates centerView = controller.ChartToView(centerChart);
-		Coordinates highView = controller.ChartToView(highChart);
-		Coordinates lowView = controller.ChartToView(lowChart);
-		Coordinates openView = controller.ChartToView(openChart);
-		Coordinates closeView = controller.ChartToView(closeChart);
-
-		// Пропускаем отрисовку если свеча за пределами viewport
-		// Вычисляем границы свечи
-		double candleWidthPixels = controller.GetCandleWidthPixels();
-		double candleLeft = centerView.x - candleWidthPixels / 2;
-		double candleRight = centerView.x + candleWidthPixels / 2;
-
-		// Определяем границы видимой области графика
-		double viewportLeft = model.LeftMargin;
-		double viewportRight = model.LeftMargin + model.ChartWidth;
-
-		// Полностью пропускаем свечи, которые целиком за пределами viewport
-		if (candleRight < viewportLeft || candleLeft > viewportRight)
+		if (candles == null || candles.Length == 0)
 			return;
 
-		// Определяем тип свечи (бычья или медвежья)
-		bool isBullish = candlestick.close > candlestick.open;
-
-		// Устанавливаем цвета в зависимости от типа свечи
-		Brush bodyBrush = isBullish ? Brushes.LightGreen : Brushes.LightCoral;
-		Pen bodyPen = new Pen(isBullish ? Brushes.Green : Brushes.Red, 1);
-		Pen wickPen = new Pen(Brushes.Black, 1.5);
-
-		// Создаем clipping region для main pane only
-		RectangleGeometry clipGeometry = new RectangleGeometry(new Rect(
-			viewportLeft,
-			model.TopMargin,
-			model.ChartWidth,
-			model.MainPaneHeight
-		));
-
-		// Применяем clipping
-		drawingContext.PushClip(clipGeometry);
+		var clipGeometry = new RectangleGeometry(frame.MainPaneRect);
+		context.PushClip(clipGeometry);
 
 		try
 		{
-			// Отрисовываем фитиль (тонкая вертикальная линия от high до low)
-			// Clipping автоматически обрежет части, выходящие за пределы viewport
-			Point highPoint = new Point(centerView.x, highView.y);
-			Point lowPoint = new Point(centerView.x, lowView.y);
-			drawingContext.DrawLine(wickPen, highPoint, lowPoint);
+			double viewportMinPrice = model.Viewport.minPrice;
+			double viewportMaxPrice = model.Viewport.maxPrice;
+			DateTime viewportMinTime = model.Viewport.minTime;
+			DateTime viewportMaxTime = model.Viewport.maxTime;
+			double candleWidthPixels = frame.CandleWidthPixels;
+			double halfWidth = candleWidthPixels / 2;
+			double viewportLeft = frame.Left;
+			double viewportRight = frame.ScaleX;
 
-			// Отрисовываем тело свечи (прямоугольник от open до close)
-			double bodyTop = Math.Min(openView.y, closeView.y);
-			double bodyHeight = Math.Abs(closeView.y - openView.y);
+			for (int i = 0; i < candles.Length; i++)
+			{
+				OHLCV candle = candles[i];
+				if (candle.low > viewportMaxPrice || candle.high < viewportMinPrice)
+					continue;
 
-			// Обрабатываем случай doji (open == close)
-			if (bodyHeight < 1)
-				bodyHeight = 1;
+				DateTime candleTime = controller.GetCandleTime(i);
+				if (candleTime < viewportMinTime || candleTime > viewportMaxTime)
+					continue;
 
-			Rect bodyRect = new Rect(
-				candleLeft,
-				bodyTop,
-				candleWidthPixels,
-				bodyHeight
-			);
-			drawingContext.DrawRectangle(bodyBrush, bodyPen, bodyRect);
+				double centerX = controller.TimeToViewX(candleTime);
+				double candleLeft = centerX - halfWidth;
+				double candleRight = centerX + halfWidth;
+				if (candleRight < viewportLeft || candleLeft > viewportRight)
+					continue;
+
+				double highY = controller.PriceToViewY(candle.high);
+				double lowY = controller.PriceToViewY(candle.low);
+				double openY = controller.PriceToViewY(candle.open);
+				double closeY = controller.PriceToViewY(candle.close);
+
+				bool isBullish = candle.close > candle.open;
+				Brush bodyBrush = isBullish ? Brushes.LightGreen : Brushes.LightCoral;
+				Pen bodyPen = isBullish ? BullishBodyPen : BearishBodyPen;
+
+				context.DrawLine(WickPen, new Point(centerX, highY), new Point(centerX, lowY));
+
+				double bodyTop = Math.Min(openY, closeY);
+				double bodyHeight = Math.Abs(closeY - openY);
+				if (bodyHeight < 1)
+					bodyHeight = 1;
+
+				context.DrawRectangle(
+					bodyBrush,
+					bodyPen,
+					new Rect(candleLeft, bodyTop, candleWidthPixels, bodyHeight));
+			}
 		}
 		finally
 		{
-			// Убираем clipping
-			drawingContext.Pop();
+			context.Pop();
 		}
 	}
 
+	private void DrawPriceIndicatorOfSelectedTool(DrawingContext drawingContext, in RenderFrame frame)
+	{
+		var tool = TechnicalAnalysisTool.EditingTool;
+		if (tool is not HorizontalLine horizontalLine || !tool.IsBeingEdited)
+			return;
+
+		double price = horizontalLine.Price;
+		if (!double.IsFinite(price) ||
+			price < model.Viewport.minPrice ||
+			price > model.Viewport.maxPrice)
+		{
+			return;
+		}
+
+		// TODO: draw price label on scale (frame.ScaleX / PriceToViewY)
+	}
+
 	/// <summary>Отрисовывает пунктир от текущей свечи и метку рыночной цены на шкале</summary>
-	private void DrawCurrentPriceIndicator(DrawingContext drawingContext)
+	private void DrawCurrentPriceIndicator(DrawingContext drawingContext, in RenderFrame frame)
 	{
 		var candles = model.CandlestickData.candles;
 		if (candles == null || candles.Length == 0)
@@ -209,37 +232,26 @@ public class ChartRenderer
 		}
 
 		DateTime candleTime = controller.GetCandleTime(lastIndex);
-		Coordinates currentPriceView = controller.ChartToView(new ChartCoordinates(candleTime, currentPrice));
-		double scaleX = model.LeftMargin + model.ChartWidth;
-		double candleRight = currentPriceView.x + controller.GetCandleWidthPixels() / 2;
-		double lineStartX = Math.Max(model.LeftMargin, candleRight);
+		double priceY = controller.PriceToViewY(currentPrice);
+		double candleX = controller.TimeToViewX(candleTime);
+		double scaleX = frame.ScaleX;
+		double candleRight = candleX + frame.CandleWidthPixels / 2;
+		double lineStartX = Math.Max(frame.Left, candleRight);
 
 		Brush indicatorBrush = currentCandle.close >= currentCandle.open
 			? Brushes.Green
 			: Brushes.Red;
-		Pen indicatorPen = new Pen(Brushes.LightGray, 1)
-		{
-			DashStyle = DashStyles.Dot
-		};
 
 		if (lineStartX < scaleX)
 		{
 			drawingContext.DrawLine(
-				indicatorPen,
-				new Point(lineStartX, currentPriceView.y),
-				new Point(scaleX, currentPriceView.y));
+				CurrentPriceDashPen,
+				new Point(lineStartX, priceY),
+				new Point(scaleX, priceY));
 		}
 
-		double priceInterval = controller.CalculateOptimalPriceInterval();
-		string priceText = controller.FormatPriceLabel(currentPrice, priceInterval);
-		FormattedText formattedText = new FormattedText(
-			priceText,
-			System.Globalization.CultureInfo.CurrentCulture,
-			FlowDirection.LeftToRight,
-			new Typeface("Arial"),
-			10,
-			Brushes.White,
-			96.0);
+		string priceText = controller.FormatPriceLabel(currentPrice, frame.PriceInterval);
+		FormattedText formattedText = CreateLabelText(priceText, Brushes.White, 10);
 
 		const double horizontalPadding = 4;
 		const double verticalPadding = 2;
@@ -249,7 +261,7 @@ public class ChartRenderer
 		double labelHeight = formattedText.Height + verticalPadding * 2;
 		Rect labelRect = new Rect(
 			scaleX,
-			currentPriceView.y - labelHeight / 2,
+			priceY - labelHeight / 2,
 			labelWidth,
 			labelHeight);
 
@@ -258,370 +270,232 @@ public class ChartRenderer
 			formattedText,
 			new Point(
 				scaleX + horizontalPadding,
-				currentPriceView.y - formattedText.Height / 2));
+				priceY - formattedText.Height / 2));
 	}
 
 	/// <summary>Отрисовка шкалы времени (горизонтальная ось внизу indicator pane - shared)</summary>
-	private void DrawTimeScale(DrawingContext drawingContext)
+	private void DrawTimeScale(DrawingContext drawingContext, in RenderFrame frame)
 	{
-		if (model.Viewport.minTime >= model.Viewport.maxTime)
+		if (model.Viewport.minTime >= model.Viewport.maxTime || frame.TimeInterval <= TimeSpan.Zero)
 			return;
 
-		// Настройки отрисовки
-		Pen scalePen = new Pen(Brushes.Gray, 1);
-		Pen tickPen = new Pen(Brushes.DarkGray, 1);
-		Brush textBrush = Brushes.Black;
-		double tickHeight = 5;
-		double textOffset = 3;
+		double scaleY = frame.TimeScaleY;
+		const double tickHeight = 5;
+		const double textOffset = 3;
 
-		// Определяем оптимальный интервал для меток времени
-		TimeSpan timeInterval = controller.CalculateOptimalTimeInterval();
-			
-		// Находим первую метку времени (округляем вниз до ближайшего интервала)
-		DateTime firstTick = controller.RoundDownToInterval(model.Viewport.minTime, timeInterval);
-			
-		// Time scale is at bottom of indicator pane
-		double scaleY = model.IndicatorPaneTop + model.IndicatorPaneHeight;
-		drawingContext.DrawLine(scalePen, 
-			new Point(model.LeftMargin, scaleY), 
-			new Point(model.LeftMargin + model.ChartWidth, scaleY));
+		drawingContext.DrawLine(ScalePen,
+			new Point(frame.Left, scaleY),
+			new Point(frame.ScaleX, scaleY));
 
-		// Отрисовываем метки времени
-		DateTime currentTime = firstTick;
+		DateTime currentTime = frame.FirstTimeTick;
 		while (currentTime <= model.Viewport.maxTime)
 		{
-			// Конвертируем время в экранные координаты
-			ChartCoordinates chartCoords = new ChartCoordinates(currentTime, 0);
-			Coordinates viewCoords = controller.ChartToView(chartCoords);
-
-			// Проверяем, что метка находится в пределах видимой области
-			if (viewCoords.x >= model.LeftMargin && viewCoords.x <= model.LeftMargin + model.ChartWidth)
+			double x = controller.TimeToViewX(currentTime);
+			if (x >= frame.Left && x <= frame.ScaleX)
 			{
-				// Отрисовываем риску
-				drawingContext.DrawLine(tickPen,
-					new Point(viewCoords.x, scaleY),
-					new Point(viewCoords.x, scaleY + tickHeight));
+				drawingContext.DrawLine(TickPen,
+					new Point(x, scaleY),
+					new Point(x, scaleY + tickHeight));
 
-				// Отрисовываем подпись времени
-				string timeText = controller.FormatTimeLabel(currentTime, timeInterval);
-				FormattedText formattedText = new FormattedText(
-					timeText,
-					System.Globalization.CultureInfo.CurrentCulture,
-					FlowDirection.LeftToRight,
-					new Typeface("Arial"),
-					10,
-					textBrush,
-					96.0); // Default DPI
-
-				// Центрируем текст относительно риски
-				double textX = viewCoords.x - formattedText.Width / 2;
-				double textY = scaleY + tickHeight + textOffset;
-
-				drawingContext.DrawText(formattedText, new Point(textX, textY));
+				string timeText = controller.FormatTimeLabel(currentTime, frame.TimeInterval);
+				FormattedText formattedText = CreateLabelText(timeText, Brushes.Black, 10);
+				drawingContext.DrawText(
+					formattedText,
+					new Point(x - formattedText.Width / 2, scaleY + tickHeight + textOffset));
 			}
 
-			currentTime = currentTime.Add(timeInterval);
+			currentTime = currentTime.Add(frame.TimeInterval);
 		}
 	}
 
 	/// <summary>Отрисовка шкалы цены (вертикальная ось справа main pane)</summary>
-	private void DrawPriceScale(DrawingContext drawingContext)
+	private void DrawPriceScale(DrawingContext drawingContext, in RenderFrame frame)
 	{
-		if (model.Viewport.minPrice >= model.Viewport.maxPrice)
+		if (model.Viewport.minPrice >= model.Viewport.maxPrice || frame.PriceInterval <= 0)
 			return;
 
-		// Настройки отрисовки
-		Pen scalePen = new Pen(Brushes.Gray, 1);
-		Pen tickPen = new Pen(Brushes.DarkGray, 1);
-		Brush textBrush = Brushes.Black;
-		double tickWidth = 5;
-		double textOffset = 3;
+		const double tickWidth = 5;
+		const double textOffset = 3;
+		double scaleX = frame.ScaleX;
+		double mainBottom = frame.Top + frame.MainPaneHeight;
 
-		// Определяем оптимальный интервал для меток цены
-		double priceInterval = controller.CalculateOptimalPriceInterval();
-			
-		// Находим первую метку цены (округляем вниз до ближайшего интервала)
-		double firstTick = Math.Floor(model.Viewport.minPrice / priceInterval) * priceInterval;
-			
-		// Price scale is on the right of main pane only
-		double scaleX = model.LeftMargin + model.ChartWidth;
-		drawingContext.DrawLine(scalePen, 
-			new Point(scaleX, model.TopMargin), 
-			new Point(scaleX, model.TopMargin + model.MainPaneHeight));
+		drawingContext.DrawLine(ScalePen,
+			new Point(scaleX, frame.Top),
+			new Point(scaleX, mainBottom));
 
-		// Отрисовываем метки цены
-		double currentPrice = firstTick;
+		double currentPrice = frame.FirstPriceTick;
 		while (currentPrice <= model.Viewport.maxPrice)
 		{
-			// Конвертируем цену в экранные координаты
-			ChartCoordinates chartCoords = new ChartCoordinates(DateTime.Now, currentPrice);
-			Coordinates viewCoords = controller.ChartToView(chartCoords);
-
-			// Проверяем, что метка находится в пределах main pane
-			if (viewCoords.y >= model.TopMargin && viewCoords.y <= model.TopMargin + model.MainPaneHeight)
+			double y = controller.PriceToViewY(currentPrice);
+			if (y >= frame.Top && y <= mainBottom)
 			{
-				// Отрисовываем риску
-				drawingContext.DrawLine(tickPen,
-					new Point(scaleX, viewCoords.y),
-					new Point(scaleX + tickWidth, viewCoords.y));
+				drawingContext.DrawLine(TickPen,
+					new Point(scaleX, y),
+					new Point(scaleX + tickWidth, y));
 
-				// Отрисовываем подпись цены
-				string priceText = controller.FormatPriceLabel(currentPrice, priceInterval);
-				FormattedText formattedText = new FormattedText(
-					priceText,
-					System.Globalization.CultureInfo.CurrentCulture,
-					FlowDirection.LeftToRight,
-					new Typeface("Arial"),
-					10,
-					textBrush,
-					96.0); // Default DPI
-
-				// Позиционируем текст справа от риски
-				double textX = scaleX + tickWidth + textOffset;
-				double textY = viewCoords.y - formattedText.Height / 2;
-
-				drawingContext.DrawText(formattedText, new Point(textX, textY));
+				string priceText = controller.FormatPriceLabel(currentPrice, frame.PriceInterval);
+				FormattedText formattedText = CreateLabelText(priceText, Brushes.Black, 10);
+				drawingContext.DrawText(
+					formattedText,
+					new Point(scaleX + tickWidth + textOffset, y - formattedText.Height / 2));
 			}
 
-			currentPrice += priceInterval;
+			currentPrice += frame.PriceInterval;
 		}
 	}
 
 	/// <summary>Отрисовка шкалы индикатора (вертикальная ось справа indicator pane)</summary>
-	private void DrawIndicatorScale(DrawingContext drawingContext)
+	private void DrawIndicatorScale(DrawingContext drawingContext, in RenderFrame frame)
 	{
-		var viewport = model.IndicatorViewport;
-		if (viewport.MinValue >= viewport.MaxValue)
+		if (frame.FirstIndicatorTick > frame.IndicatorMaxValue || frame.IndicatorValueInterval <= 0)
 			return;
 
-		// Настройки отрисовки
-		Pen scalePen = new Pen(Brushes.Gray, 1);
-		Pen tickPen = new Pen(Brushes.DarkGray, 1);
-		Brush textBrush = Brushes.Black;
-		double tickWidth = 5;
-		double textOffset = 3;
+		const double tickWidth = 5;
+		const double textOffset = 3;
+		double scaleX = frame.ScaleX;
+		double indicatorBottom = frame.IndicatorPaneTop + frame.IndicatorPaneHeight;
 
-		// Calculate optimal interval for indicator values
-		double valueRange = viewport.MaxValue - viewport.MinValue;
-		double rawInterval = valueRange / 5; // Target ~5 ticks
-		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(rawInterval, 0.001))));
-		double normalizedInterval = rawInterval / magnitude;
-		double valueInterval;
-		if (normalizedInterval <= 1) valueInterval = magnitude;
-		else if (normalizedInterval <= 2) valueInterval = 2 * magnitude;
-		else if (normalizedInterval <= 5) valueInterval = 5 * magnitude;
-		else valueInterval = 10 * magnitude;
+		drawingContext.DrawLine(ScalePen,
+			new Point(scaleX, frame.IndicatorPaneTop),
+			new Point(scaleX, indicatorBottom));
 
-		double firstTick = Math.Floor(viewport.MinValue / valueInterval) * valueInterval;
-
-		// Scale line on the right of indicator pane
-		double scaleX = model.LeftMargin + model.ChartWidth;
-		drawingContext.DrawLine(scalePen,
-			new Point(scaleX, model.IndicatorPaneTop),
-			new Point(scaleX, model.IndicatorPaneTop + model.IndicatorPaneHeight));
-
-		// Draw value labels
-		double currentValue = firstTick;
-		while (currentValue <= viewport.MaxValue)
+		double currentValue = frame.FirstIndicatorTick;
+		while (currentValue <= frame.IndicatorMaxValue)
 		{
-			// Convert value to screen coordinates
-			Coordinates viewCoords = controller.IndicatorToView(model.Viewport.minTime, currentValue);
-
-			// Check if within indicator pane bounds
-			if (viewCoords.y >= model.IndicatorPaneTop && viewCoords.y <= model.IndicatorPaneTop + model.IndicatorPaneHeight)
+			double y = controller.IndicatorValueToViewY(currentValue);
+			if (y >= frame.IndicatorPaneTop && y <= indicatorBottom)
 			{
-				// Draw tick
-				drawingContext.DrawLine(tickPen,
-					new Point(scaleX, viewCoords.y),
-					new Point(scaleX + tickWidth, viewCoords.y));
+				drawingContext.DrawLine(TickPen,
+					new Point(scaleX, y),
+					new Point(scaleX + tickWidth, y));
 
-				// Draw value label
-				string valueText = FormatIndicatorValue(currentValue);
-				FormattedText formattedText = new FormattedText(
-					valueText,
-					System.Globalization.CultureInfo.CurrentCulture,
-					FlowDirection.LeftToRight,
-					new Typeface("Arial"),
-					9,
-					textBrush,
-					96.0);
-
-				double textX = scaleX + tickWidth + textOffset;
-				double textY = viewCoords.y - formattedText.Height / 2;
-
-				drawingContext.DrawText(formattedText, new Point(textX, textY));
+				FormattedText formattedText = CreateLabelText(FormatIndicatorValue(currentValue), Brushes.Black, 9);
+				drawingContext.DrawText(
+					formattedText,
+					new Point(scaleX + tickWidth + textOffset, y - formattedText.Height / 2));
 			}
 
-			currentValue += valueInterval;
+			currentValue += frame.IndicatorValueInterval;
 		}
 	}
 
-	/// <summary>Format indicator value for display</summary>
-	private string FormatIndicatorValue(double value)
+	private static string FormatIndicatorValue(double value)
 	{
 		if (Math.Abs(value) >= 100) return value.ToString("F0");
-		else if (Math.Abs(value) >= 10) return value.ToString("F1");
-		else return value.ToString("F2");
+		if (Math.Abs(value) >= 10) return value.ToString("F1");
+		return value.ToString("F2");
 	}
 
 	/// <summary>Отрисовка сетки для main pane (candlestick chart)</summary>
-	private void DrawMainPaneGrid(DrawingContext drawingContext)
+	private void DrawMainPaneGrid(DrawingContext drawingContext, in RenderFrame frame)
 	{
 		if (model.Viewport.minPrice >= model.Viewport.maxPrice || model.Viewport.minTime >= model.Viewport.maxTime)
 			return;
 
-		// Настройки сетки
-		Pen gridPen = new Pen(Brushes.LightGray, 0.5);
-		gridPen.DashStyle = new DashStyle(new double[] { 2, 4 }, 0);
+		double mainBottom = frame.Top + frame.MainPaneHeight;
 
-		// Горизонтальные линии сетки (по ценам) - only in main pane
-		double priceInterval = controller.CalculateOptimalPriceInterval();
-		double firstPriceTick = Math.Floor(model.Viewport.minPrice / priceInterval) * priceInterval;
-			
-		double currentPrice = firstPriceTick;
-		while (currentPrice <= model.Viewport.maxPrice)
+		if (frame.PriceInterval > 0)
 		{
-			ChartCoordinates chartCoords = new ChartCoordinates(DateTime.Now, currentPrice);
-			Coordinates viewCoords = controller.ChartToView(chartCoords);
-
-			if (viewCoords.y >= model.TopMargin && viewCoords.y <= model.TopMargin + model.MainPaneHeight)
+			double currentPrice = frame.FirstPriceTick;
+			while (currentPrice <= model.Viewport.maxPrice)
 			{
-				drawingContext.DrawLine(gridPen,
-					new Point(model.LeftMargin, viewCoords.y),
-					new Point(model.LeftMargin + model.ChartWidth, viewCoords.y));
+				double y = controller.PriceToViewY(currentPrice);
+				if (y >= frame.Top && y <= mainBottom)
+				{
+					drawingContext.DrawLine(GridPen,
+						new Point(frame.Left, y),
+						new Point(frame.ScaleX, y));
+				}
+				currentPrice += frame.PriceInterval;
 			}
-
-			currentPrice += priceInterval;
 		}
 
-		// Вертикальные линии сетки (по времени) - only in main pane
-		TimeSpan timeInterval = controller.CalculateOptimalTimeInterval();
-		DateTime firstTimeTick = controller.RoundDownToInterval(model.Viewport.minTime, timeInterval);
-			
-		DateTime currentTime = firstTimeTick;
-		while (currentTime <= model.Viewport.maxTime)
+		if (frame.TimeInterval > TimeSpan.Zero)
 		{
-			ChartCoordinates chartCoords = new ChartCoordinates(currentTime, 0);
-			Coordinates viewCoords = controller.ChartToView(chartCoords);
-
-			if (viewCoords.x >= model.LeftMargin && viewCoords.x <= model.LeftMargin + model.ChartWidth)
+			DateTime currentTime = frame.FirstTimeTick;
+			while (currentTime <= model.Viewport.maxTime)
 			{
-				drawingContext.DrawLine(gridPen,
-					new Point(viewCoords.x, model.TopMargin),
-					new Point(viewCoords.x, model.TopMargin + model.MainPaneHeight));
+				double x = controller.TimeToViewX(currentTime);
+				if (x >= frame.Left && x <= frame.ScaleX)
+				{
+					drawingContext.DrawLine(GridPen,
+						new Point(x, frame.Top),
+						new Point(x, mainBottom));
+				}
+				currentTime = currentTime.Add(frame.TimeInterval);
 			}
-
-			currentTime = currentTime.Add(timeInterval);
 		}
 	}
 
 	/// <summary>Отрисовка сетки для indicator pane</summary>
-	private void DrawIndicatorPaneGrid(DrawingContext drawingContext)
+	private void DrawIndicatorPaneGrid(DrawingContext drawingContext, in RenderFrame frame)
 	{
 		if (model.Viewport.minTime >= model.Viewport.maxTime)
 			return;
 
-		// Настройки сетки
-		Pen gridPen = new Pen(Brushes.LightGray, 0.5);
-		gridPen.DashStyle = new DashStyle(new double[] { 2, 4 }, 0);
+		double indicatorBottom = frame.IndicatorPaneTop + frame.IndicatorPaneHeight;
 
-		// Вертикальные линии сетки (по времени) - same as main pane
-		TimeSpan timeInterval = controller.CalculateOptimalTimeInterval();
-		DateTime firstTimeTick = controller.RoundDownToInterval(model.Viewport.minTime, timeInterval);
-			
-		DateTime currentTime = firstTimeTick;
-		while (currentTime <= model.Viewport.maxTime)
+		if (frame.TimeInterval > TimeSpan.Zero)
 		{
-			ChartCoordinates chartCoords = new ChartCoordinates(currentTime, 0);
-			Coordinates viewCoords = controller.ChartToView(chartCoords);
-
-			if (viewCoords.x >= model.LeftMargin && viewCoords.x <= model.LeftMargin + model.ChartWidth)
+			DateTime currentTime = frame.FirstTimeTick;
+			while (currentTime <= model.Viewport.maxTime)
 			{
-				drawingContext.DrawLine(gridPen,
-					new Point(viewCoords.x, model.IndicatorPaneTop),
-					new Point(viewCoords.x, model.IndicatorPaneTop + model.IndicatorPaneHeight));
+				double x = controller.TimeToViewX(currentTime);
+				if (x >= frame.Left && x <= frame.ScaleX)
+				{
+					drawingContext.DrawLine(GridPen,
+						new Point(x, frame.IndicatorPaneTop),
+						new Point(x, indicatorBottom));
+				}
+				currentTime = currentTime.Add(frame.TimeInterval);
 			}
-
-			currentTime = currentTime.Add(timeInterval);
 		}
 
-		// Горизонтальные линии for indicator values
-		var viewport = model.IndicatorViewport;
-		if (viewport.MinValue >= viewport.MaxValue)
-			return;
-
-		double valueRange = viewport.MaxValue - viewport.MinValue;
-		double rawInterval = valueRange / 5;
-		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(rawInterval, 0.001))));
-		double normalizedInterval = rawInterval / magnitude;
-		double valueInterval;
-		if (normalizedInterval <= 1) valueInterval = magnitude;
-		else if (normalizedInterval <= 2) valueInterval = 2 * magnitude;
-		else if (normalizedInterval <= 5) valueInterval = 5 * magnitude;
-		else valueInterval = 10 * magnitude;
-
-		double firstValueTick = Math.Floor(viewport.MinValue / valueInterval) * valueInterval;
-		double currentValue = firstValueTick;
-
-		while (currentValue <= viewport.MaxValue)
+		if (frame.IndicatorValueInterval > 0)
 		{
-			Coordinates viewCoords = controller.IndicatorToView(model.Viewport.minTime, currentValue);
-
-			if (viewCoords.y >= model.IndicatorPaneTop && viewCoords.y <= model.IndicatorPaneTop + model.IndicatorPaneHeight)
+			double currentValue = frame.FirstIndicatorTick;
+			while (currentValue <= frame.IndicatorMaxValue)
 			{
-				drawingContext.DrawLine(gridPen,
-					new Point(model.LeftMargin, viewCoords.y),
-					new Point(model.LeftMargin + model.ChartWidth, viewCoords.y));
+				double y = controller.IndicatorValueToViewY(currentValue);
+				if (y >= frame.IndicatorPaneTop && y <= indicatorBottom)
+				{
+					drawingContext.DrawLine(GridPen,
+						new Point(frame.Left, y),
+						new Point(frame.ScaleX, y));
+				}
+				currentValue += frame.IndicatorValueInterval;
 			}
-
-			currentValue += valueInterval;
 		}
 	}
 
-	private void DrawTechnicalAnalysisTools(DrawingContext drawingContext)
+	private void DrawTechnicalAnalysisTools(DrawingContext drawingContext, in RenderFrame frame)
 	{
 		if (model.TechnicalAnalysisManager == null)
 			return;
 
-		// Проверяем, что размеры графика установлены и камера инициализирована
-		if (model.ChartWidth <= 0 || model.MainPaneHeight <= 0 || !model.IsInitialized)
+		if (frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0 || !model.IsInitialized)
 			return;
 
-		// Получаем текущий viewport (он должен быть обновлен после инициализации камеры)
 		ViewportClippingCoords currentViewport = model.Viewport;
-
-		// Создаем clipping region для main pane only
-		RectangleGeometry clipGeometry = new RectangleGeometry(new Rect(
-			model.LeftMargin,
-			model.TopMargin,
-			model.ChartWidth,
-			model.MainPaneHeight
-		));
-
-		// Применяем clipping
+		var clipGeometry = new RectangleGeometry(frame.MainPaneRect);
 		drawingContext.PushClip(clipGeometry);
 
 		try
 		{
-			// В WPF каждый OnRender должен перерисовать ВСЁ заново,
-			// поэтому рисуем все видимые инструменты без проверки NeedsRedrawing
 			foreach (var tool in model.TechnicalAnalysisManager.GetTools())
 			{
 				if (tool.IsVisible)
-				{
 					tool.Draw(drawingContext, controller.ChartToView, currentViewport);
-				}
 			}
 		}
 		finally
 		{
-			drawingContext.Pop(); // Убираем clipping
+			drawingContext.Pop();
 		}
 	}
 
 	/// <summary>
 	/// Устанавливает флаг принудительной перерисовки всех инструментов технического анализа
-	/// Вызывается при изменении размера окна, zoom, pan и других операциях, требующих полной перерисовки
 	/// </summary>
 	public void RequestRedrawAllTechnicalTools()
 	{
@@ -636,47 +510,40 @@ public class ChartRenderer
 
 		var currentPoint = CurrentMouseChartCoords.Value;
 
-		// Превью для TrendLine (шаг 1: рисуем линию от первой точки к курсору)
 		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendLine &&
 			TechnicalAnalysisTool.CreationStep == 1 &&
 			TechnicalAnalysisTool.CreationPoints[0].HasValue)
 		{
-			DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint, 
+			DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint,
 				Color.FromArgb(128, 0, 120, 255));
 		}
 
-		// Превью для TrendChannel
 		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendChannel)
 		{
-			// Шаг 1: рисуем первую линию от первой точки к курсору
 			if (TechnicalAnalysisTool.CreationStep == 1 &&
 				TechnicalAnalysisTool.CreationPoints[0].HasValue)
 			{
-				DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint, 
+				DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint,
 					Color.FromArgb(128, 0, 180, 0));
 			}
 
-			// Шаг 2: первая линия готова, рисуем превью параллельной линии
 			if (TechnicalAnalysisTool.CreationStep == 2 &&
 				TechnicalAnalysisTool.CreatingToolInstance is TrendChannel previewChannel)
 			{
-				// Вычисляем смещение параллельной линии на основе текущей позиции мыши
 				double previewOffset = currentPoint.price - previewChannel.StartPrice;
 				previewChannel.DrawPreviewParallelLine(drawingContext, controller.ChartToView, previewOffset);
 			}
 		}
 
-		// Превью для Rectangle (шаг 1: рисуем прямоугольник от первой точки к курсору)
 		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.Rectangle &&
 			TechnicalAnalysisTool.CreationStep == 1 &&
 			TechnicalAnalysisTool.CreationPoints[0].HasValue)
 		{
 			DrawRectanglePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint,
-				Color.FromArgb(128, 255, 165, 0)); // Оранжевый цвет
+				Color.FromArgb(128, 255, 165, 0));
 		}
 	}
 
-	/// <summary>Отрисовка пунктирной линии превью</summary>
 	private void DrawLinePreview(DrawingContext drawingContext, ChartCoordinates start, ChartCoordinates end, Color color)
 	{
 		var startView = controller.ChartToView(start);
@@ -686,18 +553,14 @@ public class ChartRenderer
 			double.IsNaN(endView.x) || double.IsNaN(endView.y))
 			return;
 
-		var previewPen = new Pen(new SolidColorBrush(color), 2.0);
-		previewPen.DashStyle = DashStyles.Dash;
-
+		var previewPen = new Pen(new SolidColorBrush(color), 2.0) { DashStyle = DashStyles.Dash };
 		drawingContext.DrawLine(previewPen,
 			new Point(startView.x, startView.y),
 			new Point(endView.x, endView.y));
 	}
 
-	/// <summary>Отрисовка пунктирного прямоугольника превью</summary>
 	private void DrawRectanglePreview(DrawingContext drawingContext, ChartCoordinates corner1, ChartCoordinates corner2, Color color)
 	{
-		// Конвертируем углы в View координаты
 		var c1View = controller.ChartToView(corner1);
 		var c2View = controller.ChartToView(corner2);
 
@@ -705,7 +568,6 @@ public class ChartRenderer
 			double.IsNaN(c2View.x) || double.IsNaN(c2View.y))
 			return;
 
-		// Рисуем полупрозрачную заливку (светло-зеленую)
 		var fillBrush = new SolidColorBrush(Color.FromArgb(32, 144, 238, 144));
 		fillBrush.Freeze();
 		var rectGeometry = new RectangleGeometry(new Rect(
@@ -716,27 +578,118 @@ public class ChartRenderer
 		));
 		drawingContext.DrawGeometry(fillBrush, null, rectGeometry);
 
-		var previewPen = new Pen(new SolidColorBrush(color), 2.0);
-		previewPen.DashStyle = DashStyles.Dash;
+		var previewPen = new Pen(new SolidColorBrush(color), 2.0) { DashStyle = DashStyles.Dash };
 
-		// Рисуем 4 стороны прямоугольника
-		// Верхняя/нижняя горизонтальные линии
-		drawingContext.DrawLine(previewPen,
-			new Point(c1View.x, c1View.y),
-			new Point(c2View.x, c1View.y));
+		drawingContext.DrawLine(previewPen, new Point(c1View.x, c1View.y), new Point(c2View.x, c1View.y));
+		drawingContext.DrawLine(previewPen, new Point(c1View.x, c2View.y), new Point(c2View.x, c2View.y));
+		drawingContext.DrawLine(previewPen, new Point(c1View.x, c1View.y), new Point(c1View.x, c2View.y));
+		drawingContext.DrawLine(previewPen, new Point(c2View.x, c1View.y), new Point(c2View.x, c2View.y));
+	}
 
-		drawingContext.DrawLine(previewPen,
-			new Point(c1View.x, c2View.y),
-			new Point(c2View.x, c2View.y));
+	private static FormattedText CreateLabelText(string text, Brush brush, double emSize)
+	{
+		return new FormattedText(
+			text,
+			System.Globalization.CultureInfo.CurrentCulture,
+			FlowDirection.LeftToRight,
+			LabelTypeface,
+			emSize,
+			brush,
+			96.0);
+	}
 
-		// Левая/правая вертикальные линии
-		drawingContext.DrawLine(previewPen,
-			new Point(c1View.x, c1View.y),
-			new Point(c1View.x, c2View.y));
+	private static Pen CreateFrozenPen(Brush brush, double thickness)
+	{
+		var pen = new Pen(brush, thickness);
+		pen.Freeze();
+		return pen;
+	}
 
-		drawingContext.DrawLine(previewPen,
-			new Point(c2View.x, c1View.y),
-			new Point(c2View.x, c2View.y));
+	private static Pen CreateFrozenDashedPen(Brush brush, double thickness, DashStyle dashStyle)
+	{
+		if (dashStyle.CanFreeze)
+			dashStyle.Freeze();
+		var pen = new Pen(brush, thickness) { DashStyle = dashStyle };
+		pen.Freeze();
+		return pen;
+	}
+
+	private static Brush CreateFrozenBrush(Color color)
+	{
+		var brush = new SolidColorBrush(color);
+		brush.Freeze();
+		return brush;
+	}
+
+	/// <summary>Кэш layout и шагов шкал на один кадр отрисовки</summary>
+	private readonly struct RenderFrame
+	{
+		public readonly double Left;
+		public readonly double Top;
+		public readonly double ChartWidth;
+		public readonly double MainPaneHeight;
+		public readonly double IndicatorPaneTop;
+		public readonly double IndicatorPaneHeight;
+		public readonly double DividerY;
+		public readonly double DividerHeight;
+		public readonly double ScaleX;
+		public readonly double TimeScaleY;
+		public readonly double CandleWidthPixels;
+		public readonly double PriceInterval;
+		public readonly TimeSpan TimeInterval;
+		public readonly double FirstPriceTick;
+		public readonly DateTime FirstTimeTick;
+		public readonly double IndicatorValueInterval;
+		public readonly double FirstIndicatorTick;
+		public readonly double IndicatorMaxValue;
+		public readonly Rect MainPaneRect;
+		public readonly Rect DividerRect;
+		public readonly Rect IndicatorPaneRect;
+
+		public RenderFrame(
+			double left,
+			double top,
+			double chartWidth,
+			double mainPaneHeight,
+			double indicatorPaneTop,
+			double indicatorPaneHeight,
+			double dividerY,
+			double dividerHeight,
+			double scaleX,
+			double timeScaleY,
+			double candleWidthPixels,
+			double priceInterval,
+			TimeSpan timeInterval,
+			double firstPriceTick,
+			DateTime firstTimeTick,
+			double indicatorValueInterval,
+			double firstIndicatorTick,
+			double indicatorMaxValue,
+			Rect mainPaneRect,
+			Rect dividerRect,
+			Rect indicatorPaneRect)
+		{
+			Left = left;
+			Top = top;
+			ChartWidth = chartWidth;
+			MainPaneHeight = mainPaneHeight;
+			IndicatorPaneTop = indicatorPaneTop;
+			IndicatorPaneHeight = indicatorPaneHeight;
+			DividerY = dividerY;
+			DividerHeight = dividerHeight;
+			ScaleX = scaleX;
+			TimeScaleY = timeScaleY;
+			CandleWidthPixels = candleWidthPixels;
+			PriceInterval = priceInterval;
+			TimeInterval = timeInterval;
+			FirstPriceTick = firstPriceTick;
+			FirstTimeTick = firstTimeTick;
+			IndicatorValueInterval = indicatorValueInterval;
+			FirstIndicatorTick = firstIndicatorTick;
+			IndicatorMaxValue = indicatorMaxValue;
+			MainPaneRect = mainPaneRect;
+			DividerRect = dividerRect;
+			IndicatorPaneRect = indicatorPaneRect;
+		}
 	}
 }
-

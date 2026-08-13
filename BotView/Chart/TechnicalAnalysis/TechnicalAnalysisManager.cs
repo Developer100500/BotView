@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using BotView.Chart;
@@ -176,12 +175,11 @@ public class TechnicalAnalysisManager
 	}
 
 	/// <summary>
-	/// Получает все инструменты из коллекции
+	/// Получает все инструменты из коллекции (без копирования списка)
 	/// </summary>
-	/// <returns>Коллекция всех инструментов</returns>
-	public IEnumerable<TechnicalAnalysisTool> GetTools()
+	public IReadOnlyList<TechnicalAnalysisTool> GetTools()
 	{
-		return tools.ToList(); // Возвращаем копию для безопасности
+		return tools;
 	}
 
 	/// <summary>
