@@ -316,6 +316,14 @@ public class TrendChannel : TechnicalAnalysisTool
 		// ParallelOffset остаётся неизменным, так как вторая линия перемещается вместе с первой
 	}
 
+	public override void Translate(TimeSpan timeDelta, double priceDelta)
+	{
+		StartTime = StartTime.Add(timeDelta);
+		EndTime = EndTime.Add(timeDelta);
+		StartPrice += priceDelta;
+		EndPrice += priceDelta;
+	}
+
 	/// <summary>
 	/// Определяет индекс контрольной точки под курсором
 	/// 0 = начало первой линии, 1 = конец первой линии

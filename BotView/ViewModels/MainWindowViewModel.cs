@@ -73,6 +73,8 @@ namespace BotView.ViewModels
             SnapLastToRightCommand = new RelayCommand(() => SnapLastToRightRequested?.Invoke());
             StartHorizontalLineCommand = new RelayCommand(() =>
                 DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.HorizontalLine));
+            StartHorizontalRayCommand = new RelayCommand(() =>
+                DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.HorizontalRay));
             StartTrendLineCommand = new RelayCommand(() =>
                 DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.TrendLine));
             StartTrendChannelCommand = new RelayCommand(() =>
@@ -229,6 +231,7 @@ namespace BotView.ViewModels
 
         public ICommand SnapLastToRightCommand { get; }
         public ICommand StartHorizontalLineCommand { get; }
+        public ICommand StartHorizontalRayCommand { get; }
         public ICommand StartTrendLineCommand { get; }
         public ICommand StartTrendChannelCommand { get; }
         public ICommand StartRectangleCommand { get; }

@@ -10,6 +10,7 @@ public enum TechnicalAnalysisToolType
 {
 	None,
 	HorizontalLine,
+	HorizontalRay,
 	VerticalLine,
 	TrendLine,
 	TrendChannel,
@@ -191,6 +192,9 @@ public abstract class TechnicalAnalysisTool
 	/// <summary>Обновляет позицию инструмента при перетаскивании</summary>
 	/// <param name="chartCoords">Новые координаты в Chart Coordinates (время и цена)</param>
 	public abstract void UpdatePosition(ChartCoordinates chartCoords);
+
+	/// <summary>Смещает инструмент целиком на заданную дельту времени и цены</summary>
+	public abstract void Translate(TimeSpan timeDelta, double priceDelta);
 
 	/// <summary>Сериализует инструмент в JObject</summary>
 	public abstract JObject toJson();

@@ -225,7 +225,7 @@ public class ChartRenderer
 			return;
 		}
 
-		DrawPriceScaleLabel(drawingContext, frame, price2, Brushes.LightGray);
+		DrawPriceScaleLabel(drawingContext, frame, price2, Brushes.Gray);
 	}
 
 	/// <summary>Отрисовывает пунктир от текущей свечи и метку рыночной цены на шкале</summary>

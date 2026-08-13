@@ -113,6 +113,8 @@
                     <TextBlock Text="Инструменты" Margin="2"/>
                     <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2"
                             Command="{Binding StartHorizontalLineCommand}"/>
+                    <Button Name="btnHorizontalRay" Content="Горизонтальный луч" Margin="2"
+                            Command="{Binding StartHorizontalRayCommand}"/>
                     <Button Name="btnTrendLine" Content="Трендовая линия" Margin="2"
                             Command="{Binding StartTrendLineCommand}"/>
                     <Button Name="btnTrendChannel" Content="Трендовый канал" Margin="2"

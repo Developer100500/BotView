@@ -208,6 +208,14 @@ public class TrendLine : TechnicalAnalysisTool
 		EndPrice += priceDelta;
 	}
 
+	public override void Translate(TimeSpan timeDelta, double priceDelta)
+	{
+		StartTime = StartTime.Add(timeDelta);
+		EndTime = EndTime.Add(timeDelta);
+		StartPrice += priceDelta;
+		EndPrice += priceDelta;
+	}
+
 	/// <summary>Определяет индекс контрольной точки под курсором (0=начало, 1=конец, -1=не найдено)</summary>
 	public override int GetControlPointIndex(
 		Coordinates viewCoords,

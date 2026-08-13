@@ -275,6 +275,14 @@ public class Rectangle : TechnicalAnalysisTool
 		EndPrice += priceDelta;
 	}
 
+	public override void Translate(TimeSpan timeDelta, double priceDelta)
+	{
+		StartTime = StartTime.Add(timeDelta);
+		EndTime = EndTime.Add(timeDelta);
+		StartPrice += priceDelta;
+		EndPrice += priceDelta;
+	}
+
 	/// <summary>
 	/// Определяет индекс контрольной точки под курсором
 	/// 0 = угол (StartTime, StartPrice)

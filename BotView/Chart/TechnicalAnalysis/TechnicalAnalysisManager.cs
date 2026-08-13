@@ -136,6 +136,7 @@ public class TechnicalAnalysisManager
 		return type switch
 		{
 			"HorizontalLine" => HorizontalLine.FromJson(json),
+			"HorizontalRay" => HorizontalRay.FromJson(json),
 			"TrendLine" => TrendLine.FromJson(json),
 			"TrendChannel" => TrendChannel.FromJson(json),
 			"Rectangle" => Rectangle.FromJson(json),

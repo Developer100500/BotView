@@ -11,6 +11,8 @@ namespace BotView.Chart.TechnicalAnalysis;
 /// </summary>
 public class HorizontalLine : TechnicalAnalysisTool
 {
+	public const double ControlPointRadius = 6.0;
+
 	public double Price { get; set; }
 
 	public Brush Color { get; set; }
@@ -85,8 +87,12 @@ public class HorizontalLine : TechnicalAnalysisTool
 		// Создаем перо для отрисовки
 		Pen linePen = new Pen(Color, Thickness);
 
-		// Отрисовываем линию
+		lastVisibleCenter = new Coordinates((startView.x + endView.x) / 2, (startView.y + endView.y) / 2);
+
 		drawingContext.DrawLine(linePen, new System.Windows.Point(startView.x, startView.y), new System.Windows.Point(endView.x, endView.y));
+
+		if (IsBeingEdited)
+			DrawControlPoint(drawingContext);
 	}
 
 	/// <summary>
@@ -117,6 +123,45 @@ public class HorizontalLine : TechnicalAnalysisTool
 	public override void UpdatePosition(ChartCoordinates chartCoords)
 	{
 		Price = chartCoords.price;
+	}
+
+	public override void Translate(TimeSpan timeDelta, double priceDelta)
+	{
+		Price += priceDelta;
+	}
+
+	public override int GetControlPointIndex(
+		Coordinates viewCoords,
+		Func<ChartCoordinates, Coordinates> chartToViewConverter,
+		double tolerance = -1)
+	{
+		if (tolerance < 0) tolerance = ControlPointRadius + 3;
+
+		double dist = Math.Sqrt(
+			Math.Pow(viewCoords.x - lastVisibleCenter.x, 2) +
+			Math.Pow(viewCoords.y - lastVisibleCenter.y, 2));
+		return dist <= tolerance ? 0 : -1;
+	}
+
+	public override void UpdateControlPoint(int controlPointIndex, ChartCoordinates chartCoords)
+	{
+		if (controlPointIndex != 0)
+			return;
+		Price = chartCoords.price;
+	}
+
+	private Coordinates lastVisibleCenter;
+
+	private void DrawControlPoint(DrawingContext drawingContext)
+	{
+		var controlPointBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255));
+		var controlPointPen = new Pen(Color, 2.0);
+		drawingContext.DrawEllipse(
+			controlPointBrush,
+			controlPointPen,
+			new System.Windows.Point(lastVisibleCenter.x, lastVisibleCenter.y),
+			ControlPointRadius,
+			ControlPointRadius);
 	}
 
 	/// <summary>Сериализует горизонтальную линию в JObject</summary>

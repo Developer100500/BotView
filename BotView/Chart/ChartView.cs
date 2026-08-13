@@ -94,6 +94,12 @@ public class ChartView : FrameworkElement
 	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
 	public event Action? LeftEdgeApproached;
 
+	private const double ToolBodyDragThresholdPx = 4.0;
+	private TechnicalAnalysisTool? pendingTool;
+	private Point pendingStartView;
+	private ChartCoordinates pendingLastChart;
+	private bool isDraggingToolBody;
+
 	public ChartView() : base()
 	{
 		// Инициализируем модель (она создаст тестовые данные и инструменты)
@@ -168,8 +174,15 @@ public class ChartView : FrameworkElement
 		var editingTool = TechnicalAnalysisTool.EditingTool;
 		if (editingTool != null && editingTool.IsBeingEdited)
 		{
-			if (HandleEditingToolClick(editingTool, viewCoords, e))
+			int controlPointIndex = editingTool.GetControlPointIndex(viewCoords, controller.ChartToView);
+			if (controlPointIndex >= 0)
+			{
+				TechnicalAnalysisTool.EditingControlPointIndex = controlPointIndex;
+				this.CaptureMouse();
+				this.Cursor = editingTool.GetControlPointCursor(controlPointIndex);
+				e.Handled = true;
 				return;
+			}
 		}
 		
 		// Проверяем, кликнули ли на инструмент
@@ -182,21 +195,47 @@ public class ChartView : FrameworkElement
 
 		if (toolAtPoint != null)
 		{
-			HandleToolSelection(toolAtPoint, e);
+			BeginPendingToolInteraction(toolAtPoint, mousePos, viewCoords);
+			e.Handled = true;
 			return;
 		}
-			
+
+		if (TechnicalAnalysisTool.IsEditingTool)
+		{
+			TechnicalAnalysisTool.StopEditing();
+			InvalidateVisual();
+		}
+
 		var result = controller.HandleMouseLeftButtonDown(mousePos);
-			
+
 		if (result.ShouldCaptureMouse)
 		{
 			this.CaptureMouse();
 		}
-			
+
 		if (result.Cursor != null)
 		{
 			this.Cursor = result.Cursor;
 		}
+	}
+
+	/// <summary>Зажимает фигуру: клик без движения включит редактирование, сдвиг сразу переместит её целиком</summary>
+	private void BeginPendingToolInteraction(TechnicalAnalysisTool tool, Point mousePos, Coordinates viewCoords)
+	{
+		Focus();
+
+		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != tool)
+		{
+			TechnicalAnalysisTool.StopEditing();
+			InvalidateVisual();
+		}
+
+		pendingTool = tool;
+		pendingStartView = mousePos;
+		pendingLastChart = controller.ViewToChart(viewCoords);
+		isDraggingToolBody = false;
+		this.CaptureMouse();
+		this.Cursor = tool.GetEditCursor();
 	}
 
 	/// <summary>Обработка клика для создания инструмента технического анализа</summary>
@@ -237,6 +276,12 @@ public class ChartView : FrameworkElement
 			TechnicalAnalysisToolType.HorizontalLine => new HorizontalLine(
 				price: chartCoords.price,
 				color: Brushes.Red,
+				thickness: 2.0
+			),
+			TechnicalAnalysisToolType.HorizontalRay => new HorizontalRay(
+				startTime: chartCoords.time,
+				price: chartCoords.price,
+				color: Brushes.OrangeRed,
 				thickness: 2.0
 			),
 			_ => null
@@ -362,80 +407,41 @@ public class ChartView : FrameworkElement
 		}
 	}
 
-	/// <summary>Обрабатывает клик когда инструмент уже в режиме редактирования</summary>
-	/// <returns>true если событие обработано</returns>
-	private bool HandleEditingToolClick(TechnicalAnalysisTool tool, Coordinates viewCoords, MouseButtonEventArgs e)
-	{
-		// Для инструментов с контрольными точками проверяем клик на точку
-		if (tool.SupportsControlPoints)
-		{
-			int controlPointIndex = tool.GetControlPointIndex(viewCoords, controller.ChartToView);
-			if (controlPointIndex >= 0)
-			{
-				// Начинаем перетаскивание контрольной точки
-				TechnicalAnalysisTool.EditingControlPointIndex = controlPointIndex;
-				this.CaptureMouse();
-				this.Cursor = tool.GetControlPointCursor(controlPointIndex);
-				e.Handled = true;
-				return true;
-			}
-		}
-
-		// Клик вне контрольных точек — выходим из режима редактирования
-		TechnicalAnalysisTool.StopEditing();
-		InvalidateVisual();
-		return false;
-	}
-
-	/// <summary>Обрабатывает выбор инструмента кликом</summary>
-	private void HandleToolSelection(TechnicalAnalysisTool tool, MouseButtonEventArgs e)
-	{
-		// Устанавливаем фокус для обработки клавиатуры (Delete, Escape)
-		Focus();
-
-		if (tool.SupportsControlPoints)
-		{
-			// Для инструментов с контрольными точками: активируем режим редактирования
-			tool.SetEditMode(true);
-			TechnicalAnalysisTool.StartEditing(tool, -1);
-			InvalidateVisual();
-		}
-		else
-		{
-			// Для простых инструментов: начинаем редактирование сразу с захватом мыши
-			TechnicalAnalysisTool.StartEditing(tool);
-			this.CaptureMouse();
-			this.Cursor = tool.GetEditCursor();
-		}
-		e.Handled = true;
-	}
-
-	/// <summary>Обрабатывает перетаскивание инструмента или его контрольных точек</summary>
-	/// <returns>true если событие обработано</returns>
-	private bool HandleToolDragging(Coordinates viewCoords)
+	/// <summary>Обрабатывает перетаскивание контрольной точки</summary>
+	private bool HandleControlPointDragging(Coordinates viewCoords)
 	{
 		var tool = TechnicalAnalysisTool.EditingTool;
-		if (tool == null) return false;
+		if (tool == null || TechnicalAnalysisTool.EditingControlPointIndex < 0)
+			return false;
+
+		tool.UpdateControlPoint(TechnicalAnalysisTool.EditingControlPointIndex, controller.ViewToChart(viewCoords));
+		InvalidateVisual();
+		return true;
+	}
+
+	/// <summary>Перемещает зажатую фигуру целиком после превышения порога сдвига</summary>
+	private bool HandlePendingToolMove(Point currentPosition, Coordinates viewCoords)
+	{
+		if (pendingTool == null)
+			return false;
+
+		if (!isDraggingToolBody)
+		{
+			double dx = currentPosition.X - pendingStartView.X;
+			double dy = currentPosition.Y - pendingStartView.Y;
+			if ((dx * dx) + (dy * dy) < ToolBodyDragThresholdPx * ToolBodyDragThresholdPx)
+				return true;
+
+			isDraggingToolBody = true;
+		}
 
 		var chartCoords = controller.ViewToChart(viewCoords);
-
-		// Если перетаскиваем контрольную точку
-		if (TechnicalAnalysisTool.EditingControlPointIndex >= 0 && tool.SupportsControlPoints)
-		{
-			tool.UpdateControlPoint(TechnicalAnalysisTool.EditingControlPointIndex, chartCoords);
-			InvalidateVisual();
-			return true;
-		}
-
-		// Если это простой инструмент без контрольных точек — перемещаем его целиком
-		if (!tool.SupportsControlPoints)
-		{
-			tool.UpdatePosition(chartCoords);
-			InvalidateVisual();
-			return true;
-		}
-
-		return false;
+		pendingTool.Translate(
+			chartCoords.time - pendingLastChart.time,
+			chartCoords.price - pendingLastChart.price);
+		pendingLastChart = chartCoords;
+		InvalidateVisual();
+		return true;
 	}
 
 	/// <summary>Обрабатывает наведение мыши на инструменты</summary>
@@ -444,8 +450,7 @@ public class ChartView : FrameworkElement
 	{
 		var editingTool = TechnicalAnalysisTool.EditingTool;
 
-		// Если инструмент в режиме редактирования — проверяем наведение на контрольные точки
-		if (editingTool != null && editingTool.IsBeingEdited && editingTool.SupportsControlPoints)
+		if (editingTool != null && editingTool.IsBeingEdited)
 		{
 			int controlPointIndex = editingTool.GetControlPointIndex(viewCoords, controller.ChartToView);
 			if (controlPointIndex >= 0)
@@ -455,7 +460,6 @@ public class ChartView : FrameworkElement
 			}
 		}
 
-		// Проверяем наведение на любой инструмент
 		var toolAtPoint = model.TechnicalAnalysisManager.GetToolAtPoint(
 			viewCoords,
 			controller.ChartToView,
@@ -476,51 +480,61 @@ public class ChartView : FrameworkElement
 	{
 		base.OnMouseLeftButtonUp(e);
 
-		//if (TechnicalAnalysisTool.IsCreatingTool)
-		//{
-		//	TechnicalAnalysisTool.CreationStep++;
-		//	InvalidateVisual();
-		//	return;
-		//}
-
-		// Если редактировали инструмент — завершаем редактирование
-		if (TechnicalAnalysisTool.IsEditingTool)
+		if (pendingTool != null)
 		{
-			var tool = TechnicalAnalysisTool.EditingTool;
-
-			// Если перетаскивали контрольную точку — завершаем перетаскивание, но остаёмся в режиме редактирования
-			if (TechnicalAnalysisTool.EditingControlPointIndex >= 0)
-			{
-				TechnicalAnalysisTool.EditingControlPointIndex = -1;
-				this.Cursor = Cursors.Arrow;
-				this.ReleaseMouseCapture();
-				InvalidateVisual();
-				return;
-			}
-
-			// Для простых инструментов (без контрольных точек) — завершаем редактирование
-			if (tool != null && !tool.SupportsControlPoints)
-			{
-				TechnicalAnalysisTool.StopEditing();
-				this.Cursor = Cursors.Arrow;
-				this.ReleaseMouseCapture();
-				return;
-			}
+			FinishPendingToolInteraction();
+			return;
 		}
-			
+
+		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingControlPointIndex >= 0)
+		{
+			TechnicalAnalysisTool.EditingControlPointIndex = -1;
+			this.Cursor = Cursors.Arrow;
+			this.ReleaseMouseCapture();
+			InvalidateVisual();
+			return;
+		}
+
 		controller.HandleMouseLeftButtonUp();
 		this.Cursor = Cursors.Arrow;
 		this.ReleaseMouseCapture();
 	}
 
+	/// <summary>Клик без движения — режим редактирования; drag — только перемещение фигуры</summary>
+	private void FinishPendingToolInteraction()
+	{
+		var tool = pendingTool;
+		bool dragged = isDraggingToolBody;
+		pendingTool = null;
+		isDraggingToolBody = false;
+		this.ReleaseMouseCapture();
+		this.Cursor = Cursors.Arrow;
+
+		if (tool == null)
+			return;
+
+		if (dragged)
+			return;
+
+		if (TechnicalAnalysisTool.EditingTool != tool || !tool.IsBeingEdited)
+		{
+			if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != tool)
+				TechnicalAnalysisTool.StopEditing();
+
+			tool.SetEditMode(true);
+			TechnicalAnalysisTool.StartEditing(tool, -1);
+		}
+
+		InvalidateVisual();
+	}
+
 	protected override void OnMouseMove(MouseEventArgs e)
 	{
 		base.OnMouseMove(e);
-			
+
 		Point currentPosition = e.GetPosition(this);
 		var viewCoords = new Coordinates(currentPosition.X, currentPosition.Y);
 
-		// Обновляем позицию мыши для превью во время создания инструмента
 		if (TechnicalAnalysisTool.IsCreatingTool && TechnicalAnalysisTool.CreationStep > 0)
 		{
 			renderer.CurrentMouseChartCoords = controller.ViewToChart(viewCoords);
@@ -528,14 +542,18 @@ public class ChartView : FrameworkElement
 			return;
 		}
 
-		// Обработка перетаскивания при редактировании инструмента
-		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != null)
+		if (pendingTool != null && e.LeftButton == MouseButtonState.Pressed)
 		{
-			if (HandleToolDragging(viewCoords))
-				return;
+			HandlePendingToolMove(currentPosition, viewCoords);
+			return;
 		}
 
-		// Если не перетаскиваем график — проверяем наведение на инструмент
+		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingControlPointIndex >= 0)
+		{
+			HandleControlPointDragging(viewCoords);
+			return;
+		}
+
 		if (e.LeftButton != MouseButtonState.Pressed)
 		{
 			if (HandleToolHover(viewCoords))
@@ -543,7 +561,7 @@ public class ChartView : FrameworkElement
 		}
 
 		var cursor = controller.HandleMouseMove(currentPosition);
-			
+
 		if (cursor != null)
 		{
 			this.Cursor = cursor;
@@ -574,6 +592,14 @@ public class ChartView : FrameworkElement
 		// Отмена создания инструмента по Escape
 		if (e.Key == Key.Escape)
 		{
+			if (pendingTool != null)
+			{
+				pendingTool = null;
+				isDraggingToolBody = false;
+				this.ReleaseMouseCapture();
+				this.Cursor = Cursors.Arrow;
+			}
+
 			if (TechnicalAnalysisTool.IsCreatingTool)
 			{
 				TechnicalAnalysisTool.StopCreating();
