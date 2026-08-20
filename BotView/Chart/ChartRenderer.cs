@@ -25,14 +25,25 @@ public class ChartRenderer
 	private static readonly Pen BullishBodyPen = CreateFrozenPen(Brushes.Green, 1);
 	private static readonly Pen BearishBodyPen = CreateFrozenPen(Brushes.Red, 1);
 	private static readonly Pen CurrentPriceDashPen = CreateFrozenDashedPen(Brushes.LightGray, 1, DashStyles.Dot);
+	private static readonly Pen CrosshairPen = CreateFrozenDashedPen(Brushes.LightGray, 1, DashStyles.Dash);
 	private static readonly Pen GridPen = CreateFrozenDashedPen(Brushes.LightGray, 0.5, new DashStyle(new double[] { 2, 4 }, 0));
 	private static readonly Brush DividerBrush = CreateFrozenBrush(Color.FromRgb(180, 180, 180));
 	private static readonly Brush IndicatorBgBrush = CreateFrozenBrush(Color.FromRgb(250, 250, 252));
+	private static readonly Brush CrosshairLabelBrush = CreateFrozenBrush(Color.FromRgb(96, 96, 96));
 
 	public bool RedrawAllTechnicalTools { get; set; } = false;
 
 	/// <summary>Текущие координаты мыши для превью инструмента (устанавливается из ChartView)</summary>
 	public ChartCoordinates? CurrentMouseChartCoords { get; set; } = null;
+
+	/// <summary>Whether crosshair should be drawn</summary>
+	public bool CrosshairVisible { get; set; }
+
+	/// <summary>Mouse position in view coordinates for crosshair</summary>
+	public Point CrosshairViewPosition { get; set; }
+
+	/// <summary>Pane under the cursor (affects horizontal line / price label)</summary>
+	public ChartPane CrosshairPane { get; set; } = ChartPane.None;
 
 	public ChartRenderer(ChartModel model, ChartController controller)
 	{
@@ -62,6 +73,7 @@ public class ChartRenderer
 		DrawIndicatorScale(drawingContext, frameValues);
 		indicatorRenderer?.Render(drawingContext);
 		DrawTimeScale(drawingContext, frameValues);
+		DrawCrosshair(drawingContext, frameValues);
 	}
 
 	/// <summary>Собирает layout и шаги шкал один раз на кадр</summary>
@@ -298,6 +310,114 @@ public class ChartRenderer
 			new Point(
 				scaleX + horizontalPadding,
 				priceY - formattedText.Height / 2));
+	}
+
+	/// <summary>TradingView-style crosshair: snapped vertical + optional horizontal with scale labels</summary>
+	private void DrawCrosshair(DrawingContext drawingContext, in RenderFrame frame)
+	{
+		if (!CrosshairVisible || !model.IsInitialized)
+			return;
+
+		if (frame.ChartWidth <= 0)
+			return;
+
+		Point mouse = CrosshairViewPosition;
+		ChartCoordinates chartCoords = controller.ViewToChart(new Coordinates(mouse.X, mouse.Y));
+
+		int candleIndex = controller.FindNearestCandleIndex(chartCoords.time);
+		double? snappedX = null;
+		DateTime? snappedTime = null;
+
+		if (candleIndex >= 0)
+		{
+			DateTime candleTime = controller.GetCandleTime(candleIndex);
+			double x = controller.TimeToViewX(candleTime);
+			if (x >= frame.Left && x <= frame.ScaleX)
+			{
+				snappedX = x;
+				snappedTime = candleTime;
+			}
+		}
+
+		if (snappedX.HasValue)
+		{
+			double x = snappedX.Value;
+			double mainBottom = frame.Top + frame.MainPaneHeight;
+			double indicatorBottom = frame.IndicatorPaneTop + frame.IndicatorPaneHeight;
+
+			drawingContext.DrawLine(
+				CrosshairPen,
+				new Point(x, frame.Top),
+				new Point(x, mainBottom));
+
+			if (frame.IndicatorPaneHeight > 0)
+			{
+				drawingContext.DrawLine(
+					CrosshairPen,
+					new Point(x, frame.IndicatorPaneTop),
+					new Point(x, indicatorBottom));
+			}
+		}
+
+		bool showPriceCrosshair = CrosshairPane == ChartPane.Main
+			&& mouse.Y >= frame.Top
+			&& mouse.Y <= frame.Top + frame.MainPaneHeight;
+
+		if (showPriceCrosshair)
+		{
+			drawingContext.DrawLine(
+				CrosshairPen,
+				new Point(frame.Left, mouse.Y),
+				new Point(frame.ScaleX, mouse.Y));
+
+			double price = chartCoords.price;
+			if (double.IsFinite(price)
+				&& price >= model.Viewport.minPrice
+				&& price <= model.Viewport.maxPrice)
+			{
+				DrawPriceScaleLabel(drawingContext, frame, price, CrosshairLabelBrush);
+			}
+		}
+
+		if (snappedX.HasValue && snappedTime.HasValue)
+		{
+			DrawTimeScaleLabel(drawingContext, frame, snappedX.Value, snappedTime.Value);
+		}
+	}
+
+	/// <summary>Draws a time label on the bottom time scale centered on vertical crosshair</summary>
+	private void DrawTimeScaleLabel(
+		DrawingContext drawingContext,
+		in RenderFrame frame,
+		double centerX,
+		DateTime time)
+	{
+		string timeText = controller.FormatCrosshairTimeLabel(time);
+		FormattedText formattedText = CreateLabelText(timeText, Brushes.White, 10);
+
+		const double horizontalPadding = 4;
+		const double verticalPadding = 2;
+		double labelWidth = formattedText.Width + horizontalPadding * 2;
+		double labelHeight = formattedText.Height + verticalPadding * 2;
+
+		double labelLeft = centerX - labelWidth / 2;
+		double minLeft = frame.Left;
+		double maxLeft = frame.ScaleX + model.RightMargin - labelWidth;
+		if (maxLeft < minLeft)
+			maxLeft = minLeft;
+		labelLeft = Math.Clamp(labelLeft, minLeft, maxLeft);
+
+		double labelTop = frame.TimeScaleY + 2;
+		double maxTop = frame.TimeScaleY + model.BottomMargin - labelHeight;
+		if (maxTop < frame.TimeScaleY)
+			maxTop = frame.TimeScaleY;
+		labelTop = Math.Clamp(labelTop, frame.TimeScaleY, maxTop);
+
+		Rect labelRect = new Rect(labelLeft, labelTop, labelWidth, labelHeight);
+		drawingContext.DrawRectangle(CrosshairLabelBrush, null, labelRect);
+		drawingContext.DrawText(
+			formattedText,
+			new Point(labelLeft + horizontalPadding, labelTop + verticalPadding));
 	}
 
 	/// <summary>Отрисовка шкалы времени (горизонтальная ось внизу indicator pane - shared)</summary>

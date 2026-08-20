@@ -1001,6 +1001,51 @@ public class ChartController
 	}
 
 	/// <summary>
+	/// Finds the candle index whose open time is nearest to <paramref name="time"/>.
+	/// Candles are assumed ordered by time (gaps allowed). Returns -1 if no data.
+	/// </summary>
+	public int FindNearestCandleIndex(DateTime time)
+	{
+		var candles = model.CandlestickData.candles;
+		if (candles == null || candles.Length == 0)
+			return -1;
+
+		int lo = 0;
+		int hi = candles.Length - 1;
+
+		if (time <= GetCandleTime(lo))
+			return lo;
+		if (time >= GetCandleTime(hi))
+			return hi;
+
+		while (lo <= hi)
+		{
+			int mid = lo + ((hi - lo) / 2);
+			DateTime midTime = GetCandleTime(mid);
+
+			if (midTime == time)
+				return mid;
+
+			if (midTime < time)
+				lo = mid + 1;
+			else
+				hi = mid - 1;
+		}
+
+		// lo is first index with time > target; hi is last with time < target
+		if (lo >= candles.Length)
+			return hi;
+		if (hi < 0)
+			return lo;
+
+		DateTime loTime = GetCandleTime(lo);
+		DateTime hiTime = GetCandleTime(hi);
+		long loDelta = Math.Abs((loTime - time).Ticks);
+		long hiDelta = Math.Abs((hiTime - time).Ticks);
+		return loDelta <= hiDelta ? lo : hi;
+	}
+
+	/// <summary>
 	/// Вычисляет ширину свечи в пикселях на основе текущего масштаба
 	/// </summary>
 	public double GetCandleWidthPixels()
@@ -1150,6 +1195,17 @@ public class ChartController
 		double interval = priceInterval ?? CalculateOptimalPriceInterval();
 		int decimals = GetDecimalPlacesForPriceStep(interval);
 		return price.ToString($"F{decimals}");
+	}
+
+	/// <summary>
+	/// Formats crosshair time label: always date; time included when timeframe is shorter than 1 day.
+	/// </summary>
+	public string FormatCrosshairTimeLabel(DateTime time)
+	{
+		TimeSpan tf = ParseTimeframe(model.Timeframe);
+		if (tf < TimeSpan.FromDays(1))
+			return time.ToString("dd.MM.yyyy HH:mm");
+		return time.ToString("dd.MM.yyyy");
 	}
 }
 

@@ -119,6 +119,30 @@ public class ChartView : FrameworkElement
 		Focusable = true;
 	}
 
+	private void UpdateCrosshairFromMouse(Point mousePos)
+	{
+		ChartPane pane = controller.DetectPane(mousePos);
+		if (pane == ChartPane.Main || pane == ChartPane.Indicator || pane == ChartPane.Divider)
+		{
+			renderer.CrosshairVisible = true;
+			renderer.CrosshairViewPosition = mousePos;
+			renderer.CrosshairPane = pane;
+		}
+		else
+		{
+			ClearCrosshair();
+		}
+	}
+
+	private void ClearCrosshair()
+	{
+		if (!renderer.CrosshairVisible)
+			return;
+
+		renderer.CrosshairVisible = false;
+		renderer.CrosshairPane = ChartPane.None;
+	}
+
 	protected override void OnRender(DrawingContext drawingContext)
 	{
 		// Начинаем измерение времени
@@ -535,6 +559,8 @@ public class ChartView : FrameworkElement
 		Point currentPosition = e.GetPosition(this);
 		var viewCoords = new Coordinates(currentPosition.X, currentPosition.Y);
 
+		UpdateCrosshairFromMouse(currentPosition);
+
 		if (TechnicalAnalysisTool.IsCreatingTool && TechnicalAnalysisTool.CreationStep > 0)
 		{
 			renderer.CurrentMouseChartCoords = controller.ViewToChart(viewCoords);
@@ -545,19 +571,24 @@ public class ChartView : FrameworkElement
 		if (pendingTool != null && e.LeftButton == MouseButtonState.Pressed)
 		{
 			HandlePendingToolMove(currentPosition, viewCoords);
+			InvalidateVisual();
 			return;
 		}
 
 		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingControlPointIndex >= 0)
 		{
 			HandleControlPointDragging(viewCoords);
+			InvalidateVisual();
 			return;
 		}
 
 		if (e.LeftButton != MouseButtonState.Pressed)
 		{
 			if (HandleToolHover(viewCoords))
+			{
+				InvalidateVisual();
 				return;
+			}
 		}
 
 		var cursor = controller.HandleMouseMove(currentPosition);
@@ -565,6 +596,19 @@ public class ChartView : FrameworkElement
 		if (cursor != null)
 		{
 			this.Cursor = cursor;
+		}
+
+		InvalidateVisual();
+	}
+
+	protected override void OnMouseLeave(MouseEventArgs e)
+	{
+		base.OnMouseLeave(e);
+
+		if (!IsMouseCaptured)
+		{
+			ClearCrosshair();
+			InvalidateVisual();
 		}
 	}
 
