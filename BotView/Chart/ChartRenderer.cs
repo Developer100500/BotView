@@ -312,7 +312,10 @@ public class ChartRenderer
 				priceY - formattedText.Height / 2));
 	}
 
-	/// <summary>TradingView-style crosshair: snapped vertical + optional horizontal with scale labels</summary>
+	/// <summary>
+	/// Crosshair: vertical follows mouse X with continuous time label;
+	/// horizontal (main pane only) follows mouse Y with price label.
+	/// </summary>
 	private void DrawCrosshair(DrawingContext drawingContext, in RenderFrame frame)
 	{
 		if (!CrosshairVisible || !model.IsInitialized)
@@ -322,41 +325,25 @@ public class ChartRenderer
 			return;
 
 		Point mouse = CrosshairViewPosition;
+		if (mouse.X < frame.Left || mouse.X > frame.ScaleX)
+			return;
+
 		ChartCoordinates chartCoords = controller.ViewToChart(new Coordinates(mouse.X, mouse.Y));
+		double verticalX = mouse.X;
+		double mainBottom = frame.Top + frame.MainPaneHeight;
+		double indicatorBottom = frame.IndicatorPaneTop + frame.IndicatorPaneHeight;
 
-		int candleIndex = controller.FindNearestCandleIndex(chartCoords.time);
-		double? snappedX = null;
-		DateTime? snappedTime = null;
+		drawingContext.DrawLine(
+			CrosshairPen,
+			new Point(verticalX, frame.Top),
+			new Point(verticalX, mainBottom));
 
-		if (candleIndex >= 0)
+		if (frame.IndicatorPaneHeight > 0)
 		{
-			DateTime candleTime = controller.GetCandleTime(candleIndex);
-			double x = controller.TimeToViewX(candleTime);
-			if (x >= frame.Left && x <= frame.ScaleX)
-			{
-				snappedX = x;
-				snappedTime = candleTime;
-			}
-		}
-
-		if (snappedX.HasValue)
-		{
-			double x = snappedX.Value;
-			double mainBottom = frame.Top + frame.MainPaneHeight;
-			double indicatorBottom = frame.IndicatorPaneTop + frame.IndicatorPaneHeight;
-
 			drawingContext.DrawLine(
 				CrosshairPen,
-				new Point(x, frame.Top),
-				new Point(x, mainBottom));
-
-			if (frame.IndicatorPaneHeight > 0)
-			{
-				drawingContext.DrawLine(
-					CrosshairPen,
-					new Point(x, frame.IndicatorPaneTop),
-					new Point(x, indicatorBottom));
-			}
+				new Point(verticalX, frame.IndicatorPaneTop),
+				new Point(verticalX, indicatorBottom));
 		}
 
 		bool showPriceCrosshair = CrosshairPane == ChartPane.Main
@@ -379,10 +366,7 @@ public class ChartRenderer
 			}
 		}
 
-		if (snappedX.HasValue && snappedTime.HasValue)
-		{
-			DrawTimeScaleLabel(drawingContext, frame, snappedX.Value, snappedTime.Value);
-		}
+		DrawTimeScaleLabel(drawingContext, frame, verticalX, chartCoords.time);
 	}
 
 	/// <summary>Draws a time label on the bottom time scale centered on vertical crosshair</summary>
