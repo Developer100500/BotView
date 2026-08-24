@@ -18,7 +18,7 @@
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                     <Separator Margin="2"/>
-                    <Label Content="Биржа:" FontSize="12"/>
+                    <Label Content="Биржа:" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     <ComboBox Name="cmbExchange"
                               Margin="2" Height="Auto"
                               ItemsSource="{Binding Exchanges}"
@@ -27,7 +27,7 @@
                               SelectedValue="{Binding SelectedExchange, Mode=TwoWay}"/>
 
                     <Separator Margin="2"/>
-                    <Label Content="Timeframe:" FontSize="12"/>
+                    <Label Content="Timeframe:" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                     <ComboBox Name="cmbTimeframe" Margin="2"
                               FontSize="14" FontWeight="Bold"
                               Height="Auto" MaxHeight="24"
@@ -107,26 +107,26 @@
                     <Label Content="Управление графиком" FontWeight="Bold" HorizontalAlignment="Center"/>
 
                     <Button Name="btnSnapLastToRight" Content="Прижать вправо" Margin="2"
-                            Command="{Binding SnapLastToRightCommand}"/>
+                            Command="{Binding SnapLastToRightCommand}" ToolTip="Прижать вправо"/>
 
                     <Separator Margin="2"/>
                     <TextBlock Text="Инструменты" Margin="2"/>
                     <Button Name="btnHorizontalLine" Content="Горизонтальная линия" Margin="2"
-                            Command="{Binding StartHorizontalLineCommand}"/>
+                            Command="{Binding StartHorizontalLineCommand}" ToolTip="Горизонтальная линия"/>
                     <Button Name="btnHorizontalRay" Content="Горизонтальный луч" Margin="2"
-                            Command="{Binding StartHorizontalRayCommand}"/>
+                            Command="{Binding StartHorizontalRayCommand}" ToolTip="Горизонтальный луч"/>
                     <Button Name="btnTrendLine" Content="Трендовая линия" Margin="2"
-                            Command="{Binding StartTrendLineCommand}"/>
+                            Command="{Binding StartTrendLineCommand}" ToolTip="Трендовая линия"/>
                     <Button Name="btnTrendChannel" Content="Трендовый канал" Margin="2"
-                            Command="{Binding StartTrendChannelCommand}"/>
+                            Command="{Binding StartTrendChannelCommand}" ToolTip="Трендовый канал"/>
                     <Button Name="btnRectangle" Content="Прямоугольник" Margin="2"
-                            Command="{Binding StartRectangleCommand}"/>
+                            Command="{Binding StartRectangleCommand}" ToolTip="Прямоугольник"/>
 
                     <Separator Margin="2,8,2,8"/>
                     <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2"
-                            Command="{Binding ShowMetricsCommand}"/>
+                            Command="{Binding ShowMetricsCommand}" ToolTip="Показать метрику (debug)"/>
                     <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2"
-                            Command="{Binding ExportMetricsCommand}"/>
+                            Command="{Binding ExportMetricsCommand}" ToolTip="Экспортировать метрику"/>
 
                     <Separator Margin="2"/>
                     <TextBlock Text="Инструкции:" FontSize="10" FontWeight="Bold" Margin="2"/>
@@ -152,6 +152,7 @@
         <!-- Loading overlay -->
         <Border Background="#99000000"
                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+                d:IsHidden="True"
                 Panel.ZIndex="100"
                 IsHitTestVisible="True">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
