@@ -110,24 +110,22 @@
                             Command="{Binding SnapLastToRightCommand}" ToolTip="Прижать вправо"/>
 
                     <Separator Margin="2"/>
+                    
                     <TextBlock Text="Инструменты" Margin="2"/>
-                    <Button Name="btnHorizontalLine" Margin="2"
-                            Command="{Binding StartHorizontalLineCommand}" ToolTip="Горизонтальная линия">
-                        <StackPanel Orientation="Horizontal">
+                    <WrapPanel Orientation="Horizontal">
+                        <Button Name="btnHorizontalLine" Margin="2"
+                                Command="{Binding StartHorizontalLineCommand}" ToolTip="Горизонтальная линия">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M5.13,31c31.04-0.5,53.74,0,53.74,0"
-                                          Stroke="Black" StrokeThickness="2" Fill="Transparent"/>
+                                            Stroke="Black" StrokeThickness="2" Fill="Transparent"/>
                                     <Ellipse Canvas.Left="28.5" Canvas.Top="26.5" Width="8" Height="8"
-                                             Stroke="Black" StrokeThickness="2" Fill="White"/>
+                                                Stroke="Black" StrokeThickness="2" Fill="White"/>
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="Горизонтальная линия" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="btnHorizontalRay" Margin="2"
-                            Command="{Binding StartHorizontalRayCommand}" ToolTip="Горизонтальный луч">
-                        <StackPanel Orientation="Horizontal">
+                        </Button>
+                        <Button Name="btnHorizontalRay" Margin="2"
+                                Command="{Binding StartHorizontalRayCommand}" ToolTip="Горизонтальный луч">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M13.5,32 L58.87,32"
@@ -136,12 +134,9 @@
                                              Stroke="Black" StrokeThickness="2" Fill="White"/>
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="Горизонтальный луч" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="btnTrendLine" Margin="2"
-                            Command="{Binding StartTrendLineCommand}" ToolTip="Трендовая линия">
-                        <StackPanel Orientation="Horizontal">
+                        </Button>
+                        <Button Name="btnTrendLine" Margin="2"
+                                Command="{Binding StartTrendLineCommand}" ToolTip="Трендовая линия">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M14,50c21.59-22.3,38-38,38-38"
@@ -152,43 +147,37 @@
                                         Stroke="Black" StrokeThickness="2" Fill="White"/>
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="Трендовая линия" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="btnTrendChannel" Margin="2"
-                            Command="{Binding StartTrendChannelCommand}" ToolTip="Трендовый канал">
-                        <StackPanel Orientation="Horizontal">
+                        </Button>
+                        <Button Name="btnTrendChannel" Margin="2"
+                                Command="{Binding StartTrendChannelCommand}" ToolTip="Трендовый канал">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M14,50 L52,22"
-                                          Stroke="Black" StrokeThickness="2" Fill="Transparent" HorizontalAlignment="Left" Canvas.Top="4" VerticalAlignment="Center" Canvas.Left="2"/>
+                                            Stroke="Black" StrokeThickness="2" Fill="Transparent" HorizontalAlignment="Left" Canvas.Top="4" VerticalAlignment="Center" Canvas.Left="2"/>
                                     <Path Data="M14,36 L52,8"
-                                          Stroke="Black" StrokeThickness="2" Fill="Transparent" HorizontalAlignment="Left" Canvas.Top="1" VerticalAlignment="Center" Canvas.Left="-1"/>
+                                            Stroke="Black" StrokeThickness="2" Fill="Transparent" HorizontalAlignment="Left" Canvas.Top="1" VerticalAlignment="Center" Canvas.Left="-1"/>
                                     <Ellipse Canvas.Left="8" Canvas.Top="33" Width="8" Height="8"
-                                             Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                                                Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Center" VerticalAlignment="Top"/>
                                     <Ellipse Canvas.Left="33" Canvas.Top="34" Width="8" Height="8"
-                                             Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                                Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                                     <Ellipse Canvas.Left="45" Canvas.Top="6" Width="8" Height="8"
-                                             Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                                Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="Трендовый канал" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="btnRectangle" Margin="2"
-                            Command="{Binding StartRectangleCommand}" ToolTip="Прямоугольник">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                        </Button>
+                        <Button Name="btnRectangle" Margin="2"
+                                Command="{Binding StartRectangleCommand}" ToolTip="Прямоугольник">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Rectangle Canvas.Left="10" Canvas.Top="16" Width="44" Height="32"
-                                               Stroke="Black" StrokeThickness="2" Fill="White"/>
+                                                Stroke="Black" StrokeThickness="2" Fill="White"/>
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="Прямоугольник" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                        </StackPanel>
-                    </Button>
-
+                        </Button>
+                    </WrapPanel>
+                    
                     <Separator Margin="2,8,2,8"/>
+                    
                     <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2"
                             Command="{Binding ShowMetricsCommand}" ToolTip="Показать метрику (debug)"/>
                     <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2"

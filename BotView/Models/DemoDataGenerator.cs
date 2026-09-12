@@ -14,7 +14,9 @@ namespace BotView.Models
                 "1m" => TimeSpan.FromMinutes(1),
                 "5m" => TimeSpan.FromMinutes(5),
                 "15m" => TimeSpan.FromMinutes(15),
+                "30m" => TimeSpan.FromMinutes(30),
                 "1h" => TimeSpan.FromHours(1),
+                "4h" => TimeSpan.FromHours(4),
                 "1d" => TimeSpan.FromDays(1),
                 "1w" => TimeSpan.FromDays(7),
                 _ => TimeSpan.FromDays(1)
