@@ -1,53 +1,150 @@
-﻿<Window x:Class="BotView.MainWindow"
+<Window x:Class="BotView.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:chart="clr-namespace:BotView.Chart"
         mc:Ignorable="d"
-        Title="MainWindow" Height="800" Width="1200">
+        Title="BotView — Trading workspace" Height="820" Width="1320"
+        MinHeight="620" MinWidth="980"
+        Background="#0B1120" Foreground="#E5E7EB" FontFamily="Segoe UI">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#111827"/>
+        <SolidColorBrush x:Key="SurfaceRaisedBrush" Color="#182235"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#263449"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#22C55E"/>
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F3F4F6"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#94A3B8"/>
+
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="2,0,0,8"/>
+        </Style>
+        <Style x:Key="ToolbarButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Margin" Value="0,0,0,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#22304A"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#3B82F6"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.78"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Width" Value="42"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="7"/>
+            <Setter Property="Margin" Value="2"/>
+        </Style>
+        <Style x:Key="FavoriteButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="13,7"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsCurrentPairFavorite}" Value="True">
+                    <Setter Property="Foreground" Value="#FBBF24"/>
+                    <Setter Property="BorderBrush" Value="#B7791F"/>
+                    <Setter Property="Background" Value="#332A16"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="MinHeight" Value="34"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MinHeight" Value="34"/>
+        </Style>
     </Window.Resources>
 
     <Grid>
-        <DockPanel>
-            <!-- Header -->
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
-                <Label Content="BotView" FontSize="18" FontWeight="Bold" Width="100"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <Separator Margin="2"/>
-                    <Label Content="Биржа:" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    <ComboBox Name="cmbExchange"
-                              Margin="2" Height="Auto"
-                              ItemsSource="{Binding Exchanges}"
-                              DisplayMemberPath="DisplayName"
-                              SelectedValuePath="Id"
-                              SelectedValue="{Binding SelectedExchange, Mode=TwoWay}"/>
-
-                    <Separator Margin="2"/>
-                    <Label Content="Timeframe:" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                    <ComboBox Name="cmbTimeframe" Margin="2"
-                              FontSize="14" FontWeight="Bold"
-                              Height="Auto" MaxHeight="24"
-                              ItemsSource="{Binding Timeframes}"
-                              SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}"/>
+        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="18,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                    <TextBlock Text="BOTVIEW" FontSize="18" FontWeight="Bold" Foreground="White"/>
+                    <TextBlock Text="MARKET TERMINAL" FontSize="9" Foreground="{StaticResource AccentBrush}"/>
                 </StackPanel>
-
-                <Grid Width="180" Margin="8,0,0,0" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                    <TextBlock Text="БИРЖА" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
+                    <ComboBox Name="cmbExchange" Width="130" ItemsSource="{Binding Exchanges}"
+                              
+                              DisplayMemberPath="DisplayName" SelectedValuePath="Id"
+                              SelectedValue="{Binding SelectedExchange, Mode=TwoWay}" Foreground="#FF1754CE">
+                        <ComboBox.Background>
+                            <SolidColorBrush Color="{DynamicResource {x:Static SystemColors.DesktopColorKey}}"/>
+                        </ComboBox.Background>
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Margin="0,0,14,0">
+                    <TextBlock Text="ТАЙМФРЕЙМ" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
+                    <ComboBox Name="cmbTimeframe" Width="105" FontWeight="SemiBold"
+                              ItemsSource="{Binding Timeframes}"
+                              SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}" Foreground="#FF2F4B84">
+                        <ComboBox.Background>
+                            <SolidColorBrush Color="{DynamicResource {x:Static SystemColors.DesktopColorKey}}"/>
+                        </ComboBox.Background>
+                    </ComboBox>
+                </StackPanel>
+                <Grid Grid.Column="3" MaxWidth="430" HorizontalAlignment="Stretch" VerticalAlignment="Bottom">
                     <TextBox x:Name="txtSymbolSearch"
-                             Focusable="True"
                              Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Width="180"
-                             FontSize="14"
-                             ToolTip="Search coins"
-                             GotFocus="TxtSymbolSearch_GotFocus"
-                             LostFocus="TxtSymbolSearch_LostFocus"/>
-                    <TextBlock Text="Search coins"
-                               IsHitTestVisible="False"
-                               Foreground="Gray"
-                               Margin="4,0,0,0"
+                             FontSize="14" ToolTip="Поиск торговой пары"
+                             GotFocus="TxtSymbolSearch_GotFocus" LostFocus="TxtSymbolSearch_LostFocus"/>
+                    <TextBlock Text="Поиск пары, например BTC/USDT" IsHitTestVisible="False"
+                               Foreground="{StaticResource TextMutedBrush}" Margin="11,0,0,0"
                                VerticalAlignment="Center">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
@@ -61,23 +158,17 @@
                         </TextBlock.Style>
                     </TextBlock>
                     <Popup IsOpen="{Binding IsSearchDropdownOpen, Mode=TwoWay}"
-                           PlacementTarget="{Binding ElementName=txtSymbolSearch}"
-                           Placement="Bottom"
-                           StaysOpen="True"
-                           AllowsTransparency="True"
-                           PopupAnimation="Fade">
-                        <Border Background="White"
-                                BorderBrush="#FFAAAAAA"
-                                BorderThickness="1"
-                                MaxHeight="240"
+                           PlacementTarget="{Binding ElementName=txtSymbolSearch}" Placement="Bottom"
+                           StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade">
+                        <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="#3B82F6"
+                                BorderThickness="1" CornerRadius="6" Margin="0,4,0,0" MaxHeight="280"
                                 MinWidth="{Binding ActualWidth, ElementName=txtSymbolSearch}">
-                            <ListBox ItemsSource="{Binding SearchResults}"
-                                     MaxHeight="240"
-                                     BorderThickness="0"
+                            <ListBox ItemsSource="{Binding SearchResults}" Background="Transparent"
+                                     Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0"
                                      PreviewMouseLeftButtonDown="SearchResults_PreviewMouseLeftButtonDown">
                                 <ListBox.ItemContainerStyle>
                                     <Style TargetType="ListBoxItem">
-                                        <Setter Property="Padding" Value="6,4"/>
+                                        <Setter Property="Padding" Value="10,7"/>
                                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                     </Style>
                                 </ListBox.ItemContainerStyle>
@@ -85,138 +176,156 @@
                         </Border>
                     </Popup>
                 </Grid>
-            </StackPanel>
+                <Button Grid.Column="4" Style="{StaticResource FavoriteButtonStyle}"
+                        Content="{Binding FavoriteActionText}" Command="{Binding ToggleFavoriteCommand}"
+                        ToolTip="{Binding FavoritesFilePath}" VerticalAlignment="Bottom"/>
+            </Grid>
+        </Border>
 
-            <!-- Status Bar at Bottom -->
-            <StatusBar DockPanel.Dock="Bottom" Height="30" Name="statusBar">
-                <StatusBarItem>
-                    <TextBlock Name="fpsCounter" Text="{Binding RenderTimeText}" Margin="5,0"/>
-                </StatusBarItem>
-            </StatusBar>
+        <Grid Grid.Row="1" Margin="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="184"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="230"/>
+            </Grid.ColumnDefinitions>
 
-            <!-- Main Content Area with Grid -->
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="100" />
-                </Grid.ColumnDefinitions>
-
-                <!-- Left Menu Panel -->
-                <StackPanel Grid.Column="0" Background="LightGray" Margin="5">
-                    <Label Content="Управление графиком" FontWeight="Bold" HorizontalAlignment="Center"/>
-
-                    <Button Name="btnSnapLastToRight" Content="Прижать вправо" Margin="2"
-                            Command="{Binding SnapLastToRightCommand}" ToolTip="Прижать вправо"/>
-
-                    <Separator Margin="2"/>
-                    
-                    <TextBlock Text="Инструменты" Margin="2"/>
+            <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0,0,10,0">
+                <StackPanel>
+                    <TextBlock Text="ГРАФИК" Style="{StaticResource SectionTitleStyle}"/>
+                    <Button Name="btnSnapLastToRight" Content="Прижать вправо"
+                            Style="{StaticResource ToolbarButtonStyle}" Command="{Binding SnapLastToRightCommand}"/>
+                    <TextBlock Text="ИНСТРУМЕНТЫ" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
                     <WrapPanel Orientation="Horizontal">
-                        <Button Name="btnHorizontalLine" Margin="2"
+                        <Button Name="btnHorizontalLine" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartHorizontalLineCommand}" ToolTip="Горизонтальная линия">
-                            <Viewbox Width="24" Height="24">
-                                <Canvas Width="64" Height="64">
-                                    <Path Data="M5.13,31c31.04-0.5,53.74,0,53.74,0"
-                                            Stroke="Black" StrokeThickness="2" Fill="Transparent"/>
-                                    <Ellipse Canvas.Left="28.5" Canvas.Top="26.5" Width="8" Height="8"
-                                                Stroke="Black" StrokeThickness="2" Fill="White"/>
-                                </Canvas>
-                            </Viewbox>
+                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
+                                <Path Data="M5.13,31 L58.87,31" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                <Ellipse Canvas.Left="28.5" Canvas.Top="26.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                            </Canvas></Viewbox>
                         </Button>
-                        <Button Name="btnHorizontalRay" Margin="2"
+                        <Button Name="btnHorizontalRay" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartHorizontalRayCommand}" ToolTip="Горизонтальный луч">
-                            <Viewbox Width="24" Height="24">
-                                <Canvas Width="64" Height="64">
-                                    <Path Data="M13.5,32 L58.87,32"
-                                          Stroke="Black" StrokeThickness="2" Fill="Transparent"/>
-                                    <Ellipse Canvas.Left="9.5" Canvas.Top="28" Width="8" Height="8"
-                                             Stroke="Black" StrokeThickness="2" Fill="White"/>
-                                </Canvas>
-                            </Viewbox>
+                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
+                                <Path Data="M13.5,32 L58.87,32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                <Ellipse Canvas.Left="9.5" Canvas.Top="28" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                            </Canvas></Viewbox>
                         </Button>
-                        <Button Name="btnTrendLine" Margin="2"
+                        <Button Name="btnTrendLine" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartTrendLineCommand}" ToolTip="Трендовая линия">
-                            <Viewbox Width="24" Height="24">
-                                <Canvas Width="64" Height="64">
-                                    <Path Data="M14,50c21.59-22.3,38-38,38-38"
-                                        Stroke="Black" StrokeThickness="2" Fill="Transparent"/>
-                                    <Ellipse Canvas.Left="9.5" Canvas.Top="45.5" Width="8" Height="8"
-                                            Stroke="Black" StrokeThickness="2" Fill="White"/>
-                                    <Ellipse Canvas.Left="47.5" Canvas.Top="8.5" Width="8" Height="8"
-                                        Stroke="Black" StrokeThickness="2" Fill="White"/>
-                                </Canvas>
-                            </Viewbox>
+                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
+                                <Path Data="M14,50 L52,12" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                <Ellipse Canvas.Left="9.5" Canvas.Top="45.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                <Ellipse Canvas.Left="47.5" Canvas.Top="8.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                            </Canvas></Viewbox>
                         </Button>
-                        <Button Name="btnTrendChannel" Margin="2"
+                        <Button Name="btnTrendChannel" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartTrendChannelCommand}" ToolTip="Трендовый канал">
-                            <Viewbox Width="24" Height="24">
-                                <Canvas Width="64" Height="64">
-                                    <Path Data="M14,50 L52,22"
-                                            Stroke="Black" StrokeThickness="2" Fill="Transparent" HorizontalAlignment="Left" Canvas.Top="4" VerticalAlignment="Center" Canvas.Left="2"/>
-                                    <Path Data="M14,36 L52,8"
-                                            Stroke="Black" StrokeThickness="2" Fill="Transparent" HorizontalAlignment="Left" Canvas.Top="1" VerticalAlignment="Center" Canvas.Left="-1"/>
-                                    <Ellipse Canvas.Left="8" Canvas.Top="33" Width="8" Height="8"
-                                                Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Center" VerticalAlignment="Top"/>
-                                    <Ellipse Canvas.Left="33" Canvas.Top="34" Width="8" Height="8"
-                                                Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                                    <Ellipse Canvas.Left="45" Canvas.Top="6" Width="8" Height="8"
-                                                Stroke="Black" StrokeThickness="2" Fill="White" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                                </Canvas>
-                            </Viewbox>
+                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
+                                <Path Data="M12,52 L54,22 M10,39 L52,9" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                <Ellipse Canvas.Left="8" Canvas.Top="34" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                <Ellipse Canvas.Left="47" Canvas.Top="5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                            </Canvas></Viewbox>
                         </Button>
-                        <Button Name="btnRectangle" Margin="2"
+                        <Button Name="btnRectangle" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartRectangleCommand}" ToolTip="Прямоугольник">
-                            <Viewbox Width="24" Height="24">
-                                <Canvas Width="64" Height="64">
-                                    <Rectangle Canvas.Left="10" Canvas.Top="16" Width="44" Height="32"
-                                                Stroke="Black" StrokeThickness="2" Fill="White"/>
-                                </Canvas>
-                            </Viewbox>
+                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
+                                <Rectangle Canvas.Left="10" Canvas.Top="16" Width="44" Height="32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="Transparent"/>
+                            </Canvas></Viewbox>
                         </Button>
                     </WrapPanel>
-                    
-                    <Separator Margin="2,8,2,8"/>
-                    
-                    <Button Name="btnShowMetrics" Content="Показать метрики" Margin="2"
-                            Command="{Binding ShowMetricsCommand}" ToolTip="Показать метрику (debug)"/>
-                    <Button Name="btnExportMetrics" Content="Экспорт метрик" Margin="2"
-                            Command="{Binding ExportMetricsCommand}" ToolTip="Экспортировать метрику"/>
-
-                    <Separator Margin="2"/>
-                    <TextBlock Text="Инструкции:" FontSize="10" FontWeight="Bold" Margin="2"/>
-                    <TextBlock Text="• Перетаскивание мышью для панорамирования" FontSize="9" TextWrapping="Wrap" Margin="2"/>
-                    <TextBlock Text="• Колесо мыши для масштабирования" FontSize="9" TextWrapping="Wrap" Margin="2"/>
+                    <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,14"/>
+                    <TextBlock Text="ДИАГНОСТИКА" Style="{StaticResource SectionTitleStyle}"/>
+                    <Button Name="btnShowMetrics" Content="Показать метрики"
+                            Style="{StaticResource ToolbarButtonStyle}" Command="{Binding ShowMetricsCommand}"/>
+                    <Button Name="btnExportMetrics" Content="Экспорт метрик"
+                            Style="{StaticResource ToolbarButtonStyle}" Command="{Binding ExportMetricsCommand}"/>
+                    <Border Background="#0DFFFFFF" CornerRadius="6" Padding="9" Margin="0,12,0,0">
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap"
+                                   Text="Мышь — панорамирование&#x0a;Колесо — масштаб"/>
+                    </Border>
                 </StackPanel>
+            </Border>
 
-                <!-- Chart View - Takes all remaining space -->
-                <chart:ChartView Grid.Column="1" x:Name="chartView" />
+            <Border Grid.Column="1" Background="AliceBlue" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="10" ClipToBounds="True">
+                <chart:ChartView x:Name="chartView"/>
+            </Border>
 
-                <!-- Right Panel -->
-                <StackPanel Grid.Column="2" Background="LightGray" Margin="5">
-                    <Label Content="Торговые пары" FontWeight="Bold" HorizontalAlignment="Center"/>
-                    <ListBox Name="lstTradingPairs" Margin="2"
-                             ItemsSource="{Binding TradingPairs}"
-                             DisplayMemberPath="Symbol"
-                             SelectedValuePath="Symbol"
-                             SelectedValue="{Binding SelectedSymbol, Mode=TwoWay}"/>
-                </StackPanel>
-            </Grid>
-        </DockPanel>
+            <Border Grid.Column="2" Style="{StaticResource CardStyle}" Margin="10,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="ИЗБРАННОЕ" Style="{StaticResource SectionTitleStyle}"/>
+                    <TextBlock Grid.Row="1" Text="Список для выбранной биржи"
+                               Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
+                    <Grid Grid.Row="2">
+                        <TextBlock Text="Добавьте текущую пару кнопкой ★"
+                                   Foreground="{StaticResource TextMutedBrush}" TextAlignment="Center"
+                                   TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="150">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Items.Count, ElementName=lstTradingPairs}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <ListBox Name="lstTradingPairs" ItemsSource="{Binding TradingPairs}"
+                                 SelectedValuePath="Symbol" SelectedValue="{Binding SelectedSymbol, Mode=TwoWay}"
+                                 Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextPrimaryBrush}">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0,0,0,5"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="7,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="★" Foreground="#FBBF24" Margin="0,0,8,0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Symbol}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="2" Content="×" Width="25" Height="25" Padding="0" Margin="5,0,0,0"
+                                                Background="Transparent" Foreground="{StaticResource TextMutedBrush}"
+                                                BorderThickness="0" Cursor="Hand" ToolTip="Удалить из избранного"
+                                                Command="{Binding DataContext.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
 
-        <!-- Loading overlay -->
-        <Border Background="#99000000"
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0" Padding="14,7">
+            <DockPanel>
+                <TextBlock Text="●  LIVE" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding RenderTimeText}" Foreground="{StaticResource TextMutedBrush}"
+                           FontSize="11" HorizontalAlignment="Right"/>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.RowSpan="3" Background="#B30B1120"
                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
-                d:IsHidden="True"
-                Panel.ZIndex="100"
-                IsHitTestVisible="True">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <ProgressBar IsIndeterminate="True" Width="220" Height="6" Margin="0,0,0,12"/>
-                <TextBlock Text="{Binding BusyMessage}"
-                           Foreground="White"
-                           FontSize="16"
-                           HorizontalAlignment="Center"/>
-            </StackPanel>
+                d:IsHidden="True" Panel.ZIndex="100" IsHitTestVisible="True">
+            <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="10" Padding="28,22"
+                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+                    <ProgressBar IsIndeterminate="True" Width="240" Height="5" Margin="0,0,0,14"/>
+                    <TextBlock Text="{Binding BusyMessage}" Foreground="White" FontSize="14" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
         </Border>
     </Grid>
 </Window>

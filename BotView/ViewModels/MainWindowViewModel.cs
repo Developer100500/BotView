@@ -22,6 +22,7 @@ namespace BotView.ViewModels
         private readonly IExchangeService _exchangeService;
         private readonly IMarketDataService _marketDataService;
         private readonly MetricsController _metricsController;
+        private readonly FavoritePairsStore _favoritePairsStore;
         private readonly Timer _metricsTimer;
 
         private string _selectedExchange = "binance";
@@ -41,19 +42,22 @@ namespace BotView.ViewModels
         private int _loadOlderPending;
         private int _reloadGeneration;
         private List<string> _allSymbols = new();
+        private HashSet<string> _favoriteSymbols = new(StringComparer.OrdinalIgnoreCase);
 
         public MainWindowViewModel(
             DatabaseService databaseService,
             IDataProvider dataProvider,
             IExchangeService exchangeService,
             IMarketDataService marketDataService,
-            MetricsController metricsController)
+            MetricsController metricsController,
+            FavoritePairsStore? favoritePairsStore = null)
         {
             _databaseService = databaseService;
             _dataProvider = dataProvider;
             _exchangeService = exchangeService;
             _marketDataService = marketDataService;
             _metricsController = metricsController;
+            _favoritePairsStore = favoritePairsStore ?? new FavoritePairsStore();
 
             Exchanges = new ObservableCollection<ExchangeOption>
             {
@@ -85,6 +89,8 @@ namespace BotView.ViewModels
             ShowMetricsCommand = new RelayCommand(ShowMetrics);
             ExportMetricsCommand = new RelayCommand(ExportMetrics);
             SelectSearchResultCommand = new RelayCommand(SelectSearchResult);
+            ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
+            RemoveFavoriteCommand = new RelayCommand(RemoveFavorite);
 
             _metricsTimer = new Timer(
                 _ => LogMetrics(),
@@ -110,6 +116,8 @@ namespace BotView.ViewModels
 
                 _selectedExchange = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentPairFavorite));
+                OnPropertyChanged(nameof(FavoriteActionText));
                 _ = OnExchangeChangedAsync();
             }
         }
@@ -126,6 +134,8 @@ namespace BotView.ViewModels
 
                 _selectedSymbol = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsCurrentPairFavorite));
+                OnPropertyChanged(nameof(FavoriteActionText));
                 SymbolChanged?.Invoke(_selectedSymbol);
                 _ = ReloadChartAsync();
             }
@@ -200,6 +210,15 @@ namespace BotView.ViewModels
 
         public string RenderTimeText => $"Render: {_renderTime:F2} ms";
 
+        public bool IsCurrentPairFavorite =>
+            _favoriteSymbols.Contains(SelectedSymbol);
+
+        public string FavoriteActionText => IsCurrentPairFavorite
+            ? "★ В избранном"
+            : "☆ В избранное";
+
+        public string FavoritesFilePath => _favoritePairsStore.FilePath;
+
         public bool IsBusy
         {
             get => _isBusy;
@@ -239,6 +258,8 @@ namespace BotView.ViewModels
         public ICommand ShowMetricsCommand { get; }
         public ICommand ExportMetricsCommand { get; }
         public ICommand SelectSearchResultCommand { get; }
+        public ICommand ToggleFavoriteCommand { get; }
+        public ICommand RemoveFavoriteCommand { get; }
 
         /// <summary> Full chart snapshot ready. Second arg: true = live layout, false = demo fit. </summary>
         public event Action<CandlestickData, bool>? ChartSnapshotReady;
@@ -335,26 +356,28 @@ namespace BotView.ViewModels
 
         private void LoadFavoriteTradingPairs()
         {
-            _suppressSelectionReload = true;
             try
             {
+                _favoriteSymbols = _favoritePairsStore
+                    .GetFavorites(SelectedExchange)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 TradingPairs.Clear();
-                var pairs = _databaseService.GetTradingPairModels();
-                foreach (var pair in pairs)
+                foreach (var symbol in _favoriteSymbols.OrderBy(
+                             value => value,
+                             StringComparer.OrdinalIgnoreCase))
                 {
-                    TradingPairs.Add(pair);
+                    TradingPairs.Add(new TradingPairModel(symbol));
                 }
 
-                if (TradingPairs.Count > 0 &&
-                    TradingPairs.All(p => p.Symbol != SelectedSymbol))
-                {
-                    _selectedSymbol = TradingPairs[0].Symbol;
-                    OnPropertyChanged(nameof(SelectedSymbol));
-                }
+                OnPropertyChanged(nameof(IsCurrentPairFavorite));
+                OnPropertyChanged(nameof(FavoriteActionText));
             }
-            finally
+            catch (Exception ex)
             {
-                _suppressSelectionReload = false;
+                Debug.WriteLine($"Failed to load favorites: {ex.Message}");
+                ErrorOccurred?.Invoke(
+                    "Ошибка избранного",
+                    $"Не удалось прочитать файл избранного.\n\n{ex.Message}");
             }
         }
 
@@ -365,8 +388,59 @@ namespace BotView.ViewModels
                 return;
             }
 
+            LoadFavoriteTradingPairs();
             await LoadExchangeSymbolsAsync(SelectedExchange);
             await SwitchSubscriptionAsync();
+        }
+
+        private void ToggleFavorite()
+        {
+            try
+            {
+                if (IsCurrentPairFavorite)
+                {
+                    _favoritePairsStore.Remove(SelectedExchange, SelectedSymbol);
+                }
+                else
+                {
+                    _favoritePairsStore.Add(SelectedExchange, SelectedSymbol);
+                }
+
+                LoadFavoriteTradingPairs();
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(
+                    "Ошибка избранного",
+                    $"Не удалось сохранить избранное.\n\n{ex.Message}");
+            }
+        }
+
+        private void RemoveFavorite(object? parameter)
+        {
+            string? symbol = parameter switch
+            {
+                TradingPairModel pair => pair.Symbol,
+                string value => value,
+                _ => null
+            };
+
+            if (string.IsNullOrWhiteSpace(symbol))
+            {
+                return;
+            }
+
+            try
+            {
+                _favoritePairsStore.Remove(SelectedExchange, symbol);
+                LoadFavoriteTradingPairs();
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(
+                    "Ошибка избранного",
+                    $"Не удалось удалить пару из избранного.\n\n{ex.Message}");
+            }
         }
 
         private async Task LoadExchangeSymbolsAsync(string exchange)
