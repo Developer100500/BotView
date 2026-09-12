@@ -38,6 +38,7 @@ namespace BotView.ViewModels
         private IMarketDataSubscription? _subscription;
         private CandleCacheKey _currentKey;
         private int _loadingOlder;
+        private int _loadOlderPending;
         private int _reloadGeneration;
         private List<string> _allSymbols = new();
 
@@ -280,6 +281,10 @@ namespace BotView.ViewModels
 
         public async Task LoadOlderAsync()
         {
+            // Remember requests raised while another history batch is still loading.
+            Interlocked.Exchange(ref _loadOlderPending, 1);
+
+            // Only one worker may drain pending history requests at a time.
             if (Interlocked.CompareExchange(ref _loadingOlder, 1, 0) != 0)
             {
                 return;
@@ -287,11 +292,34 @@ namespace BotView.ViewModels
 
             try
             {
-                await _marketDataService.LoadOlderAsync(_currentKey, HistoryBatchSize);
+                while (Interlocked.Exchange(ref _loadOlderPending, 0) != 0)
+                {
+                    // Capture a consistent pair because search may switch subscriptions while awaiting.
+                    var key = _currentKey;
+                    var subscription = _subscription;
+                    if (subscription == null || subscription.Key != key)
+                    {
+                        continue;
+                    }
+
+                    int loadedCount = await _marketDataService.LoadOlderAsync(key, HistoryBatchSize);
+                    if (loadedCount == 0)
+                    {
+                        // The exchange has no more history; discard repeated edge notifications.
+                        Interlocked.Exchange(ref _loadOlderPending, 0);
+                        break;
+                    }
+                }
             }
             finally
             {
                 Interlocked.Exchange(ref _loadingOlder, 0);
+
+                // Close the race where a request arrives after the loop exits but before the worker flag resets.
+                if (Interlocked.Exchange(ref _loadOlderPending, 0) != 0)
+                {
+                    _ = LoadOlderAsync();
+                }
             }
         }
 
@@ -491,12 +519,12 @@ namespace BotView.ViewModels
 
                 _subscription = sub;
 
-                var data = _marketDataService.BuildChartData(key);
-                ChartSnapshotReady?.Invoke(data, true);
-
                 sub.LiveCandleTicked += c => LiveCandleUpdated?.Invoke(c);
                 sub.CandleClosed += (closed, newOpen) => CandleClosed?.Invoke(closed, newOpen);
                 sub.OlderCandlesLoaded += arr => OlderCandlesLoaded?.Invoke(arr);
+                
+                var data = _marketDataService.BuildChartData(key);
+                ChartSnapshotReady?.Invoke(data, true);
             }
             catch (Exception ex)
             {

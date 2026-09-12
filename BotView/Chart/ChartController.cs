@@ -31,9 +31,7 @@ public class ChartController
 	private ChartPane activePane = ChartPane.None;
 	private Point lastMousePosition;
 
-	/// <summary>
-	/// Режимы масштабирования через шкалы
-	/// </summary>
+	/// <summary> Режимы масштабирования через шкалы </summary>
 	private enum ScaleZoomMode
 	{
 		None,
@@ -77,10 +75,7 @@ public class ChartController
 	/// <summary>Оптимальный шаг шкалы индикатора (из кэша)</summary>
 	public double IndicatorValueInterval => cachedIndicatorValueInterval;
 
-	/// <summary>
-	/// Конструктор ChartController
-	/// </summary>
-	/// <param name="model">Модель графика</param>
+
 	public ChartController(ChartModel model)
 	{
 		this.model = model ?? throw new ArgumentNullException(nameof(model));
@@ -754,7 +749,9 @@ public class ChartController
 			merged);
 
 		model.UpdateDataRange();
-		ViewportChanged?.Invoke();
+
+		// Re-evaluate the left edge after prepending so zooming out can request another batch.
+		UpdateViewportFromCamera();
 	}
 
 	/// <summary> Updates or appends the last candle in chart data. </summary>
