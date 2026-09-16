@@ -82,6 +82,20 @@ public struct ViewportClippingCoords
 
 public class ChartView : FrameworkElement
 {
+	/// <summary>Controls whether candlestick bodies are rendered with an outline.</summary>
+	public static readonly DependencyProperty ShowCandleOutlinesProperty =
+		DependencyProperty.Register(
+			nameof(ShowCandleOutlines),
+			typeof(bool),
+			typeof(ChartView),
+			new FrameworkPropertyMetadata(true, OnShowCandleOutlinesChanged));
+
+	public bool ShowCandleOutlines
+	{
+		get => (bool)GetValue(ShowCandleOutlinesProperty);
+		set => SetValue(ShowCandleOutlinesProperty, value);
+	}
+
 	// === MVC COMPONENTS ===
 	private readonly ChartModel model;
 	private readonly ChartController controller;
@@ -110,6 +124,7 @@ public class ChartView : FrameworkElement
 		
 		// Инициализируем рендерер
 		renderer = new ChartRenderer(model, controller);
+		renderer.ShowCandleOutlines = ShowCandleOutlines;
 		
 		// Подписываемся на изменение viewport для перерисовки
 		controller.ViewportChanged += () => InvalidateVisual();
@@ -117,6 +132,14 @@ public class ChartView : FrameworkElement
 
 		// Делаем контрол фокусируемым для обработки клавиатуры
 		Focusable = true;
+	}
+
+	private static void OnShowCandleOutlinesChanged(DependencyObject dependencyObject,
+		DependencyPropertyChangedEventArgs eventArgs)
+	{
+		var chartView = (ChartView)dependencyObject;
+		chartView.renderer.ShowCandleOutlines = (bool)eventArgs.NewValue;
+		chartView.InvalidateVisual();
 	}
 
 	private void UpdateCrosshairFromMouse(Point mousePos)
@@ -943,4 +966,3 @@ public class ChartView : FrameworkElement
 	}
 
 }
-

@@ -33,6 +33,9 @@ public class ChartRenderer
 
 	public bool RedrawAllTechnicalTools { get; set; } = false;
 
+	/// <summary>Determines whether candlestick bodies are drawn with a border.</summary>
+	public bool ShowCandleOutlines { get; set; } = true;
+
 	/// <summary>Текущие координаты мыши для превью инструмента (устанавливается из ChartView)</summary>
 	public ChartCoordinates? CurrentMouseChartCoords { get; set; } = null;
 
@@ -199,7 +202,7 @@ public class ChartRenderer
 
 				context.DrawRectangle(
 					bodyBrush,
-					bodyPen,
+					ShowCandleOutlines ? bodyPen : null,
 					new Rect(candleLeft, bodyTop, candleWidthPixels, bodyHeight));
 			}
 		}

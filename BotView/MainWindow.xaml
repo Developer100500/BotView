@@ -194,6 +194,10 @@
                     <TextBlock Text="ГРАФИК" Style="{StaticResource SectionTitleStyle}"/>
                     <Button Name="btnSnapLastToRight" Content="Прижать вправо"
                             Style="{StaticResource ToolbarButtonStyle}" Command="{Binding SnapLastToRightCommand}"/>
+                    <CheckBox Name="chkCandleOutline" Content="Обводка свечей"
+                              IsChecked="{Binding ShowCandleOutlines, ElementName=chartView, Mode=TwoWay}"
+                              Foreground="{StaticResource TextPrimaryBrush}" Margin="2,0,0,10"
+                              ToolTip="Включить или отключить контур тел свечей"/>
                     <TextBlock Text="ИНСТРУМЕНТЫ" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
                     <WrapPanel Orientation="Horizontal">
                         <Button Name="btnHorizontalLine" Style="{StaticResource IconButtonStyle}"
