@@ -648,6 +648,24 @@ public class ChartView : FrameworkElement
 	{
 		base.OnKeyDown(e);
 
+		if ((e.Key == Key.Up || e.Key == Key.Down) &&
+			Keyboard.Modifiers == ModifierKeys.None &&
+			TechnicalAnalysisTool.IsEditingTool &&
+			TechnicalAnalysisTool.EditingTool is HorizontalLine or HorizontalRay)
+		{
+			e.Handled = true;
+			var tool = TechnicalAnalysisTool.EditingTool;
+			controller.RefreshRenderCaches();
+			double step = controller.GetMinimumDisplayedPriceStep();
+			double delta = e.Key == Key.Up ? step : -step;
+			tool.Translate(TimeSpan.Zero, delta);
+			tool.NeedsRedrawing = true;
+			
+			InvalidateVisual();
+
+			return;
+		}
+
 		// Удаление инструмента по нажатию Delete
 		if (e.Key == Key.Delete && TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != null)
 		{

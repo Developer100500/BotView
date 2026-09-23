@@ -1149,6 +1149,13 @@ public class ChartController
 		return price.ToString($"F{decimals}");
 	}
 
+	/// <summary>Минимальное изменение цены, различимое в подписи текущей ценовой шкалы.</summary>
+	public double GetMinimumDisplayedPriceStep()
+	{
+		int decimals = GetDecimalPlacesForPriceStep(PriceInterval);
+		return Math.Pow(10, -decimals);
+	}
+
 	/// <summary>
 	/// Formats crosshair time label: always date; time included when timeframe is shorter than 1 day.
 	/// </summary>
@@ -1167,6 +1174,5 @@ public class MouseInteractionResult
 	public bool ShouldCaptureMouse { get; set; }
 	public Cursor? Cursor { get; set; }
 }
-
 
 

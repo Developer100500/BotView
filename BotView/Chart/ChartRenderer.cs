@@ -67,6 +67,7 @@ public class ChartRenderer
 		DrawCandlesticks(drawingContext, frameValues, model.CandlestickData.candles);
 		DrawTechnicalAnalysisTools(drawingContext, frameValues);
 		DrawToolCreationPreview(drawingContext);
+		DrawHorizontalToolPriceLabels(drawingContext, frameValues);
 		DrawPriceIndicatorOfSelectedTool(drawingContext, frameValues);
 		DrawCurrentPriceIndicator(drawingContext, frameValues);
 
@@ -213,12 +214,54 @@ public class ChartRenderer
 	}
 
 	/// <summary>
-	/// Метка цены на шкале для выбранного плоского инструмента (горизонтальная линия, луч и т.п.)
+	/// Метки цен видимых горизонтальных линий и лучей на правой шкале.
+	/// Метка текущей цены имеет приоритет при пересечении.
+	/// </summary>
+	private void DrawHorizontalToolPriceLabels(DrawingContext drawingContext, in RenderFrame frame)
+	{
+		if (!model.IsInitialized || frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0)
+			return;
+
+		bool hasCurrentPriceLabel = TryGetCurrentPriceLabelRect(frame, out Rect currentPriceLabelRect);
+		foreach (var tool in model.TechnicalAnalysisManager.GetTools())
+		{
+			if (!tool.IsVisible)
+				continue;
+
+			double price;
+			Brush brush;
+			switch (tool)
+			{
+				case HorizontalLine line:
+					price = line.Price;
+					brush = line.Color;
+					break;
+				case HorizontalRay ray when ray.StartTime <= model.Viewport.maxTime:
+					price = ray.Price;
+					brush = ray.Color;
+					break;
+				default:
+					continue;
+			}
+
+			if (!IsPriceVisible(price))
+				continue;
+
+			Rect labelRect = GetPriceScaleLabelRect(frame, price);
+			if (hasCurrentPriceLabel && labelRect.IntersectsWith(currentPriceLabelRect))
+				continue;
+
+			DrawPriceScaleLabel(drawingContext, frame, price, brush);
+		}
+	}
+
+	/// <summary>
+	/// Метка цены на шкале для выбранного плоского инструмента (кроме горизонтальной линии и луча).
 	/// </summary>
 	private void DrawPriceIndicatorOfSelectedTool(DrawingContext drawingContext, in RenderFrame frame)
 	{
 		var tool = TechnicalAnalysisTool.EditingTool;
-		if (tool == null || !tool.IsBeingEdited)
+		if (tool == null || !tool.IsBeingEdited || tool is HorizontalLine or HorizontalRay)
 			return;
 
 		if (!tool.TryGetPriceScaleAnchor(out double price1, out double price2))
@@ -289,31 +332,50 @@ public class ChartRenderer
 		double price,
 		Brush backgroundBrush)
 	{
-		double priceY = controller.PriceToViewY(price);
-		double scaleX = frame.ScaleX;
-
 		string priceText = controller.FormatPriceLabel(price, frame.PriceInterval);
 		FormattedText formattedText = CreateLabelText(priceText, Brushes.White, 10);
+		Rect labelRect = GetPriceScaleLabelRect(frame, price, formattedText);
 
 		const double horizontalPadding = 4;
-		const double verticalPadding = 2;
-		double labelWidth = Math.Min(
-			model.RightMargin,
-			formattedText.Width + horizontalPadding * 2);
-		double labelHeight = formattedText.Height + verticalPadding * 2;
-		Rect labelRect = new Rect(
-			scaleX,
-			priceY - labelHeight / 2,
-			labelWidth,
-			labelHeight);
-
 		drawingContext.DrawRectangle(backgroundBrush, null, labelRect);
 		drawingContext.DrawText(
 			formattedText,
 			new Point(
-				scaleX + horizontalPadding,
-				priceY - formattedText.Height / 2));
+				labelRect.X + horizontalPadding,
+				labelRect.Y + (labelRect.Height - formattedText.Height) / 2));
 	}
+
+	private Rect GetPriceScaleLabelRect(in RenderFrame frame, double price)
+	{
+		string priceText = controller.FormatPriceLabel(price, frame.PriceInterval);
+		return GetPriceScaleLabelRect(frame, price, CreateLabelText(priceText, Brushes.White, 10));
+	}
+
+	private Rect GetPriceScaleLabelRect(in RenderFrame frame, double price, FormattedText formattedText)
+	{
+		const double horizontalPadding = 4;
+		const double verticalPadding = 2;
+		double priceY = controller.PriceToViewY(price);
+		double labelWidth = Math.Min(model.RightMargin, formattedText.Width + horizontalPadding * 2);
+		double labelHeight = formattedText.Height + verticalPadding * 2;
+		return new Rect(frame.ScaleX, priceY - labelHeight / 2, labelWidth, labelHeight);
+	}
+
+	private bool TryGetCurrentPriceLabelRect(in RenderFrame frame, out Rect labelRect)
+	{
+		var candles = model.CandlestickData.candles;
+		if (candles != null && candles.Length > 0 && IsPriceVisible(candles[^1].close))
+		{
+			labelRect = GetPriceScaleLabelRect(frame, candles[^1].close);
+			return true;
+		}
+
+		labelRect = Rect.Empty;
+		return false;
+	}
+
+	private bool IsPriceVisible(double price) =>
+		double.IsFinite(price) && price >= model.Viewport.minPrice && price <= model.Viewport.maxPrice;
 
 	/// <summary>
 	/// Crosshair: vertical follows mouse X with continuous time label;
