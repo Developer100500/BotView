@@ -113,13 +113,13 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                <StackPanel Grid.Column="0" Margin="0,0,92,0">
                     <TextBlock Text="BOTVIEW" FontSize="18" FontWeight="Bold" Foreground="White"/>
                     <TextBlock Text="MARKET TERMINAL" FontSize="9" Foreground="{StaticResource AccentBrush}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,0,10,0">
                     <TextBlock Text="БИРЖА" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
-                    <ComboBox Name="cmbExchange" Width="130" ItemsSource="{Binding Exchanges}"
+                    <ComboBox Name="cmbExchange" Width="100" ItemsSource="{Binding Exchanges}"
                               
                               DisplayMemberPath="DisplayName" SelectedValuePath="Id"
                               SelectedValue="{Binding SelectedExchange, Mode=TwoWay}" Foreground="#FF1754CE">
@@ -138,14 +138,16 @@
                         </ComboBox.Background>
                     </ComboBox>
                 </StackPanel>
-                <Grid Grid.Column="3" MaxWidth="430" HorizontalAlignment="Stretch" VerticalAlignment="Bottom">
+                <Grid Grid.Column="3" HorizontalAlignment="Left" VerticalAlignment="Bottom">
+                    <!--<StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch">-->
                     <TextBox x:Name="txtSymbolSearch"
-                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                             FontSize="14" ToolTip="Поиск торговой пары"
-                             GotFocus="TxtSymbolSearch_GotFocus" LostFocus="TxtSymbolSearch_LostFocus"/>
+                            Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                            Width="400"
+                            FontSize="14" ToolTip="Поиск торговой пары"
+                            GotFocus="TxtSymbolSearch_GotFocus" LostFocus="TxtSymbolSearch_LostFocus"/>
                     <TextBlock Text="Поиск пары, например BTC/USDT" IsHitTestVisible="False"
-                               Foreground="{StaticResource TextMutedBrush}" Margin="11,0,0,0"
-                               VerticalAlignment="Center">
+                            Foreground="{StaticResource TextMutedBrush}" Padding="12,0,12,0"
+                            VerticalAlignment="Center">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed"/>
@@ -158,23 +160,25 @@
                         </TextBlock.Style>
                     </TextBlock>
                     <Popup IsOpen="{Binding IsSearchDropdownOpen, Mode=TwoWay}"
-                           PlacementTarget="{Binding ElementName=txtSymbolSearch}" Placement="Bottom"
-                           StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade">
+                        PlacementTarget="{Binding ElementName=txtSymbolSearch}" Placement="Bottom"
+                        StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade">
                         <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="#3B82F6"
-                                BorderThickness="1" CornerRadius="6" Margin="0,4,0,0" MaxHeight="280"
-                                MinWidth="{Binding ActualWidth, ElementName=txtSymbolSearch}">
+                            BorderThickness="1" CornerRadius="6" Margin="0,4,0,0" MaxHeight="280"
+                            MinWidth="{Binding ActualWidth, ElementName=txtSymbolSearch}">
                             <ListBox ItemsSource="{Binding SearchResults}" Background="Transparent"
-                                     Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0"
-                                     PreviewMouseLeftButtonDown="SearchResults_PreviewMouseLeftButtonDown">
+                                Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0"
+                                PreviewMouseLeftButtonDown="SearchResults_PreviewMouseLeftButtonDown">
                                 <ListBox.ItemContainerStyle>
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="Padding" Value="10,7"/>
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
-                            </ListBox>
-                        </Border>
-                    </Popup>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Padding" Value="10,7"/>
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                </ListBox>
+                            </Border>
+                        </Popup>
+                    <!--</StackPanel>-->
+
                 </Grid>
                 <Button Grid.Column="4" Style="{StaticResource FavoriteButtonStyle}"
                         Content="{Binding FavoriteActionText}" Command="{Binding ToggleFavoriteCommand}"
@@ -202,39 +206,49 @@
                     <WrapPanel Orientation="Horizontal">
                         <Button Name="btnHorizontalLine" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartHorizontalLineCommand}" ToolTip="Горизонтальная линия">
-                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
-                                <Path Data="M5.13,31 L58.87,31" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
-                                <Ellipse Canvas.Left="28.5" Canvas.Top="26.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
-                            </Canvas></Viewbox>
+                            <Viewbox Width="24" Height="24">
+                                <Canvas Width="64" Height="64">
+                                    <Path Data="M5.13,31 L58.87,31" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                    <Ellipse Canvas.Left="28.5" Canvas.Top="26.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                </Canvas>
+                            </Viewbox>
                         </Button>
                         <Button Name="btnHorizontalRay" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartHorizontalRayCommand}" ToolTip="Горизонтальный луч">
-                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
-                                <Path Data="M13.5,32 L58.87,32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
-                                <Ellipse Canvas.Left="9.5" Canvas.Top="28" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
-                            </Canvas></Viewbox>
+                            <Viewbox Width="24" Height="24">
+                                <Canvas Width="64" Height="64">
+                                    <Path Data="M13.5,32 L58.87,32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                    <Ellipse Canvas.Left="9.5" Canvas.Top="28" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                </Canvas>
+                            </Viewbox>
                         </Button>
                         <Button Name="btnTrendLine" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartTrendLineCommand}" ToolTip="Трендовая линия">
-                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
-                                <Path Data="M14,50 L52,12" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
-                                <Ellipse Canvas.Left="9.5" Canvas.Top="45.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
-                                <Ellipse Canvas.Left="47.5" Canvas.Top="8.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
-                            </Canvas></Viewbox>
+                            <Viewbox Width="24" Height="24">
+                                <Canvas Width="64" Height="64">
+                                    <Path Data="M14,50 L52,12" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                    <Ellipse Canvas.Left="9.5" Canvas.Top="45.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                    <Ellipse Canvas.Left="47.5" Canvas.Top="8.5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                </Canvas>
+                            </Viewbox>
                         </Button>
                         <Button Name="btnTrendChannel" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartTrendChannelCommand}" ToolTip="Трендовый канал">
-                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
-                                <Path Data="M12,52 L54,22 M10,39 L52,9" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
-                                <Ellipse Canvas.Left="8" Canvas.Top="34" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
-                                <Ellipse Canvas.Left="47" Canvas.Top="5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
-                            </Canvas></Viewbox>
+                            <Viewbox Width="24" Height="24">
+                                <Canvas Width="64" Height="64">
+                                    <Path Data="M12,52 L54,22 M10,39 L52,9" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
+                                    <Ellipse Canvas.Left="8" Canvas.Top="34" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                    <Ellipse Canvas.Left="47" Canvas.Top="5" Width="8" Height="8" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="{StaticResource SurfaceRaisedBrush}"/>
+                                </Canvas>
+                            </Viewbox>
                         </Button>
                         <Button Name="btnRectangle" Style="{StaticResource IconButtonStyle}"
                                 Command="{Binding StartRectangleCommand}" ToolTip="Прямоугольник">
-                            <Viewbox Width="24" Height="24"><Canvas Width="64" Height="64">
-                                <Rectangle Canvas.Left="10" Canvas.Top="16" Width="44" Height="32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="Transparent"/>
-                            </Canvas></Viewbox>
+                            <Viewbox Width="24" Height="24">
+                                <Canvas Width="64" Height="64">
+                                    <Rectangle Canvas.Left="10" Canvas.Top="16" Width="44" Height="32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="Transparent"/>
+                                </Canvas>
+                            </Viewbox>
                         </Button>
                     </WrapPanel>
                     <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,14"/>
@@ -258,54 +272,77 @@
             <Border Grid.Column="2" Style="{StaticResource CardStyle}" Margin="10,0,0,0">
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="ИЗБРАННОЕ" Style="{StaticResource SectionTitleStyle}"/>
-                    <TextBlock Grid.Row="1" Text="Список для выбранной биржи"
-                               Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
-                    <Grid Grid.Row="2">
-                        <TextBlock Text="Добавьте текущую пару кнопкой ★"
-                                   Foreground="{StaticResource TextMutedBrush}" TextAlignment="Center"
-                                   TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="150">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Items.Count, ElementName=lstTradingPairs}" Value="0">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                        <ListBox Name="lstTradingPairs" ItemsSource="{Binding TradingPairs}"
-                                 SelectedValuePath="Symbol" SelectedValue="{Binding SelectedSymbol, Mode=TwoWay}"
-                                 Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextPrimaryBrush}">
-                            <ListBox.ItemContainerStyle>
-                                <Style TargetType="ListBoxItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                    <Setter Property="Padding" Value="0"/>
-                                    <Setter Property="Margin" Value="0,0,0,5"/>
-                                </Style>
-                            </ListBox.ItemContainerStyle>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="7,5">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="★" Foreground="#FBBF24" Margin="0,0,8,0"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Symbol}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <Button Grid.Column="2" Content="×" Width="25" Height="25" Padding="0" Margin="5,0,0,0"
-                                                Background="Transparent" Foreground="{StaticResource TextMutedBrush}"
-                                                BorderThickness="0" Cursor="Hand" ToolTip="Удалить из избранного"
-                                                Command="{Binding DataContext.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                CommandParameter="{Binding}"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </Grid>
+
+                    <TabControl Background="AliceBlue">
+                        <TabItem>
+                            <TabItem.Header>
+                                <TextBlock Text="ИЗБРАННОЕ" Style="{StaticResource SectionTitleStyle}"/>
+                            </TabItem.Header>
+                            <StackPanel Orientation="Vertical">
+                                
+                                <TextBlock Grid.Row="1" Text="Список для выбранной биржи"
+Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
+                                <Grid Grid.Row="2">
+                                    <TextBlock Text="Добавьте текущую пару кнопкой ★"
+    Foreground="{StaticResource TextMutedBrush}" TextAlignment="Center"
+    TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="150">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Items.Count, ElementName=lstTradingPairs}" Value="0">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <ListBox Name="lstTradingPairs" ItemsSource="{Binding TradingPairs}"
+  SelectedValuePath="Symbol" SelectedValue="{Binding SelectedSymbol, Mode=TwoWay}"
+  Background="Transparent" BorderThickness="0" Foreground="#1E293B">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="Margin" Value="0,0,0,5"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter Property="Background" Value="#2563EB"/>
+                                                        <Setter Property="Foreground" Value="White"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="7,5">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="★" Foreground="#FBBF24" Margin="0,0,8,0"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Symbol}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                    <Button Grid.Column="2" Content="×" Width="25" Height="25" Padding="0" Margin="5,0,0,0"
+                 Background="Transparent" Foreground="#475569"
+                 BorderThickness="0" Cursor="Hand" ToolTip="Удалить из избранного"
+                 Command="{Binding DataContext.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                 CommandParameter="{Binding}"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </StackPanel>
+                            
+                        </TabItem>
+                        <TabItem></TabItem>
+                    </TabControl>
+                    
                 </Grid>
             </Border>
         </Grid>
