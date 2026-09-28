@@ -8,7 +8,7 @@ using System.Windows.Media;
 
 namespace BotView.Chart.ChartViews;
 
-/// <summary>Small retained layout tree for DrawingContext based menu content.</summary>
+/// <summary>Small retained layout tree for DrawingContext-based menu content.</summary>
 internal abstract class MenuWidget
 {
 	public Rect Bounds { get; private set; }
@@ -197,7 +197,7 @@ internal sealed class MenuDrawingSurface : FrameworkElement
 		base.OnRender(context);
 		var bounds = new Rect(RenderSize);
 		context.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(31, 39, 53)),
-			new Pen(new SolidColorBrush(Color.FromRgb(83, 96, 115)), 1), bounds, 8, 8);
+			new Pen(new SolidColorBrush(Color.FromRgb(83, 96, 115)), 0.5), bounds, 8, 8);
 		root.Draw(context, VisualTreeHelper.GetDpi(this).PixelsPerDip);
 	}
 

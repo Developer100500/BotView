@@ -277,7 +277,7 @@ public class ChartView : FrameworkElement
 
 	protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
 	{
-		base.OnMouseRightButtonDown(e);
+		base.OnMouseRightButtonUp(e);
 		if (TechnicalAnalysisTool.IsCreatingTool || e.LeftButton == MouseButtonState.Pressed)
 			return;
 
@@ -807,15 +807,13 @@ public class ChartView : FrameworkElement
 	public void UpdateLastCandle(OHLCV candle)
 	{
 		controller.UpdateLastCandle(candle);
-		InvalidateVisual();
 	}
 
 	/// <summary> Finalizes closed candle and appends newly opened live candle. </summary>
 	public void OnCandleClosed(OHLCV closed, OHLCV newOpen)
 	{
 		controller.AppendLiveCandle(closed, newOpen);
-		RecalculateIndicators();
-		InvalidateVisual();
+		RecalculateIndicators(invalidateVisual: false);
 	}
 
 	/// <summary>
@@ -1012,7 +1010,7 @@ public class ChartView : FrameworkElement
 	}
 
 	/// <summary>Recalculates all indicators (call after candlestick data changes)</summary>
-	public void RecalculateIndicators()
+	public void RecalculateIndicators(bool invalidateVisual = true)
 	{
 		foreach (var indicator in model.Indicators)
 		{
@@ -1024,7 +1022,8 @@ public class ChartView : FrameworkElement
 		}
 		
 		AutoFitIndicatorViewport();
-		InvalidateVisual();
+		if (invalidateVisual)
+			InvalidateVisual();
 	}
 
 }

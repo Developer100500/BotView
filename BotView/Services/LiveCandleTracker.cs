@@ -1,6 +1,10 @@
 using System.Collections.Generic;
 using BotView.Models;
 
+/// <summary>
+/// Tracks the current unfinished candle for each market data key and detects when
+/// a newer candle closes it. Access to the tracked candles is thread-safe.
+/// </summary>
 public sealed class LiveCandleTracker
 {
     private readonly Dictionary<CandleCacheKey, OHLCV> _liveCandles = new();

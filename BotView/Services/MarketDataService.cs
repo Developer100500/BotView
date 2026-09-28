@@ -229,6 +229,7 @@ public sealed class MarketDataService : IMarketDataService
         {
             try
             {
+                // Fetch a small recent window so the latest candle can be compared with the tracked live candle.
                 var fetched = await _exchangeService.FetchOHLCVAsync(
                     key.Exchange,
                     key.Symbol,
@@ -238,23 +239,27 @@ public sealed class MarketDataService : IMarketDataService
 
                 if (fetched != null && fetched.Count > 0)
                 {
+                    // Exchanges may return candles in different orders; use the newest timestamp.
                     var last = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
                         .candles
                         .OrderBy(c => c.timestamp)
                         .Last();
                     var currentLive = _liveTracker.Get(key);
 
+                    // Ignore an older response that would move this stream backward in time.
                     if (currentLive.HasValue && last.timestamp < currentLive.Value.timestamp)
                     {
                         Debug.WriteLine($"Skipping stale live candle for {key.Symbol}: {last.timestamp} < {currentLive.Value.timestamp}");
                     }
                     else if (_liveTracker.TryClose(key, last, out var closed))
                     {
+                        // A newer timestamp closes the previous live candle and starts a new one.
                         _store.AppendClosed(key, new[] { closed });
                         GetSubscription(key)?.RaiseCandleClosed(closed, last);
                     }
                     else
                     {
+                        // The candle is still open (or is the first one seen); publish its latest values.
                         _liveTracker.Update(key, last);
                         GetSubscription(key)?.RaiseLiveCandleTicked(last);
                     }
@@ -266,11 +271,13 @@ public sealed class MarketDataService : IMarketDataService
             }
             catch (Exception ex)
             {
+                // Keep polling after a transient fetch or conversion failure.
                 Debug.WriteLine($"Realtime loop error for {key.Symbol}: {ex.Message}");
             }
 
             try
             {
+                // Pace requests and let cancellation stop the loop during the wait.
                 await Task.Delay(_pollInterval, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
