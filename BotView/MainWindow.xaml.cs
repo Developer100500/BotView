@@ -152,12 +152,14 @@ namespace BotView
 
         private void OnDrawingToolRequested(TechnicalAnalysisToolType toolType)
         {
+            chartView.CloseToolContextMenu();
             TechnicalAnalysisTool.StartCreating(toolType);
             chartView.Cursor = Cursors.Cross;
         }
 
         private async void OnSymbolChanged(string symbol)
         {
+            chartView.CloseToolContextMenu();
             var taManager = chartView.GetTechnicalAnalysisManager();
             await taManager.SetSymbolAsync(symbol);
         }

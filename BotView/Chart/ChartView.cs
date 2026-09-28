@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart.IndicatorPane;
+using BotView.Chart.ChartViews;
 using BotView.Models;
 
 namespace BotView.Chart;
@@ -100,6 +101,7 @@ public class ChartView : FrameworkElement
 	private readonly ChartModel model;
 	private readonly ChartController controller;
 	private readonly ChartRenderer renderer;
+	private readonly ChartContextMenu toolContextMenu;
 
 	// === RENDER TIME COUNTER ===
 	/// <summary>Время последней отрисовки в миллисекундах</summary>
@@ -124,6 +126,7 @@ public class ChartView : FrameworkElement
 		
 		// Инициализируем рендерер
 		renderer = new ChartRenderer(model, controller);
+		toolContextMenu = new ChartContextMenu(this, model.TechnicalAnalysisManager);
 		renderer.ShowCandleOutlines = ShowCandleOutlines;
 		
 		// Подписываемся на изменение viewport для перерисовки
@@ -206,6 +209,12 @@ public class ChartView : FrameworkElement
 	protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
 	{
 		base.OnMouseLeftButtonDown(e);
+		if (toolContextMenu.IsOpen)
+		{
+			toolContextMenu.CloseMenu();
+			e.Handled = true;
+			return;
+		}
 		
 		// Проверяем, находимся ли мы в режиме создания инструмента теханализа
 		if (TechnicalAnalysisTool.IsCreatingTool)
@@ -264,6 +273,32 @@ public class ChartView : FrameworkElement
 		{
 			this.Cursor = result.Cursor;
 		}
+	}
+
+	protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+	{
+		base.OnMouseRightButtonDown(e);
+		if (TechnicalAnalysisTool.IsCreatingTool || e.LeftButton == MouseButtonState.Pressed)
+			return;
+
+		Point position = e.GetPosition(this);
+		var tool = model.TechnicalAnalysisManager.GetToolAtPoint(
+			new Coordinates(position.X, position.Y),
+			controller.ChartToView,
+			model.Viewport,
+			tolerance: 5.0);
+		if (tool is not IStrokeStyleTool) return;
+
+		if (TechnicalAnalysisTool.EditingTool != tool)
+		{
+			TechnicalAnalysisTool.StopEditing();
+			tool.SetEditMode(true);
+			TechnicalAnalysisTool.StartEditing(tool);
+		}
+		Focus();
+		toolContextMenu.OpenMenu(tool, position);
+		InvalidateVisual();
+		e.Handled = true;
 	}
 
 	/// <summary>Зажимает фигуру: клик без движения включит редактирование, сдвиг сразу переместит её целиком</summary>
@@ -677,6 +712,12 @@ public class ChartView : FrameworkElement
 		// Отмена создания инструмента по Escape
 		if (e.Key == Key.Escape)
 		{
+			if (toolContextMenu.IsOpen)
+			{
+				toolContextMenu.CloseMenu();
+				e.Handled = true;
+				return;
+			}
 			if (pendingTool != null)
 			{
 				pendingTool = null;
@@ -704,6 +745,7 @@ public class ChartView : FrameworkElement
 	/// <summary>Удаляет инструмент, который сейчас редактируется</summary>
 	private void DeleteEditingTool()
 	{
+		toolContextMenu.CloseMenu();
 		var tool = TechnicalAnalysisTool.EditingTool;
 		if (tool == null) return;
 
@@ -719,6 +761,8 @@ public class ChartView : FrameworkElement
 		// Перерисовываем
 		InvalidateVisual();
 	}
+
+	public void CloseToolContextMenu() => toolContextMenu.CloseMenu();
 
 	/// <summary>Update chart dimensions (called on every render to handle window resize)</summary>
 	private void UpdateChartDimensions()

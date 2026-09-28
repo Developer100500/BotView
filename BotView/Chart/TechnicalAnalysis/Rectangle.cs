@@ -10,7 +10,7 @@ namespace BotView.Chart.TechnicalAnalysis;
 /// Стороны параллельны осям графика
 /// Создаётся по двум диагональным углам
 /// </summary>
-public class Rectangle : TechnicalAnalysisTool
+public class Rectangle : TechnicalAnalysisTool, IStrokeStyleTool
 {
 	/// <summary>Радиус контрольной точки в пикселях</summary>
 	public const double ControlPointRadius = 6.0;
@@ -194,22 +194,7 @@ public class Rectangle : TechnicalAnalysisTool
 	/// <summary>Создаёт перо с заданным стилем линии</summary>
 	private Pen CreateStyledPen()
 	{
-		var pen = new Pen(Color, Thickness);
-
-		switch (Style)
-		{
-			case LineStyle.Dashed:
-				pen.DashStyle = new DashStyle(new double[] { 4, 2 }, 0);
-				break;
-			case LineStyle.Dotted:
-				pen.DashStyle = new DashStyle(new double[] { 1, 2 }, 0);
-				break;
-			case LineStyle.Solid:
-			default:
-				break;
-		}
-
-		return pen;
+		return StrokePenFactory.Create(this);
 	}
 
 	/// <summary>Проверяет, попадает ли точка на любую из 4 сторон прямоугольника</summary>
@@ -470,4 +455,3 @@ public class Rectangle : TechnicalAnalysisTool
 		return rect;
 	}
 }
-

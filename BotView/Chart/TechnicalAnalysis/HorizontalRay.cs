@@ -8,7 +8,7 @@ namespace BotView.Chart.TechnicalAnalysis;
 /// <summary>
 /// Горизонтальный луч: начинается в точке клика и уходит бесконечно вправо на уровне цены
 /// </summary>
-public class HorizontalRay : TechnicalAnalysisTool
+public class HorizontalRay : TechnicalAnalysisTool, IStrokeStyleTool
 {
 	public const double ControlPointRadius = 6.0;
 
@@ -21,6 +21,7 @@ public class HorizontalRay : TechnicalAnalysisTool
 	public Brush Color { get; set; }
 
 	public double Thickness { get; set; }
+	public LineStyle Style { get; set; }
 
 	public override bool SupportsControlPoints => true;
 
@@ -46,12 +47,13 @@ public class HorizontalRay : TechnicalAnalysisTool
 		return true;
 	}
 
-	public HorizontalRay(DateTime startTime, double price, Brush color, double thickness = 2.0)
+	public HorizontalRay(DateTime startTime, double price, Brush color, double thickness = 2.0, LineStyle style = LineStyle.Solid)
 	{
 		StartTime = startTime;
 		Price = price;
 		Color = color;
 		Thickness = thickness;
+		Style = style;
 		IsVisible = true;
 	}
 
@@ -78,7 +80,7 @@ public class HorizontalRay : TechnicalAnalysisTool
 		if (!AreCoordinatesValid(startView, endView))
 			return;
 
-		Pen linePen = new Pen(Color, Thickness);
+		Pen linePen = StrokePenFactory.Create(this);
 		drawingContext.DrawLine(
 			linePen,
 			new System.Windows.Point(startView.x, startView.y),
@@ -157,6 +159,7 @@ public class HorizontalRay : TechnicalAnalysisTool
 			["price"] = Price,
 			["color"] = colorString,
 			["thickness"] = Thickness,
+			["style"] = Style.ToString(),
 			["isVisible"] = IsVisible
 		};
 	}
@@ -180,6 +183,8 @@ public class HorizontalRay : TechnicalAnalysisTool
 
 		double price = json["price"]?.Value<double>() ?? 0;
 		double thickness = json["thickness"]?.Value<double>() ?? 2.0;
+		LineStyle style = Enum.TryParse<LineStyle>(json["style"]?.ToString(), out var parsedStyle)
+			&& Enum.IsDefined(parsedStyle) ? parsedStyle : LineStyle.Solid;
 		bool isVisible = json["isVisible"]?.Value<bool>() ?? true;
 
 		Brush color = Brushes.OrangeRed;
@@ -201,7 +206,7 @@ public class HorizontalRay : TechnicalAnalysisTool
 			}
 		}
 
-		return new HorizontalRay(startTime, price, color, thickness)
+		return new HorizontalRay(startTime, price, color, thickness, style)
 		{
 			IsVisible = isVisible
 		};

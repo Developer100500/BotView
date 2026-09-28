@@ -9,7 +9,7 @@ namespace BotView.Chart.TechnicalAnalysis;
 /// Горизонтальная линия для обозначения уровней поддержки и сопротивления
 /// Использует Chart Coordinates (цена) для позиционирования
 /// </summary>
-public class HorizontalLine : TechnicalAnalysisTool
+public class HorizontalLine : TechnicalAnalysisTool, IStrokeStyleTool
 {
 	public const double ControlPointRadius = 6.0;
 
@@ -18,6 +18,7 @@ public class HorizontalLine : TechnicalAnalysisTool
 	public Brush Color { get; set; }
  
 	public double Thickness { get; set; }
+	public LineStyle Style { get; set; }
 
 	/// <summary>Получает тип курсора для наведения на инструмент</summary>
 	public override System.Windows.Input.Cursor GetHoverCursor()
@@ -45,11 +46,12 @@ public class HorizontalLine : TechnicalAnalysisTool
 	/// <param name="price">Цена линии</param>
 	/// <param name="color">Цвет линии</param>
 	/// <param name="thickness">Толщина линии</param>
-	public HorizontalLine(double price, Brush color, double thickness = 2.0)
+	public HorizontalLine(double price, Brush color, double thickness = 2.0, LineStyle style = LineStyle.Solid)
 	{
 		Price = price;
 		Color = color;
 		Thickness = thickness;
+		Style = style;
 		IsVisible = true;
 	}
 
@@ -85,7 +87,7 @@ public class HorizontalLine : TechnicalAnalysisTool
 			return;
 
 		// Создаем перо для отрисовки
-		Pen linePen = new Pen(Color, Thickness);
+		Pen linePen = StrokePenFactory.Create(this);
 
 		lastVisibleCenter = new Coordinates((startView.x + endView.x) / 2, (startView.y + endView.y) / 2);
 
@@ -180,6 +182,7 @@ public class HorizontalLine : TechnicalAnalysisTool
 			["price"] = Price,
 			["color"] = colorString,
 			["thickness"] = Thickness,
+			["style"] = Style.ToString(),
 			["isVisible"] = IsVisible
 		};
 	}
@@ -204,6 +207,8 @@ public class HorizontalLine : TechnicalAnalysisTool
 		// Извлекаем параметры
 		double price = json["price"]?.Value<double>() ?? 0;
 		double thickness = json["thickness"]?.Value<double>() ?? 2.0;
+		LineStyle style = Enum.TryParse<LineStyle>(json["style"]?.ToString(), out var parsedStyle)
+			&& Enum.IsDefined(parsedStyle) ? parsedStyle : LineStyle.Solid;
 		bool isVisible = json["isVisible"]?.Value<bool>() ?? true;
 
 		// Парсим цвет из строки формата #AARRGGBB
@@ -227,7 +232,7 @@ public class HorizontalLine : TechnicalAnalysisTool
 			}
 		}
 
-		var line = new HorizontalLine(price, color, thickness)
+		var line = new HorizontalLine(price, color, thickness, style)
 		{
 			IsVisible = isVisible
 		};
@@ -235,4 +240,3 @@ public class HorizontalLine : TechnicalAnalysisTool
 		return line;
 	}
 }
-

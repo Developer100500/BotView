@@ -9,7 +9,7 @@ namespace BotView.Chart.TechnicalAnalysis;
 /// Трендовый канал - две параллельные линии одинаковой длины и наклона
 /// Создаётся по трём кликам: первая и вторая точки первой линии, затем положение параллельной линии
 /// </summary>
-public class TrendChannel : TechnicalAnalysisTool
+public class TrendChannel : TechnicalAnalysisTool, IStrokeStyleTool
 {
 	/// <summary>Радиус контрольной точки в пикселях</summary>
 	public const double ControlPointRadius = 6.0;
@@ -214,22 +214,7 @@ public class TrendChannel : TechnicalAnalysisTool
 	/// <summary>Создаёт перо с заданным стилем линии</summary>
 	private Pen CreateStyledPen()
 	{
-		var pen = new Pen(Color, Thickness);
-
-		switch (Style)
-		{
-			case LineStyle.Dashed:
-				pen.DashStyle = new DashStyle(new double[] { 4, 2 }, 0);
-				break;
-			case LineStyle.Dotted:
-				pen.DashStyle = new DashStyle(new double[] { 1, 2 }, 0);
-				break;
-			case LineStyle.Solid:
-			default:
-				break;
-		}
-
-		return pen;
+		return StrokePenFactory.Create(this);
 	}
 
 	/// <summary>Проверяет, попадает ли точка на трендовый канал (на любую из двух линий)</summary>
@@ -595,4 +580,3 @@ public class TrendChannel : TechnicalAnalysisTool
 		return channel;
 	}
 }
-

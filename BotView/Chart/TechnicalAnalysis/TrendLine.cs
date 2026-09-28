@@ -17,7 +17,7 @@ public enum LineStyle
 /// Трендовая (наклонная) линия для обозначения трендов на графике
 /// Создается по двум точкам: начальной и конечной
 /// </summary>
-public class TrendLine : TechnicalAnalysisTool
+public class TrendLine : TechnicalAnalysisTool, IStrokeStyleTool
 {
 	/// <summary>Радиус контрольной точки в пикселях</summary>
 	public const double ControlPointRadius = 6.0;
@@ -121,23 +121,7 @@ public class TrendLine : TechnicalAnalysisTool
 	/// <summary>Создаёт перо с заданным стилем линии</summary>
 	private Pen CreateStyledPen()
 	{
-		var pen = new Pen(Color, Thickness);
-
-		switch (Style)
-		{
-			case LineStyle.Dashed:
-				pen.DashStyle = new DashStyle(new double[] { 4, 2 }, 0);
-				break;
-			case LineStyle.Dotted:
-				pen.DashStyle = new DashStyle(new double[] { 1, 2 }, 0);
-				break;
-			case LineStyle.Solid:
-			default:
-				// Сплошная линия по умолчанию
-				break;
-		}
-
-		return pen;
+		return StrokePenFactory.Create(this);
 	}
 
 	/// <summary>Проверяет, попадает ли точка на трендовую линию</summary>
@@ -348,4 +332,3 @@ public class TrendLine : TechnicalAnalysisTool
 		return line;
 	}
 }
-
