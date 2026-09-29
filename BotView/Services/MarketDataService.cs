@@ -36,6 +36,7 @@ public sealed class MarketDataService : IMarketDataService
     {
         ThrowIfDisposed();
         ValidateKey(key);
+        ct.ThrowIfCancellationRequested();
 
         if (initialHistory <= 0)
         {
@@ -51,6 +52,7 @@ public sealed class MarketDataService : IMarketDataService
         lock (_sync)
         {
             ThrowIfDisposed();
+            ct.ThrowIfCancellationRequested();
 
             if (!_subscriptions.TryGetValue(key, out var subscribers))
             {
@@ -107,7 +109,8 @@ public sealed class MarketDataService : IMarketDataService
                     key.Symbol,
                     key.Timeframe,
                     since,
-                    count);
+                    count,
+                    ct);
                 ct.ThrowIfCancellationRequested();
 
                 if (fetched != null && fetched.Count > 0)
@@ -211,7 +214,8 @@ public sealed class MarketDataService : IMarketDataService
                     key.Symbol,
                     key.Timeframe,
                     since: null,
-                    limit: 3).ConfigureAwait(false);
+                    limit: 3,
+                    ct: ct).ConfigureAwait(false);
 
                 if (fetched != null && fetched.Count > 0)
                 {
@@ -318,7 +322,8 @@ public sealed class MarketDataService : IMarketDataService
             key.Exchange,
             key.Symbol,
             key.Timeframe,
-            initialHistory);
+            initialHistory,
+            ct);
         ct.ThrowIfCancellationRequested();
 
         if (initial.candles == null || initial.candles.Length == 0)
@@ -342,7 +347,8 @@ public sealed class MarketDataService : IMarketDataService
             key.Symbol,
             key.Timeframe,
             since: null,
-            limit: 3).ConfigureAwait(false);
+            limit: 3,
+            ct: ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
 
         if (latestFetched == null || latestFetched.Count == 0)
@@ -371,7 +377,8 @@ public sealed class MarketDataService : IMarketDataService
                 key.Symbol,
                 key.Timeframe,
                 since,
-                pageLimit).ConfigureAwait(false);
+                pageLimit,
+                ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
 
             if (fetched == null || fetched.Count == 0)

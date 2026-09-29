@@ -18,6 +18,7 @@ namespace BotView.Interfaces
         /// <param name="limit">Maximum number of candles to retrieve (default: 500)</param>
         /// <returns>CandlestickData containing the retrieved candles</returns>
         Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500);
+        Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct);
 
         /// <summary>
         /// Gets list of available trading symbols from specified exchange
@@ -25,9 +26,11 @@ namespace BotView.Interfaces
         /// <param name="exchange">Exchange name</param>
         /// <returns>List of available trading pair symbols</returns>
         Task<List<string>> GetAvailableSymbolsAsync(string exchange);
+        Task<List<string>> GetAvailableSymbolsAsync(string exchange, CancellationToken ct);
 
         /// <summary> Gets raw OHLCV candles from exchange with optional since timestamp. </summary>
         Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500);
+        Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since, int limit, CancellationToken ct);
 
         /// <summary>
         /// Tests connection to specified exchange

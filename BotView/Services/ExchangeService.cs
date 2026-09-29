@@ -65,7 +65,10 @@ namespace BotView.Services
         /// <exception cref="ArgumentException">Thrown when parameters are invalid</exception>
         /// <exception cref="NotSupportedException">Thrown when exchange or timeframe is not supported</exception>
         /// <exception cref="ExchangeException">Thrown when exchange API call fails and no cached data is available</exception>
-        public async Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500)
+        public Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500) =>
+            GetCandlestickDataAsync(exchange, symbol, timeframe, limit, CancellationToken.None);
+
+        public async Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct)
         {
             // Validate input parameters
             if (string.IsNullOrWhiteSpace(exchange))
@@ -79,6 +82,8 @@ namespace BotView.Services
             
             if (limit <= 0)
                 throw new ArgumentException("Limit must be greater than zero", nameof(limit));
+
+            ct.ThrowIfCancellationRequested();
 
             // Normalize exchange name
             var normalizedExchange = exchange.ToLowerInvariant();
@@ -109,6 +114,7 @@ namespace BotView.Services
             
             for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++)
             {
+                ct.ThrowIfCancellationRequested();
                 var stopwatch = Stopwatch.StartNew();
                 try
                 {
@@ -116,7 +122,8 @@ namespace BotView.Services
                     var exchangeInstance = GetExchangeInstance(normalizedExchange);
                     
                     // Fetch OHLCV data from exchange
-                    var ccxtData = await exchangeInstance.FetchOHLCV(symbol, timeframe, null, limit);
+                    var ccxtData = await exchangeInstance.FetchOHLCV(symbol, timeframe, null, limit).WaitAsync(ct);
+                    ct.ThrowIfCancellationRequested();
                     
                     stopwatch.Stop();
                     _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true, symbol, timeframe);
@@ -142,8 +149,13 @@ namespace BotView.Services
                     _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false);
                     throw;
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
+                    ct.ThrowIfCancellationRequested();
                     stopwatch.Stop();
                     lastException = ex;
                     var errorType = DetermineErrorType(ex);
@@ -163,12 +175,13 @@ namespace BotView.Services
                     {
                         var delay = CalculateRetryDelay(attempt);
                         _logger?.LogRetryAttempt(normalizedExchange, "FetchOHLCV", attempt + 1, _maxRetryAttempts, delay, ex.Message);
-                        await Task.Delay(delay);
+                        await Task.Delay(delay, ct);
                     }
                 }
             }
             
             // All retry attempts failed, try to fallback to cached data (even if expired)
+            ct.ThrowIfCancellationRequested();
             if (HasCachedData(cacheKey))
             {
                 var cacheAge = DateTime.UtcNow - _cacheTimestamps[cacheKey];
@@ -185,7 +198,10 @@ namespace BotView.Services
         }
 
         /// <summary> Gets raw OHLCV candles from exchange for advanced pagination scenarios. </summary>
-        public async Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500)
+        public Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500) =>
+            FetchOHLCVAsync(exchange, symbol, timeframe, since, limit, CancellationToken.None);
+
+        public async Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since, int limit, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(exchange))
                 throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchange));
@@ -199,6 +215,8 @@ namespace BotView.Services
             if (limit <= 0)
                 throw new ArgumentException("Limit must be greater than zero", nameof(limit));
 
+            ct.ThrowIfCancellationRequested();
+
             var normalizedExchange = exchange.ToLowerInvariant();
 
             if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
@@ -211,11 +229,13 @@ namespace BotView.Services
 
             for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++)
             {
+                ct.ThrowIfCancellationRequested();
                 var stopwatch = Stopwatch.StartNew();
                 try
                 {
                     var exchangeInstance = GetExchangeInstance(normalizedExchange);
-                    var data = await exchangeInstance.FetchOHLCV(symbol, timeframe, since, limit);
+                    var data = await exchangeInstance.FetchOHLCV(symbol, timeframe, since, limit).WaitAsync(ct);
+                    ct.ThrowIfCancellationRequested();
 
                     stopwatch.Stop();
                     _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true, symbol, timeframe);
@@ -223,8 +243,13 @@ namespace BotView.Services
 
                     return data;
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
+                    ct.ThrowIfCancellationRequested();
                     stopwatch.Stop();
                     lastException = ex;
                     var errorType = DetermineErrorType(ex);
@@ -240,11 +265,12 @@ namespace BotView.Services
 
                     if (attempt < _maxRetryAttempts)
                     {
-                        await Task.Delay(CalculateRetryDelay(attempt));
+                        await Task.Delay(CalculateRetryDelay(attempt), ct);
                     }
                 }
             }
 
+            ct.ThrowIfCancellationRequested();
             var finalErrorType = DetermineErrorType(lastException);
             throw new ExchangeException(normalizedExchange,
                 $"Failed to fetch OHLCV from {exchange} after {_maxRetryAttempts} attempts: {lastException?.Message}",
@@ -259,10 +285,15 @@ namespace BotView.Services
         /// <exception cref="ArgumentException">Thrown when exchange name is invalid</exception>
         /// <exception cref="NotSupportedException">Thrown when exchange is not supported</exception>
         /// <exception cref="ExchangeException">Thrown when exchange API call fails</exception>
-        public async Task<List<string>> GetAvailableSymbolsAsync(string exchange)
+        public Task<List<string>> GetAvailableSymbolsAsync(string exchange) =>
+            GetAvailableSymbolsAsync(exchange, CancellationToken.None);
+
+        public async Task<List<string>> GetAvailableSymbolsAsync(string exchange, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(exchange))
                 throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchange));
+
+            ct.ThrowIfCancellationRequested();
 
             var normalizedExchange = exchange.ToLowerInvariant();
             
@@ -273,11 +304,13 @@ namespace BotView.Services
             
             for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++)
             {
+                ct.ThrowIfCancellationRequested();
                 var stopwatch = Stopwatch.StartNew();
                 try
                 {
                     var exchangeInstance = GetExchangeInstance(normalizedExchange);
-                    var markets = await exchangeInstance.LoadMarkets();
+                    var markets = await exchangeInstance.LoadMarkets().WaitAsync(ct);
+                    ct.ThrowIfCancellationRequested();
 
                     var symbols = markets.Values
                         .Where(m => m.active != false)
@@ -295,8 +328,13 @@ namespace BotView.Services
                     
                     return symbols;
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
+                    ct.ThrowIfCancellationRequested();
                     stopwatch.Stop();
                     lastException = ex;
                     var errorType = DetermineErrorType(ex);
@@ -316,11 +354,12 @@ namespace BotView.Services
                     {
                         var delay = CalculateRetryDelay(attempt);
                         _logger?.LogRetryAttempt(normalizedExchange, "LoadMarkets", attempt + 1, _maxRetryAttempts, delay, ex.Message);
-                        await Task.Delay(delay);
+                        await Task.Delay(delay, ct);
                     }
                 }
             }
             
+            ct.ThrowIfCancellationRequested();
             var finalErrorType = DetermineErrorType(lastException);
             throw new ExchangeException(normalizedExchange, 
                 $"Failed to get available symbols from {exchange} after {_maxRetryAttempts} attempts: {lastException?.Message}", 

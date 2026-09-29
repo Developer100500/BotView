@@ -8,13 +8,41 @@ namespace BotView.Tests;
 public sealed class MarketDataSubscriptionTests
 {
     [Fact]
+    public async Task CancellingInitialHistoryDoesNotCreateSubscription()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exchange = new Mock<IExchangeService>();
+        exchange.Setup(x => x.GetCandlestickDataAsync(
+                "binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
+            .Returns((string _, string _, string _, int _, CancellationToken ct) => WaitForCancellation(ct));
+
+        async Task<CandlestickData> WaitForCancellation(CancellationToken ct)
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            throw new InvalidOperationException("The cancelled request must not complete.");
+        }
+
+        await using var service = new MarketDataService(exchange.Object);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var key = new CandleCacheKey("binance", "BTC/USDT", "1m", 250);
+        var pending = service.SubscribeAsync(key, 250, cts.Token);
+        await started.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        Assert.Empty(service.GetSeries(key).GetSnapshot()
+            .Enumerate(long.MinValue, long.MaxValue));
+    }
+
+    [Fact]
     public async Task DisposingOneSubscriberKeepsSharedSeriesPollingForTheOther()
     {
         var exchange = new Mock<IExchangeService>();
-        exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250))
+        exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
                 new[] { Candle(1000), Candle(2000) }));
-        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", null, 3))
+        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", null, 3, It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new List<ccxt.OHLCV>
             {
                 new() { timestamp = 2000, open = 1, high = 2, low = 1, close = 2, volume = 1 }
@@ -38,10 +66,10 @@ public sealed class MarketDataSubscriptionTests
     public async Task LoadingOlderCandlesPrependsSharedBlocksAndPublishesOnlyNewCandles()
     {
         var exchange = new Mock<IExchangeService>();
-        exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250))
+        exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
                 new[] { Candle(180_000), Candle(240_000) }));
-        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", 0, 250))
+        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", 0, 250, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ccxt.OHLCV>
             {
                 ExchangeCandle(60_000), ExchangeCandle(120_000), ExchangeCandle(120_000),
@@ -65,14 +93,14 @@ public sealed class MarketDataSubscriptionTests
     public async Task PollingCatchesUpMissingCandlesBeforePublishingTheNewLiveCandle()
     {
         var exchange = new Mock<IExchangeService>();
-        exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250))
+        exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
                 new[] { Candle(60_000) }));
         var pollingResponse = new TaskCompletionSource<List<ccxt.OHLCV>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", null, 3))
+        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", null, 3, It.IsAny<CancellationToken>()))
             .Returns(() => pollingResponse.Task);
-        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", 60_000, 250))
+        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", 60_000, 250, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Enumerable.Range(1, 10)
                 .Select(i => ExchangeCandle(i * 60_000L)).ToList());
 

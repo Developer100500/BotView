@@ -40,7 +40,9 @@ namespace BotView.ViewModels
         private CandleCacheKey _currentKey;
         private int _loadingOlder;
         private int _loadOlderPending;
-        private int _reloadGeneration;
+        private CancellationTokenSource? _selectionLoadCts;
+        private CancellationTokenSource _historyLoadCts = new();
+        private string? _loadedSymbolsExchange;
         private int _seriesVersion;
         private List<string> _allSymbols = new();
         private HashSet<string> _favoriteSymbols = new(StringComparer.OrdinalIgnoreCase);
@@ -119,7 +121,11 @@ namespace BotView.ViewModels
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsCurrentPairFavorite));
                 OnPropertyChanged(nameof(FavoriteActionText));
-                _ = OnExchangeChangedAsync();
+                if (_isReady)
+                {
+                    LoadFavoriteTradingPairs();
+                }
+                _ = StartSelectionLoadAsync();
             }
         }
 
@@ -138,7 +144,7 @@ namespace BotView.ViewModels
                 OnPropertyChanged(nameof(IsCurrentPairFavorite));
                 OnPropertyChanged(nameof(FavoriteActionText));
                 SymbolChanged?.Invoke(_selectedSymbol);
-                _ = ReloadChartAsync();
+                _ = StartSelectionLoadAsync();
             }
         }
 
@@ -154,7 +160,7 @@ namespace BotView.ViewModels
 
                 _selectedTimeframe = value;
                 OnPropertyChanged();
-                _ = ReloadChartAsync();
+                _ = StartSelectionLoadAsync();
             }
         }
 
@@ -299,12 +305,18 @@ namespace BotView.ViewModels
         {
             _isReady = true;
             SymbolChanged?.Invoke(SelectedSymbol);
-            await LoadExchangeSymbolsAsync(SelectedExchange);
-            await SwitchSubscriptionAsync();
+            await StartSelectionLoadAsync();
         }
 
         public async Task LoadOlderAsync()
         {
+            if (!_isReady)
+                return;
+
+            var ct = _historyLoadCts.Token;
+            if (ct.IsCancellationRequested)
+                return;
+
             // Remember requests raised while another history batch is still loading.
             Interlocked.Exchange(ref _loadOlderPending, 1);
 
@@ -318,6 +330,7 @@ namespace BotView.ViewModels
             {
                 while (Interlocked.Exchange(ref _loadOlderPending, 0) != 0)
                 {
+                    ct.ThrowIfCancellationRequested();
                     // Capture a consistent pair because search may switch subscriptions while awaiting.
                     var key = _currentKey;
                     var subscription = _subscription;
@@ -326,7 +339,7 @@ namespace BotView.ViewModels
                         continue;
                     }
 
-                    int loadedCount = await _marketDataService.LoadOlderAsync(key, HistoryBatchSize);
+                    int loadedCount = await _marketDataService.LoadOlderAsync(key, HistoryBatchSize, ct);
                     if (loadedCount == 0)
                     {
                         // The exchange has no more history; discard repeated edge notifications.
@@ -334,6 +347,10 @@ namespace BotView.ViewModels
                         break;
                     }
                 }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Selection changed while history was loading.
             }
             finally
             {
@@ -351,6 +368,12 @@ namespace BotView.ViewModels
 
         public void Dispose()
         {
+            _isReady = false;
+            var selectionLoad = _selectionLoadCts;
+            _selectionLoadCts = null;
+            selectionLoad?.Cancel();
+            _historyLoadCts.Cancel();
+            _historyLoadCts.Dispose();
             _metricsTimer.Dispose();
             _subscription?.Dispose();
             _subscription = null;
@@ -386,16 +409,61 @@ namespace BotView.ViewModels
             }
         }
 
-        private async Task OnExchangeChangedAsync()
+        private Task StartSelectionLoadAsync()
         {
             if (!_isReady || _suppressSelectionReload)
             {
-                return;
+                return Task.CompletedTask;
             }
 
-            LoadFavoriteTradingPairs();
-            await LoadExchangeSymbolsAsync(SelectedExchange);
-            await SwitchSubscriptionAsync();
+            var previous = _selectionLoadCts;
+            var current = new CancellationTokenSource();
+            _selectionLoadCts = current;
+            var previousHistory = _historyLoadCts;
+            _historyLoadCts = new CancellationTokenSource();
+            previousHistory.Cancel();
+            previousHistory.Dispose();
+            previous?.Cancel();
+            return LoadSelectionAsync(current);
+        }
+
+        private async Task LoadSelectionAsync(CancellationTokenSource source)
+        {
+            var ct = source.Token;
+            SetBusy(true, $"Загрузка {SelectedSymbol}...");
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                var exchange = SelectedExchange;
+                if (!string.Equals(_loadedSymbolsExchange, exchange, StringComparison.OrdinalIgnoreCase))
+                {
+                    await LoadExchangeSymbolsAsync(exchange, ct);
+                }
+
+                ct.ThrowIfCancellationRequested();
+                var key = new CandleCacheKey(
+                    SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize);
+                await SwitchSubscriptionAsync(key, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // A newer selection owns the UI state.
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to load selection: {ex}");
+                if (_isReady && ReferenceEquals(_selectionLoadCts, source))
+                    ErrorOccurred?.Invoke("Ошибка загрузки", $"Не удалось загрузить выбранный рынок.\n\n{ex.Message}");
+            }
+            finally
+            {
+                if (ReferenceEquals(_selectionLoadCts, source))
+                {
+                    _selectionLoadCts = null;
+                    SetBusy(false);
+                }
+                source.Dispose();
+            }
         }
 
         private void ToggleFavorite()
@@ -448,21 +516,22 @@ namespace BotView.ViewModels
             }
         }
 
-        private async Task LoadExchangeSymbolsAsync(string exchange)
+        private async Task LoadExchangeSymbolsAsync(string exchange, CancellationToken ct)
         {
-            var generation = Interlocked.Increment(ref _reloadGeneration);
-
             try
             {
+                ct.ThrowIfCancellationRequested();
                 SetBusy(true, $"Загрузка рынков {exchange}...");
-                var symbols = await _exchangeService.GetAvailableSymbolsAsync(exchange);
+                var symbols = await _exchangeService.GetAvailableSymbolsAsync(exchange, ct);
+                ct.ThrowIfCancellationRequested();
 
-                if (generation != _reloadGeneration)
+                if (!_isReady || !exchange.Equals(SelectedExchange, StringComparison.OrdinalIgnoreCase))
                 {
                     return;
                 }
 
                 _allSymbols = symbols;
+                _loadedSymbolsExchange = exchange;
                 UpdateSearchResults();
 
                 if (_allSymbols.Count > 0 &&
@@ -485,9 +554,14 @@ namespace BotView.ViewModels
                     }
                 }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                if (generation != _reloadGeneration)
+                ct.ThrowIfCancellationRequested();
+                if (!_isReady || !exchange.Equals(SelectedExchange, StringComparison.OrdinalIgnoreCase))
                 {
                     return;
                 }
@@ -500,13 +574,6 @@ namespace BotView.ViewModels
                 ErrorOccurred?.Invoke(
                     "Ошибка загрузки рынков",
                     $"Не удалось загрузить торговые пары с биржи {exchange}:\n\n{ex.Message}");
-            }
-            finally
-            {
-                if (generation == _reloadGeneration)
-                {
-                    SetBusy(false);
-                }
             }
         }
 
@@ -560,41 +627,28 @@ namespace BotView.ViewModels
             SelectedSymbol = symbol;
         }
 
-        private async Task ReloadChartAsync()
+        private async Task SwitchSubscriptionAsync(CandleCacheKey key, CancellationToken ct)
         {
-            if (!_isReady || _suppressSelectionReload)
-            {
-                return;
-            }
-
-            await SwitchSubscriptionAsync();
-        }
-
-        private async Task SwitchSubscriptionAsync()
-        {
-            var generation = Interlocked.Increment(ref _reloadGeneration);
             var seriesVersion = Interlocked.Increment(ref _seriesVersion);
 
             try
             {
+                ct.ThrowIfCancellationRequested();
                 SetBusy(true, $"Загрузка {SelectedSymbol}...");
 
                 _subscription?.Dispose();
                 _subscription = null;
                 CurrentSeries = null;
 
-                var key = new CandleCacheKey(
-                    SelectedExchange,
-                    SelectedSymbol,
-                    SelectedTimeframe,
-                    HistoryBatchSize);
                 _currentKey = key;
 
-                var sub = await _marketDataService.SubscribeAsync(key, initialHistory: HistoryBatchSize);
+                var sub = await _marketDataService.SubscribeAsync(key, initialHistory: HistoryBatchSize, ct: ct);
 
-                if (generation != _reloadGeneration)
+                if (ct.IsCancellationRequested || !_isReady || key != new CandleCacheKey(
+                        SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize))
                 {
                     sub.Dispose();
+                    ct.ThrowIfCancellationRequested();
                     return;
                 }
 
@@ -616,9 +670,15 @@ namespace BotView.ViewModels
                 };
 
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                if (generation != _reloadGeneration)
+                ct.ThrowIfCancellationRequested();
+                if (!_isReady || key != new CandleCacheKey(
+                        SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize))
                 {
                     return;
                 }
@@ -636,13 +696,6 @@ namespace BotView.ViewModels
                 demoSeries.LoadInitial(demoData.candles);
                 CurrentSeries = demoSeries;
                 ChartSeriesReady?.Invoke(demoSeries, demoData.timeframe, false, seriesVersion);
-            }
-            finally
-            {
-                if (generation == _reloadGeneration)
-                {
-                    SetBusy(false);
-                }
             }
         }
 
