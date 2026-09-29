@@ -99,6 +99,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -186,7 +187,32 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" Margin="12">
+        <Border Grid.Row="1" DataContext="{Binding FuturesQuote}"
+                Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1" Padding="18,9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190"/>
+                    <ColumnDefinition Width="105"/>
+                    <ColumnDefinition Width="150"/>
+                    <ColumnDefinition Width="165"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="S&amp;P 500 · ФЬЮЧЕРС ES=F"
+                           FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <TextBlock Grid.Column="1" Text="{Binding PriceText}" FontSize="17" FontWeight="Bold"
+                           VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <TextBlock Grid.Column="2" Text="{Binding DirectionText}" Foreground="{Binding ChangeColor}"
+                           FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="3" Text="{Binding ChangeText}" Foreground="{Binding ChangeColor}"
+                           FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="4" Text="{Binding StatusText}" ToolTip="{Binding StatusText}"
+                           Foreground="{StaticResource TextMutedBrush}" FontSize="11"
+                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" Margin="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="184"/>
                 <ColumnDefinition Width="*"/>
@@ -347,7 +373,7 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
             </Border>
         </Grid>
 
-        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+        <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,0" Padding="14,7">
             <DockPanel>
                 <TextBlock Text="●  LIVE" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
@@ -356,7 +382,7 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
             </DockPanel>
         </Border>
 
-        <Border Grid.RowSpan="3" Background="#B30B1120"
+        <Border Grid.RowSpan="4" Background="#B30B1120"
                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
                 d:IsHidden="True" Panel.ZIndex="100" IsHitTestVisible="True">
             <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderBrush}"

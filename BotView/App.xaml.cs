@@ -2,6 +2,7 @@
 using System.Data;
 using System.Windows;
 using System.Collections.Generic;
+using System.Net.Http;
 using BotView.Configuration;
 using BotView.Services;
 using BotView.Interfaces;
@@ -16,6 +17,8 @@ namespace BotView
         public static IExchangeLogger ExchangeLogger { get; private set; } = null!;
         public static IDataProviderLogger DataProviderLogger { get; private set; } = null!;
         public static IMarketDataService MarketDataService { get; private set; } = null!;
+        public static IQuoteProvider QuoteProvider { get; private set; } = null!;
+        private static readonly HttpClient QuoteHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
         public static TimeSpan RealtimePollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
         // Доступ к конфигурации бирж через статический класс
@@ -62,6 +65,7 @@ namespace BotView
 
                 var candleStore = new CandleStore();
                 MarketDataService = new MarketDataService(ExchangeService, candleStore, RealtimePollInterval);
+                QuoteProvider = new YahooFinanceQuoteProvider(QuoteHttpClient);
 
                 // Логирование успешной инициализации
                 System.Diagnostics.Debug.WriteLine("Services initialized successfully");
@@ -95,6 +99,7 @@ namespace BotView
             {
                 MarketDataService.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
+            QuoteHttpClient.Dispose();
             
             base.OnExit(e);
         }

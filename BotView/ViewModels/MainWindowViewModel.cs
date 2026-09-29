@@ -54,7 +54,8 @@ namespace BotView.ViewModels
             IExchangeService exchangeService,
             IMarketDataService marketDataService,
             MetricsController metricsController,
-            FavoritePairsStore? favoritePairsStore = null)
+            FavoritePairsStore? favoritePairsStore = null,
+            IQuoteProvider? quoteProvider = null)
         {
             _databaseService = databaseService;
             _dataProvider = dataProvider;
@@ -62,6 +63,7 @@ namespace BotView.ViewModels
             _marketDataService = marketDataService;
             _metricsController = metricsController;
             _favoritePairsStore = favoritePairsStore ?? new FavoritePairsStore();
+            FuturesQuote = quoteProvider is null ? null : new FuturesQuoteViewModel(quoteProvider);
 
             Exchanges = new ObservableCollection<ExchangeOption>(MarketCatalog.Exchanges
                 .Select(exchange => new ExchangeOption(exchange.Id, exchange.DisplayName)));
@@ -100,6 +102,7 @@ namespace BotView.ViewModels
         public ObservableCollection<string> Timeframes { get; }
         public ObservableCollection<TradingPairModel> TradingPairs { get; }
         public ObservableCollection<string> SearchResults { get; }
+        public FuturesQuoteViewModel? FuturesQuote { get; }
 
         public string SelectedExchange
         {
@@ -383,6 +386,7 @@ namespace BotView.ViewModels
 
         public void Dispose()
         {
+            FuturesQuote?.Dispose();
             _isReady = false;
             var selectionLoad = _selectionLoadCts;
             _selectionLoadCts = null;

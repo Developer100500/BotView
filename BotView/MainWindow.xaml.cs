@@ -16,6 +16,7 @@ namespace BotView
     {
         private readonly MainWindowViewModel _viewModel;
         private readonly System.Windows.Threading.DispatcherTimer _renderTimeUpdateTimer;
+        private readonly System.Windows.Threading.DispatcherTimer _quoteUpdateTimer;
 
         public MainWindow()
         {
@@ -29,7 +30,8 @@ namespace BotView
                 App.DataProvider,
                 App.ExchangeService,
                 App.MarketDataService,
-                metricsController);
+                metricsController,
+                quoteProvider: App.QuoteProvider);
             DataContext = _viewModel;
 
             SubscribeViewModelEvents();
@@ -48,6 +50,16 @@ namespace BotView
                 }
             };
             _renderTimeUpdateTimer.Start();
+
+            _quoteUpdateTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMinutes(1)
+            };
+            _quoteUpdateTimer.Tick += async (_, _) =>
+            {
+                if (_viewModel.FuturesQuote is { } quote)
+                    await quote.RefreshAsync();
+            };
 
             chartView.LeftEdgeApproached += OnLeftEdgeApproached;
             chartView.AddIndicator(new Chart.IndicatorPane.RSIIndicator());
@@ -114,6 +126,11 @@ namespace BotView
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            if (_viewModel.FuturesQuote is { } quote)
+            {
+                _quoteUpdateTimer.Start();
+                _ = quote.RefreshAsync();
+            }
             await _viewModel.StartAsync();
         }
 
@@ -253,6 +270,7 @@ namespace BotView
             try
             {
                 _renderTimeUpdateTimer.Stop();
+                _quoteUpdateTimer.Stop();
 
                 if (chartView != null)
                 {
