@@ -1,213 +1,78 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
 using BotView.Models;
+using BotView.Services;
 
 public readonly record struct CandleCacheKey(string Exchange, string Symbol, string Timeframe, int Limit);
 
+/// <summary>Owns the shared candle series for each market data key.</summary>
 public sealed class CandleStore
 {
-    private readonly Dictionary<CandleCacheKey, SortedList<long, OHLCV>> _candlesByKey = new();
-    private readonly ReaderWriterLockSlim _lock = new();
-    private readonly int _perKeyCapacity;
+    private readonly Dictionary<CandleCacheKey, CandleSeries> _seriesByKey = new();
+    private readonly object _sync = new();
 
-    public CandleStore(int perKeyCapacity = 1000)
+    internal CandleSeries GetOrCreateSeries(CandleCacheKey key)
     {
-        _perKeyCapacity = Math.Max(1, perKeyCapacity);
-        _lock = new ReaderWriterLockSlim();
+        lock (_sync)
+        {
+            if (!_seriesByKey.TryGetValue(key, out var series))
+                _seriesByKey[key] = series = new CandleSeries();
+            return series;
+        }
     }
 
-    /// <summary> Возвращает свечи в диапазоне [fromTs, toTs] с LINQ-фильтрацией. </summary>
+    public ICandleSeriesReader GetSeries(CandleCacheKey key) => GetOrCreateSeries(key);
+
+    private CandleSeries? FindSeries(CandleCacheKey key)
+    {
+        lock (_sync)
+            return _seriesByKey.TryGetValue(key, out var series) ? series : null;
+    }
+
+    public void LoadInitial(CandleCacheKey key, IEnumerable<OHLCV> candles) =>
+        GetOrCreateSeries(key).LoadInitial(candles);
+
+    public LiveCandleChange UpdateLive(CandleCacheKey key, OHLCV candle, out OHLCV closed) =>
+        GetOrCreateSeries(key).UpdateLive(candle, out closed);
+
     public IReadOnlyList<OHLCV> GetRange(CandleCacheKey key, long fromTs, long toTs)
     {
         if (fromTs > toTs)
-        {
             return Array.Empty<OHLCV>();
-        }
-
-        _lock.EnterReadLock();
-        try
-        {
-            if (!_candlesByKey.TryGetValue(key, out var candles))
-            {
-                return Array.Empty<OHLCV>();
-            }
-
-            return candles
-                .Where(kvp => kvp.Key >= fromTs && kvp.Key <= toTs)
-                .Select(kvp => kvp.Value)
-                .ToArray();
-        }
-        finally
-        {
-            _lock.ExitReadLock();
-        }
+        var series = FindSeries(key);
+        if (series == null)
+            return Array.Empty<OHLCV>();
+        var snapshot = series.GetSnapshot();
+        return snapshot.Enumerate(fromTs, toTs)
+            .Where(item => item.Index < snapshot.ClosedCount)
+            .Select(item => item.Candle).ToArray();
     }
 
-    /// <summary> Добавляет блок исторических свечей слева; вернёт сколько действительно новых. </summary>
-    public int PrependHistory(CandleCacheKey key, IReadOnlyList<OHLCV> older)
-    {
-        if (older == null || older.Count == 0)
-        {
-            return 0;
-        }
+    public int PrependHistory(CandleCacheKey key, IReadOnlyList<OHLCV> older) =>
+        GetOrCreateSeries(key).PrependHistory(older);
 
-        _lock.EnterWriteLock();
-        try
-        {
-            var candles = GetOrCreateSeriesUnsafe(key);
-            int added = 0;
-            long? currentOldest = candles.Count == 0 ? null : candles.Keys[0];
+    public int PrependHistory(CandleCacheKey key, IReadOnlyList<OHLCV> older, out OHLCV[] added) =>
+        GetOrCreateSeries(key).PrependHistory(older, out added);
 
-            foreach (var candle in older)
-            {
-                // Храним только закрытую историю: принимаем только строго более старые свечи.
-                if (currentOldest.HasValue && candle.timestamp >= currentOldest.Value)
-                {
-                    continue;
-                }
+    public int AppendClosed(CandleCacheKey key, IReadOnlyList<OHLCV> newer) =>
+        GetOrCreateSeries(key).AppendClosed(newer);
 
-                if (candles.ContainsKey(candle.timestamp))
-                {
-                    continue;
-                }
+    public long? GetOldestTimestamp(CandleCacheKey key) =>
+        FindSeries(key)?.GetSnapshot().OldestTimestamp;
 
-                candles.Add(candle.timestamp, candle);
-                added++;
-            }
+    public long? GetNewestTimestamp(CandleCacheKey key) =>
+        FindSeries(key)?.GetSnapshot().NewestClosedTimestamp;
 
-            return added;
-        }
-        finally
-        {
-            _lock.ExitWriteLock();
-        }
-    }
+    public int GetCount(CandleCacheKey key) =>
+        FindSeries(key)?.GetSnapshot().ClosedCount ?? 0;
 
-    /// <summary> Добавляет блок свежих закрытых свечей справа (например после reconnect). </summary>
-    public int AppendClosed(CandleCacheKey key, IReadOnlyList<OHLCV> newer)
-    {
-        if (newer == null || newer.Count == 0)
-        {
-            return 0;
-        }
-
-        _lock.EnterWriteLock();
-        try
-        {
-            var candles = GetOrCreateSeriesUnsafe(key);
-            int added = 0;
-            long? currentNewest = candles.Count == 0 ? null : candles.Keys[candles.Count - 1];
-
-            foreach (var candle in newer)
-            {
-                // Храним только закрытую историю: справа принимаем только строго новые свечи.
-                if (currentNewest.HasValue && candle.timestamp <= currentNewest.Value)
-                {
-                    continue;
-                }
-
-                if (candles.ContainsKey(candle.timestamp))
-                {
-                    continue;
-                }
-
-                candles.Add(candle.timestamp, candle);
-                added++;
-            }
-
-            return added;
-        }
-        finally
-        {
-            _lock.ExitWriteLock();
-        }
-    }
-
-    /// <summary> Возвращает timestamp самой старой свечи для заданного ключа. </summary>
-    public long? GetOldestTimestamp(CandleCacheKey key)
-    {
-        _lock.EnterReadLock();
-        try
-        {
-            return _candlesByKey.TryGetValue(key, out var candles) && candles.Count > 0
-                ? candles.Keys[0]
-                : null;
-        }
-        finally
-        {
-            _lock.ExitReadLock();
-        }
-    }
-
-    /// <summary> Возвращает timestamp самой новой закрытой свечи для заданного ключа. </summary>
-    public long? GetNewestTimestamp(CandleCacheKey key)
-    {
-        _lock.EnterReadLock();
-        try
-        {
-            return _candlesByKey.TryGetValue(key, out var candles) && candles.Count > 0
-                ? candles.Keys[candles.Count - 1]
-                : null;
-        }
-        finally
-        {
-            _lock.ExitReadLock();
-        }
-    }
-
-    /// <summary> Возвращает количество закрытых свечей для заданного ключа. </summary>
-    public int GetCount(CandleCacheKey key)
-    {
-        _lock.EnterReadLock();
-        try
-        {
-            return _candlesByKey.TryGetValue(key, out var candles) ? candles.Count : 0;
-        }
-        finally
-        {
-            _lock.ExitReadLock();
-        }
-    }
-
-    /// <summary> Удаляет все сохранённые свечи для заданного ключа. </summary>
     public bool Clear(CandleCacheKey key)
     {
-        _lock.EnterWriteLock();
-        try
-        {
-            return _candlesByKey.Remove(key);
-        }
-        finally
-        {
-            _lock.ExitWriteLock();
-        }
+        lock (_sync)
+            return _seriesByKey.Remove(key);
     }
 
-    /// <summary> Возвращает количество ключей с историей свечей. </summary>
     public int GetKeyCount()
     {
-        _lock.EnterReadLock();
-        try
-        {
-            return _candlesByKey.Count;
-        }
-        finally
-        {
-            _lock.ExitReadLock();
-        }
-    }
-
-    /// <summary> Возвращает или создаёт коллекцию свечей для ключа. </summary>
-    private SortedList<long, OHLCV> GetOrCreateSeriesUnsafe(CandleCacheKey key)
-    {
-        if (!_candlesByKey.TryGetValue(key, out var candles))
-        {
-            candles = new SortedList<long, OHLCV>(_perKeyCapacity);
-            _candlesByKey[key] = candles;
-        }
-
-        return candles;
+        lock (_sync)
+            return _seriesByKey.Count;
     }
 }

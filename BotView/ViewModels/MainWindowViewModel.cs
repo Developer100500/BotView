@@ -14,7 +14,7 @@ namespace BotView.ViewModels
 {
     public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
-        private const int HistoryBatchSize = 250;
+        private const int HistoryBatchSize = CandleSeries.CandleChunkSize;
         private const int MaxSearchResults = 50;
 
         private readonly DatabaseService _databaseService;
@@ -41,6 +41,7 @@ namespace BotView.ViewModels
         private int _loadingOlder;
         private int _loadOlderPending;
         private int _reloadGeneration;
+        private int _seriesVersion;
         private List<string> _allSymbols = new();
         private HashSet<string> _favoriteSymbols = new(StringComparer.OrdinalIgnoreCase);
 
@@ -261,8 +262,10 @@ namespace BotView.ViewModels
         public ICommand ToggleFavoriteCommand { get; }
         public ICommand RemoveFavoriteCommand { get; }
 
-        /// <summary> Full chart snapshot ready. Second arg: true = live layout, false = demo fit. </summary>
-        public event Action<CandlestickData, bool>? ChartSnapshotReady;
+        /// <summary>Shared chart series ready. Last arg selects live layout or demo fit.</summary>
+        public event Action<ICandleSeriesReader, string, bool, int>? ChartSeriesReady;
+        public ICandleSeriesReader? CurrentSeries { get; private set; }
+        public int CurrentSeriesVersion => Volatile.Read(ref _seriesVersion);
 
         public event Action<OHLCV>? LiveCandleUpdated;
         public event Action<OHLCV, OHLCV>? CandleClosed;
@@ -351,6 +354,8 @@ namespace BotView.ViewModels
             _metricsTimer.Dispose();
             _subscription?.Dispose();
             _subscription = null;
+            CurrentSeries = null;
+            Interlocked.Increment(ref _seriesVersion);
             LogMetrics();
         }
 
@@ -568,6 +573,7 @@ namespace BotView.ViewModels
         private async Task SwitchSubscriptionAsync()
         {
             var generation = Interlocked.Increment(ref _reloadGeneration);
+            var seriesVersion = Interlocked.Increment(ref _seriesVersion);
 
             try
             {
@@ -575,6 +581,7 @@ namespace BotView.ViewModels
 
                 _subscription?.Dispose();
                 _subscription = null;
+                CurrentSeries = null;
 
                 var key = new CandleCacheKey(
                     SelectedExchange,
@@ -592,13 +599,22 @@ namespace BotView.ViewModels
                 }
 
                 _subscription = sub;
+                CurrentSeries = sub.Series;
+                ChartSeriesReady?.Invoke(sub.Series, key.Timeframe, true, seriesVersion);
 
-                sub.LiveCandleTicked += c => LiveCandleUpdated?.Invoke(c);
-                sub.CandleClosed += (closed, newOpen) => CandleClosed?.Invoke(closed, newOpen);
-                sub.OlderCandlesLoaded += arr => OlderCandlesLoaded?.Invoke(arr);
-                
-                var data = _marketDataService.BuildChartData(key);
-                ChartSnapshotReady?.Invoke(data, true);
+                sub.LiveCandleTicked += c =>
+                {
+                    if (ReferenceEquals(_subscription, sub)) LiveCandleUpdated?.Invoke(c);
+                };
+                sub.CandleClosed += (closed, newOpen) =>
+                {
+                    if (ReferenceEquals(_subscription, sub)) CandleClosed?.Invoke(closed, newOpen);
+                };
+                sub.OlderCandlesLoaded += arr =>
+                {
+                    if (ReferenceEquals(_subscription, sub)) OlderCandlesLoaded?.Invoke(arr);
+                };
+
             }
             catch (Exception ex)
             {
@@ -607,12 +623,19 @@ namespace BotView.ViewModels
                     return;
                 }
 
+                _subscription?.Dispose();
+                _subscription = null;
+                CurrentSeries = null;
+
                 ErrorOccurred?.Invoke(
                     "Ошибка подключения к бирже",
                     $"Ошибка загрузки данных с биржи {SelectedExchange}:\n\n{ex.Message}\n\nБудут загружены демонстрационные данные.");
 
                 var demoData = _dataProvider.LoadDemoData(SelectedTimeframe);
-                ChartSnapshotReady?.Invoke(demoData, false);
+                var demoSeries = new CandleSeries();
+                demoSeries.LoadInitial(demoData.candles);
+                CurrentSeries = demoSeries;
+                ChartSeriesReady?.Invoke(demoSeries, demoData.timeframe, false, seriesVersion);
             }
             finally
             {

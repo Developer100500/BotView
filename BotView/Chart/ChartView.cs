@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart.IndicatorPane;
+using BotView.Services;
 using BotView.Chart.ChartViews;
 using BotView.Models;
 
@@ -177,7 +178,8 @@ public class ChartView : FrameworkElement
 		base.OnRender(drawingContext);
 
 		// Initialize camera only once
-		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0)
+		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0 &&
+			model.Series.GetSnapshot().Count > 0)
 		{
 			controller.InitializeCamera();
 			model.IsInitialized = true;
@@ -795,24 +797,29 @@ public class ChartView : FrameworkElement
 		RecalculateIndicators();
 	}
 
-	/// <summary> Prepends older candles to the left edge of chart data. </summary>
-	public void PrependCandles(OHLCV[] older)
+	public void SetSeries(ICandleSeriesReader series, string timeframe)
 	{
-		controller.PrependCandles(older);
+		controller.SetSeries(series, timeframe);
 		RecalculateIndicators();
-		InvalidateVisual();
 	}
 
-	/// <summary> Updates the last candle with live market data. </summary>
-	public void UpdateLastCandle(OHLCV candle)
+	/// <summary>Refreshes the chart after history was added to the shared series.</summary>
+	public void OnHistoryExtended()
 	{
-		controller.UpdateLastCandle(candle);
+		controller.OnHistoryExtended();
+		RecalculateIndicators(invalidateVisual: false);
 	}
 
-	/// <summary> Finalizes closed candle and appends newly opened live candle. </summary>
-	public void OnCandleClosed(OHLCV closed, OHLCV newOpen)
+	/// <summary>Redraws the updated live candle from the shared series.</summary>
+	public void OnLiveCandleUpdated()
 	{
-		controller.AppendLiveCandle(closed, newOpen);
+		controller.OnLiveCandleUpdated();
+	}
+
+	/// <summary>Recalculates indicators after the shared series closes a candle.</summary>
+	public void OnCandleClosed()
+	{
+		controller.OnCandleClosed();
 		RecalculateIndicators(invalidateVisual: false);
 	}
 
@@ -996,7 +1003,7 @@ public class ChartView : FrameworkElement
 		RemoveIndicator("rsi");
 
 		var rsi = new RSIIndicator(period);
-		rsi.Calculate(model.CandlestickData, controller);
+		rsi.Calculate(model.Series.GetSnapshot(), controller);
 		
 		model.Indicators.Add(rsi);
 		
@@ -1016,7 +1023,7 @@ public class ChartView : FrameworkElement
 		{
 			if (indicator is RSIIndicator rsi)
 			{
-				rsi.Calculate(model.CandlestickData, controller);
+				rsi.Calculate(model.Series.GetSnapshot(), controller);
 			}
 			// Add other indicator types here as needed
 		}

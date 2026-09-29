@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart.IndicatorPane;
 using BotView.Models;
+using BotView.Services;
 
 namespace BotView.Chart;
 
@@ -12,7 +13,7 @@ namespace BotView.Chart;
 public class ChartModel
 {
 	// === DATA ===
-	public CandlestickData CandlestickData { get; set; }
+	public ICandleSeriesReader Series { get; set; }
 	public string Timeframe { get; set; } = string.Empty;
 	//public int PollInterval { get; set; } = 250; // milliseconds
 
@@ -93,11 +94,12 @@ public class ChartModel
 		Timeframe = "1d";
 		DateTime baseTime = DateTime.Now;
 		OHLCV[] candles = [
-			new OHLCV(100, 114, 93, 105, 1000),
-			new OHLCV(105, 111, 100, 106, 800)
+			new OHLCV(new DateTimeOffset(baseTime.AddDays(-1)).ToUnixTimeMilliseconds(), 100, 114, 93, 105, 1000),
+			new OHLCV(new DateTimeOffset(baseTime).ToUnixTimeMilliseconds(), 105, 111, 100, 106, 800)
 		];
-
-		CandlestickData = new CandlestickData(Timeframe, baseTime, DateTime.Now, candles);
+		var initialSeries = new CandleSeries();
+		initialSeries.LoadInitial(candles);
+		Series = initialSeries;
 
 		// Инициализируем мировую систему координат
 		WorldOriginTime = baseTime;
@@ -116,7 +118,8 @@ public class ChartModel
 	/// </summary>
 	public void UpdateDataRange()
 	{
-		if (CandlestickData.candles == null || CandlestickData.candles.Length == 0)
+		var snapshot = Series.GetSnapshot();
+		if (snapshot.Count == 0)
 		{
 			Viewport = new ViewportClippingCoords(
 				Viewport.minPrice,
@@ -132,7 +135,7 @@ public class ChartModel
 		double minPrice = double.MaxValue;
 		double maxPrice = double.MinValue;
 
-		foreach (var candle in CandlestickData.candles)
+		foreach (var (_, candle) in snapshot.Enumerate(long.MinValue, long.MaxValue))
 		{
 			minPrice = Math.Min(minPrice, candle.low);
 			maxPrice = Math.Max(maxPrice, candle.high);
@@ -153,6 +156,5 @@ public class ChartModel
 		);
 	}
 }
-
 
 

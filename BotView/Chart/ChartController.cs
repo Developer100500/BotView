@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using BotView.Chart.IndicatorPane;
+using BotView.Services;
 using BotView.Models;
 
 namespace BotView.Chart;
@@ -328,11 +329,11 @@ public class ChartController
 		// Помечаем все инструменты технического анализа для перерисовки при изменении viewport
 		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
 
-		var candles = model.CandlestickData.candles;
-		if (candles?.Length > 0)
+		var candles = model.Series.GetSnapshot();
+		if (candles.Count > 0)
 		{
 			var threshold = cachedTimeframeSpan * 20;
-			if (model.Viewport.minTime - model.CandlestickData.beginTime < threshold)
+			if (model.Viewport.minTime - candles[0].GetDateTime() < threshold)
 			{
 				LeftEdgeApproached?.Invoke();
 			}
@@ -348,12 +349,15 @@ public class ChartController
 	/// <summary> Инициализация камеры (вызывается один раз при старте) </summary>
 	public void InitializeCamera()
 	{
+		if (model.Series.GetSnapshot().Count == 0)
+			return;
 		model.UpdateDataRange();
 
 		ResetTimeScaleToTimeframe();
 
-		var lastCandle = model.CandlestickData.candles[^1];
-		var centerTime = model.CandlestickData.endTime.Subtract(TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2));
+		var candles = model.Series.GetSnapshot();
+		var lastCandle = candles[candles.Count - 1];
+		var centerTime = lastCandle.GetDateTime().Subtract(TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2));
 		model.CameraPosition = ChartToWorld(new ChartCoordinates(centerTime, lastCandle.close));
 
 		ResetPriceScaleToCurrentPrice();
@@ -705,8 +709,15 @@ public class ChartController
 	/// </summary>
 	public void SetCandlestickData(CandlestickData newData)
 	{
-		model.CandlestickData = newData;
-		model.Timeframe = newData.timeframe;
+		var series = new CandleSeries();
+		series.LoadInitial(newData.candles ?? Array.Empty<OHLCV>());
+		SetSeries(series, newData.timeframe);
+	}
+
+	public void SetSeries(ICandleSeriesReader series, string timeframe)
+	{
+		model.Series = series;
+		model.Timeframe = timeframe;
 
 		// Пересчитываем диапазон данных
 		model.UpdateDataRange();
@@ -715,7 +726,8 @@ public class ChartController
 		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
 
 		// Если камера еще не инициализирована, инициализируем её
-		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0)
+		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0 &&
+			model.Series.GetSnapshot().Count > 0)
 		{
 			InitializeCamera();
 			model.IsInitialized = true;
@@ -726,97 +738,19 @@ public class ChartController
 		}
 	}
 
-	/// <summary> Prepends older candles to the left edge of chart data. </summary>
-	public void PrependCandles(OHLCV[] older)
+	/// <summary>Re-evaluates the viewport after history was added to the shared series.</summary>
+	public void OnHistoryExtended()
 	{
-		if (older == null || older.Length == 0)
-		{
-			return;
-		}
-
-		var existing = model.CandlestickData.candles ?? Array.Empty<OHLCV>();
-		var merged = older
-			.Concat(existing)
-			.GroupBy(c => c.timestamp)
-			.Select(g => g.Last())
-			.OrderBy(c => c.timestamp)
-			.ToArray();
-
-		model.CandlestickData = new CandlestickData(
-			model.CandlestickData.timeframe,
-			merged[0].GetDateTime(),
-			merged[^1].GetDateTime(),
-			merged);
-
 		model.UpdateDataRange();
-
-		// Re-evaluate the left edge after prepending so zooming out can request another batch.
 		UpdateViewportFromCamera();
 	}
 
-	/// <summary> Updates or appends the last candle in chart data. </summary>
-	public void UpdateLastCandle(OHLCV updated)
+	/// <summary>Requests a redraw after the shared live candle changes.</summary>
+	public void OnLiveCandleUpdated() => ViewportChanged?.Invoke();
+
+	/// <summary>Refreshes the data range after the shared series closes a candle.</summary>
+	public void OnCandleClosed()
 	{
-		var data = model.CandlestickData;
-		var candles = data.candles;
-		if (candles == null || candles.Length == 0)
-		{
-			model.CandlestickData = new CandlestickData(
-				data.timeframe,
-				updated.GetDateTime(),
-				updated.GetDateTime(),
-				new[] { updated });
-			ViewportChanged?.Invoke();
-			return;
-		}
-
-		if (candles[^1].timestamp == updated.timestamp)
-		{
-			candles[^1] = updated;
-			data.endTime = updated.GetDateTime();
-		}
-		else if (updated.timestamp > candles[^1].timestamp)
-		{
-			var next = new OHLCV[candles.Length + 1];
-			Array.Copy(candles, next, candles.Length);
-			next[^1] = updated;
-			candles = next;
-			data.endTime = updated.GetDateTime();
-		}
-		else
-		{
-			return;
-		}
-
-		data.candles = candles;
-		model.CandlestickData = data;
-		ViewportChanged?.Invoke();
-	}
-
-	/// <summary> Finalizes closed candle and appends newly opened live candle. </summary>
-	public void AppendLiveCandle(OHLCV closed, OHLCV newOpen)
-	{
-		var data = model.CandlestickData;
-		var candles = data.candles;
-		if (candles == null || candles.Length == 0)
-		{
-			model.CandlestickData = new CandlestickData(
-				data.timeframe,
-				newOpen.GetDateTime(),
-				newOpen.GetDateTime(),
-				new[] { newOpen });
-			model.UpdateDataRange();
-			ViewportChanged?.Invoke();
-			return;
-		}
-
-		candles[^1] = closed;
-		var next = new OHLCV[candles.Length + 1];
-		Array.Copy(candles, next, candles.Length);
-		next[^1] = newOpen;
-		data.candles = next;
-		data.endTime = newOpen.GetDateTime();
-		model.CandlestickData = data;
 		model.UpdateDataRange();
 		ViewportChanged?.Invoke();
 	}
@@ -850,16 +784,17 @@ public class ChartController
 	/// </summary>
 	public void FitToData()
 	{
-		if (model.CandlestickData.candles == null || model.CandlestickData.candles.Length == 0)
+		var candles = model.Series.GetSnapshot();
+		if (candles.Count == 0)
 			return;
 
-		TimeSpan dataTimeRange = model.CandlestickData.endTime - model.CandlestickData.beginTime;
+		TimeSpan dataTimeRange = candles[candles.Count - 1].GetDateTime() - candles[0].GetDateTime();
 		model.TimeRangeInViewport = TimeSpan.FromTicks((long)(dataTimeRange.Ticks * 1.2)); // 20% padding
 
-		DateTime lastCandleTime = model.CandlestickData.endTime;
+		DateTime lastCandleTime = candles[candles.Count - 1].GetDateTime();
 		TimeSpan halfRange = TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2);
 		DateTime centerTime = lastCandleTime.Subtract(halfRange);
-		double centerPrice = model.CandlestickData.candles[^1].close;
+		double centerPrice = candles[candles.Count - 1].close;
 
 		ChartCoordinates centerChart = new ChartCoordinates(centerTime, centerPrice);
 		model.CameraPosition = ChartToWorld(centerChart);
@@ -870,11 +805,11 @@ public class ChartController
 	/// <summary> Сбрасывает вертикальный масштаб: ±5% от текущей цены на всю высоту экрана </summary>
 	public void ResetPriceScaleToCurrentPrice()
 	{
-		var candles = model.CandlestickData.candles;
-		if (candles == null || candles.Length == 0)
+		var candles = model.Series.GetSnapshot();
+		if (candles.Count == 0)
 			return;
 
-		double currentPrice = candles[^1].close;
+		double currentPrice = candles[candles.Count - 1].close;
 		if (!double.IsFinite(currentPrice) || Math.Abs(currentPrice) < double.Epsilon)
 			return;
 
@@ -921,10 +856,11 @@ public class ChartController
 	/// </summary>
 	public void SnapLastCandleToRightEdge()
 	{
-		if (model.CandlestickData.candles == null || model.CandlestickData.candles.Length == 0)
+		var candles = model.Series.GetSnapshot();
+		if (candles.Count == 0)
 			return;
 
-		int lastIndex = model.CandlestickData.candles.Length - 1;
+		int lastIndex = candles.Count - 1;
 		DateTime lastCandleTime = GetCandleTime(lastIndex);
 
 		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
@@ -937,7 +873,7 @@ public class ChartController
 		// Смещаем центр камеры так, чтобы правая грань тела свечи касалась правой границы области графика.
 		double targetOffsetSeconds = halfViewportSeconds - candleHalfWidthSeconds;
 
-		var lastCandle = model.CandlestickData.candles[lastIndex];
+		var lastCandle = candles[lastIndex];
 		Coordinates lastCandleWorld = ChartToWorld(new ChartCoordinates(lastCandleTime, lastCandle.close));
 
 		model.CameraPosition = new Coordinates(
@@ -957,8 +893,8 @@ public class ChartController
 	public DateTime GetCandleTime(int candleIndex)
 	{
 		// Check if we have valid candles data and the index is within bounds
-		var candlesticks = model.CandlestickData.candles;
-		if (candlesticks != null && candleIndex >= 0 && candleIndex < candlesticks.Length)
+		var candlesticks = model.Series.GetSnapshot();
+		if (candleIndex >= 0 && candleIndex < candlesticks.Count)
 		{
 			// Use timestamp from OHLCV data if it's not the default value (0)
 			if (candlesticks[candleIndex].timestamp > 0)
@@ -974,7 +910,9 @@ public class ChartController
 			cachedTimeframeKey = model.Timeframe;
 			cachedTimeframeSpan = ParseTimeframe(model.Timeframe);
 		}
-		return model.CandlestickData.beginTime.Add(TimeSpan.FromTicks(cachedTimeframeSpan.Ticks * candleIndex));
+		return candlesticks.Count > 0
+			? candlesticks[0].GetDateTime().Add(TimeSpan.FromTicks(cachedTimeframeSpan.Ticks * candleIndex))
+			: DateTime.UtcNow;
 	}
 
 	/// <summary>
@@ -1174,5 +1112,3 @@ public class MouseInteractionResult
 	public bool ShouldCaptureMouse { get; set; }
 	public Cursor? Cursor { get; set; }
 }
-
-

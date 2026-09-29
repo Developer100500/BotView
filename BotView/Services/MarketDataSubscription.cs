@@ -1,23 +1,25 @@
 using System;
 using BotView.Models;
+using BotView.Services;
 
 public sealed class MarketDataSubscription : IMarketDataSubscription
 {
-    private readonly Action<CandleCacheKey>? _onDispose;
+    private readonly Action<MarketDataSubscription>? _onDispose;
     private bool _isDisposed;
 
     public CandleCacheKey Key { get; }
-    public CandleStore Store { get; }
+    public ICandleSeriesReader Series { get; }
 
     public event Action<OHLCV>? LiveCandleTicked;
     public event Action<OHLCV, OHLCV>? CandleClosed;
     public event Action<OHLCV[]>? OlderCandlesLoaded;
 
     /// <summary> Creates subscription wrapper over shared candle store. </summary>
-    public MarketDataSubscription(CandleCacheKey key, CandleStore store, Action<CandleCacheKey>? onDispose = null)
+    public MarketDataSubscription(CandleCacheKey key, CandleStore store, Action<MarketDataSubscription>? onDispose = null)
     {
         Key = key;
-        Store = store ?? throw new ArgumentNullException(nameof(store));
+        ArgumentNullException.ThrowIfNull(store);
+        Series = store.GetSeries(key);
         _onDispose = onDispose;
     }
 
@@ -63,6 +65,8 @@ public sealed class MarketDataSubscription : IMarketDataSubscription
         }
 
         _isDisposed = true;
-        _onDispose?.Invoke(Key);
+        _onDispose?.Invoke(this);
     }
+
+    internal void Detach() => _isDisposed = true;
 }

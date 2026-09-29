@@ -12,9 +12,9 @@ public sealed class MarketDataService : IMarketDataService
 {
     private readonly IExchangeService _exchangeService;
     private readonly CandleStore _store;
-    private readonly LiveCandleTracker _liveTracker = new();
     private readonly TimeSpan _pollInterval;
-    private readonly Dictionary<CandleCacheKey, MarketDataSubscription> _subscriptions = new();
+    private readonly Dictionary<CandleCacheKey, HashSet<MarketDataSubscription>> _subscriptions = new();
+    private readonly Dictionary<CandleCacheKey, MarketDataSubscription[]> _subscriberSnapshots = new();
     private readonly Dictionary<CandleCacheKey, SemaphoreSlim> _keyLocks = new();
     private readonly Dictionary<CandleCacheKey, CancellationTokenSource> _realtimeLoops = new();
     private readonly object _sync = new();
@@ -42,23 +42,28 @@ public sealed class MarketDataService : IMarketDataService
             throw new ArgumentOutOfRangeException(nameof(initialHistory), "Initial history size must be greater than zero.");
         }
 
-        await EnsureInitialHistoryAsync(key, initialHistory, ct);
+        bool alreadyStreaming;
+        lock (_sync)
+            alreadyStreaming = _subscriptions.ContainsKey(key);
+        if (!alreadyStreaming)
+            await EnsureInitialHistoryAsync(key, initialHistory, ct);
 
         lock (_sync)
         {
             ThrowIfDisposed();
 
-            if (_subscriptions.TryGetValue(key, out var existing))
+            if (!_subscriptions.TryGetValue(key, out var subscribers))
             {
-                return existing;
+                subscribers = new HashSet<MarketDataSubscription>();
+                _subscriptions[key] = subscribers;
+                var loopCts = new CancellationTokenSource();
+                _realtimeLoops[key] = loopCts;
+                _ = Task.Run(() => RunRealtimeLoopAsync(key, loopCts.Token), loopCts.Token);
             }
 
             var created = new MarketDataSubscription(key, _store, RemoveSubscription);
-            _subscriptions[key] = created;
-
-            var loopCts = new CancellationTokenSource();
-            _realtimeLoops[key] = loopCts;
-            _ = Task.Run(() => RunRealtimeLoopAsync(key, loopCts.Token), loopCts.Token);
+            subscribers.Add(created);
+            _subscriberSnapshots[key] = subscribers.ToArray();
 
             return created;
         }
@@ -77,6 +82,8 @@ public sealed class MarketDataService : IMarketDataService
 
         var keyLock = GetOrCreateKeyLock(key);
         await keyLock.WaitAsync(ct);
+        OHLCV[] addedBatch = Array.Empty<OHLCV>();
+        int added = 0;
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -85,86 +92,49 @@ public sealed class MarketDataService : IMarketDataService
             if (!oldestTimestamp.HasValue)
             {
                 await EnsureInitialHistoryCoreAsync(key, count, ct);
-                return _store.GetCount(key);
+                addedBatch = _store.GetSeries(key).GetSnapshot()
+                    .Enumerate(long.MinValue, long.MaxValue)
+                    .Select(item => item.Candle).ToArray();
+                added = addedBatch.Length;
             }
-
-            var timeframeMs = GetTimeframeMilliseconds(key.Timeframe);
-            var since = Math.Max(0, oldestTimestamp.Value - (timeframeMs * count));
-
-            var fetched = await _exchangeService.FetchOHLCVAsync(
-                key.Exchange,
-                key.Symbol,
-                key.Timeframe,
-                since,
-                count);
-
-            if (fetched == null || fetched.Count == 0)
+            else
             {
-                return 0;
+                var timeframeMs = GetTimeframeMilliseconds(key.Timeframe);
+                var since = Math.Max(0, oldestTimestamp.Value - (timeframeMs * count));
+
+                var fetched = await _exchangeService.FetchOHLCVAsync(
+                    key.Exchange,
+                    key.Symbol,
+                    key.Timeframe,
+                    since,
+                    count);
+                ct.ThrowIfCancellationRequested();
+
+                if (fetched != null && fetched.Count > 0)
+                {
+                    var converted = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe);
+                    var olderOnly = converted.candles
+                        .Where(c => c.timestamp < oldestTimestamp.Value)
+                        .OrderBy(c => c.timestamp)
+                        .ToArray();
+
+                    if (olderOnly.Length > 0)
+                        added = _store.PrependHistory(key, olderOnly, out addedBatch);
+                }
             }
-
-            var converted = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe);
-            var olderOnly = converted.candles
-                .Where(c => c.timestamp < oldestTimestamp.Value)
-                .OrderBy(c => c.timestamp)
-                .ToArray();
-
-            if (olderOnly.Length == 0)
-            {
-                return 0;
-            }
-
-            var added = _store.PrependHistory(key, olderOnly);
-            if (added <= 0)
-            {
-                return 0;
-            }
-
-            var addedBatch = olderOnly.TakeLast(added).ToArray();
-            RaiseOlderCandlesLoaded(key, addedBatch);
-            return added;
         }
         finally
         {
             keyLock.Release();
         }
+
+        if (added > 0)
+            RaiseOlderCandlesLoaded(key, addedBatch);
+        return added;
     }
 
-    /// <summary> Builds chart snapshot from closed history and current live candle. </summary>
-    public CandlestickData BuildChartData(CandleCacheKey key)
-    {
-        var closed = _store.GetRange(key, 0, long.MaxValue).ToArray();
-        var live = _liveTracker.Get(key);
-
-        OHLCV[] all;
-        if (live.HasValue && (closed.Length == 0 || live.Value.timestamp > closed[^1].timestamp))
-        {
-            all = closed.Length == 0
-                ? new[] { live.Value }
-                : closed.Concat(new[] { live.Value }).ToArray();
-        }
-        else if (live.HasValue && closed.Length > 0 && live.Value.timestamp == closed[^1].timestamp)
-        {
-            all = closed.ToArray();
-            all[^1] = live.Value;
-        }
-        else
-        {
-            all = closed;
-        }
-
-        if (all.Length == 0)
-        {
-            var now = DateTime.UtcNow;
-            return new CandlestickData(key.Timeframe, now, now, Array.Empty<OHLCV>());
-        }
-
-        return new CandlestickData(
-            key.Timeframe,
-            all[0].GetDateTime(),
-            all[^1].GetDateTime(),
-            all);
-    }
+    /// <summary>Returns the shared series without flattening its candle blocks.</summary>
+    public ICandleSeriesReader GetSeries(CandleCacheKey key) => _store.GetSeries(key);
 
     /// <summary> Disposes service and releases internal synchronization resources. </summary>
     public ValueTask DisposeAsync()
@@ -186,12 +156,10 @@ public sealed class MarketDataService : IMarketDataService
 
             _realtimeLoops.Clear();
 
-            foreach (var subscription in _subscriptions.Values)
-            {
-                subscription.Dispose();
-            }
-
+            foreach (var subscription in _subscriptions.Values.SelectMany(set => set))
+                subscription.Detach();
             _subscriptions.Clear();
+            _subscriberSnapshots.Clear();
 
             foreach (var gate in _keyLocks.Values)
             {
@@ -205,11 +173,20 @@ public sealed class MarketDataService : IMarketDataService
     }
 
     /// <summary> Removes subscription from registry when it gets disposed. </summary>
-    private void RemoveSubscription(CandleCacheKey key)
+    private void RemoveSubscription(MarketDataSubscription subscription)
     {
         lock (_sync)
         {
+            var key = subscription.Key;
+            if (!_subscriptions.TryGetValue(key, out var subscribers) || !subscribers.Remove(subscription))
+                return;
+            if (subscribers.Count > 0)
+            {
+                _subscriberSnapshots[key] = subscribers.ToArray();
+                return;
+            }
             _subscriptions.Remove(key);
+            _subscriberSnapshots.Remove(key);
 
             if (_realtimeLoops.TryGetValue(key, out var cts))
             {
@@ -218,7 +195,6 @@ public sealed class MarketDataService : IMarketDataService
                 _realtimeLoops.Remove(key);
             }
 
-            _liveTracker.Remove(key);
         }
     }
 
@@ -229,7 +205,7 @@ public sealed class MarketDataService : IMarketDataService
         {
             try
             {
-                // Fetch a small recent window so the latest candle can be compared with the tracked live candle.
+                // Fetch a small window so the previous live candle can receive its final values.
                 var fetched = await _exchangeService.FetchOHLCVAsync(
                     key.Exchange,
                     key.Symbol,
@@ -239,29 +215,49 @@ public sealed class MarketDataService : IMarketDataService
 
                 if (fetched != null && fetched.Count > 0)
                 {
-                    // Exchanges may return candles in different orders; use the newest timestamp.
-                    var last = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
+                    var recent = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
                         .candles
                         .OrderBy(c => c.timestamp)
-                        .Last();
-                    var currentLive = _liveTracker.Get(key);
+                        .ToArray();
+                    var notifications = new List<(LiveCandleChange Change, OHLCV Closed, OHLCV Current)>();
+                    var keyLock = GetOrCreateKeyLock(key);
+                    await keyLock.WaitAsync(ct).ConfigureAwait(false);
+                    try
+                    {
+                        var beforeCatchUp = _store.GetSeries(key).GetSnapshot();
+                        var currentLive = beforeCatchUp.Live;
+                        if (currentLive.HasValue && recent.Length > 0 &&
+                            recent[^1].timestamp - currentLive.Value.timestamp >
+                            GetTimeframeMilliseconds(key.Timeframe) * recent.Length)
+                        {
+                            // Fill a gap larger than the recent polling window before publishing ticks.
+                            await EnsureRightEdgeCoreAsync(key, ct).ConfigureAwait(false);
+                            var afterCatchUp = _store.GetSeries(key).GetSnapshot();
+                            if (afterCatchUp.ClosedCount > beforeCatchUp.ClosedCount && afterCatchUp.Live.HasValue)
+                                notifications.Add((LiveCandleChange.Closed,
+                                    afterCatchUp[afterCatchUp.ClosedCount - 1], afterCatchUp.Live.Value));
+                        }
+                        foreach (var candle in recent)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var change = _store.UpdateLive(key, candle, out var closed);
+                            if (change != LiveCandleChange.Stale)
+                                notifications.Add((change, closed, candle));
+                        }
+                    }
+                    finally
+                    {
+                        keyLock.Release();
+                    }
 
-                    // Ignore an older response that would move this stream backward in time.
-                    if (currentLive.HasValue && last.timestamp < currentLive.Value.timestamp)
+
+                    // Subscriber callbacks run only after the series and key locks are released.
+                    foreach (var (change, closed, current) in notifications)
                     {
-                        Debug.WriteLine($"Skipping stale live candle for {key.Symbol}: {last.timestamp} < {currentLive.Value.timestamp}");
-                    }
-                    else if (_liveTracker.TryClose(key, last, out var closed))
-                    {
-                        // A newer timestamp closes the previous live candle and starts a new one.
-                        _store.AppendClosed(key, new[] { closed });
-                        GetSubscription(key)?.RaiseCandleClosed(closed, last);
-                    }
-                    else
-                    {
-                        // The candle is still open (or is the first one seen); publish its latest values.
-                        _liveTracker.Update(key, last);
-                        GetSubscription(key)?.RaiseLiveCandleTicked(last);
+                        if (change == LiveCandleChange.Closed)
+                            RaiseCandleClosed(key, closed, current);
+                        else
+                            RaiseLiveCandleTicked(key, current);
                     }
                 }
             }
@@ -290,16 +286,11 @@ public sealed class MarketDataService : IMarketDataService
     /// <summary> Ensures a key has initial historical candles in store. </summary>
     private async Task EnsureInitialHistoryAsync(CandleCacheKey key, int initialHistory, CancellationToken ct)
     {
-        if (_store.GetCount(key) > 0 && _liveTracker.Get(key).HasValue)
-        {
-            return;
-        }
-
         var keyLock = GetOrCreateKeyLock(key);
         await keyLock.WaitAsync(ct);
         try
         {
-            if (_store.GetCount(key) == 0 && !_liveTracker.Get(key).HasValue)
+            if (_store.GetSeries(key).GetSnapshot().Count == 0)
             {
                 await EnsureInitialHistoryCoreAsync(key, initialHistory, ct);
             }
@@ -317,7 +308,7 @@ public sealed class MarketDataService : IMarketDataService
     /// <summary> Loads initial batch from exchange if series is empty. </summary>
     private async Task EnsureInitialHistoryCoreAsync(CandleCacheKey key, int initialHistory, CancellationToken ct)
     {
-        if (_store.GetCount(key) > 0 || _liveTracker.Get(key).HasValue)
+        if (_store.GetSeries(key).GetSnapshot().Count > 0)
         {
             return;
         }
@@ -328,42 +319,31 @@ public sealed class MarketDataService : IMarketDataService
             key.Symbol,
             key.Timeframe,
             initialHistory);
+        ct.ThrowIfCancellationRequested();
 
         if (initial.candles == null || initial.candles.Length == 0)
         {
             return;
         }
 
-        if (initial.candles.Length == 1)
-        {
-            _liveTracker.Update(key, initial.candles[0]);
-            return;
-        }
-
-        var closed = initial.candles.Take(initial.candles.Length - 1).ToArray();
-        var live = initial.candles[^1];
-
-        _store.AppendClosed(key, closed);
-        _liveTracker.Update(key, live);
+        _store.LoadInitial(key, initial.candles);
     }
 
     /// <summary> Catches cached history up to the newest closed candle and current live candle. </summary>
     private async Task EnsureRightEdgeCoreAsync(CandleCacheKey key, CancellationToken ct)
     {
-        var newestClosed = _store.GetNewestTimestamp(key);
-        if (!newestClosed.HasValue)
-        {
+        var snapshot = _store.GetSeries(key).GetSnapshot();
+        if (snapshot.Count == 0)
             return;
-        }
 
         ct.ThrowIfCancellationRequested();
-
         var latestFetched = await _exchangeService.FetchOHLCVAsync(
             key.Exchange,
             key.Symbol,
             key.Timeframe,
             since: null,
             limit: 3).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
 
         if (latestFetched == null || latestFetched.Count == 0)
         {
@@ -371,20 +351,18 @@ public sealed class MarketDataService : IMarketDataService
         }
 
         var latestCandles = CandlestickDataConverter.ConvertFromCCXT(latestFetched, key.Timeframe)
-            .candles
-            .OrderBy(c => c.timestamp)
-            .ToArray();
-        var live = latestCandles[^1];
-
-        if (newestClosed.Value >= live.timestamp)
+            .candles.OrderBy(c => c.timestamp).ToArray();
+        var latest = latestCandles[^1];
+        if (snapshot.Live.HasValue && snapshot.Live.Value.timestamp >= latest.timestamp)
         {
-            _liveTracker.Update(key, live);
+            _store.UpdateLive(key, latest, out _);
             return;
         }
 
         var timeframeMs = GetTimeframeMilliseconds(key.Timeframe);
         var pageLimit = Math.Max(2, key.Limit);
-        var since = newestClosed.Value + timeframeMs;
+        var since = snapshot.Live?.timestamp
+            ?? (snapshot.NewestClosedTimestamp ?? 0) + timeframeMs;
 
         while (!ct.IsCancellationRequested)
         {
@@ -394,6 +372,7 @@ public sealed class MarketDataService : IMarketDataService
                 key.Timeframe,
                 since,
                 pageLimit).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
 
             if (fetched == null || fetched.Count == 0)
             {
@@ -402,44 +381,27 @@ public sealed class MarketDataService : IMarketDataService
 
             var candles = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
                 .candles
-                .Where(c => c.timestamp > newestClosed.Value && c.timestamp <= live.timestamp)
+                .Where(c => c.timestamp >= since && c.timestamp <= latest.timestamp)
                 .OrderBy(c => c.timestamp)
                 .ToArray();
 
             if (candles.Length == 0)
-            {
                 break;
-            }
 
-            var closed = candles
-                .Where(c => c.timestamp < live.timestamp)
-                .ToArray();
-            if (closed.Length > 0)
-            {
-                _store.AppendClosed(key, closed);
-            }
+            foreach (var candle in candles)
+                _store.UpdateLive(key, candle, out _);
 
             var last = candles[^1];
-            if (last.timestamp >= live.timestamp)
-            {
-                _liveTracker.Update(key, live);
+            if (last.timestamp >= latest.timestamp)
                 break;
-            }
-
-            newestClosed = _store.GetNewestTimestamp(key) ?? last.timestamp;
             since = last.timestamp + timeframeMs;
 
             if (candles.Length < pageLimit)
-            {
-                _liveTracker.Update(key, live);
                 break;
-            }
         }
 
-        if (!_liveTracker.Get(key).HasValue)
-        {
-            _liveTracker.Update(key, live);
-        }
+        foreach (var candle in latestCandles)
+            _store.UpdateLive(key, candle, out _);
     }
 
     /// <summary> Returns existing semaphore for key or creates a new one. </summary>
@@ -459,19 +421,60 @@ public sealed class MarketDataService : IMarketDataService
     }
 
     /// <summary> Returns active subscription for the specified key. </summary>
-    private MarketDataSubscription? GetSubscription(CandleCacheKey key)
+    private MarketDataSubscription[] GetSubscriptions(CandleCacheKey key)
     {
         lock (_sync)
         {
-            _subscriptions.TryGetValue(key, out var subscription);
-            return subscription;
+            return _subscriberSnapshots.TryGetValue(key, out var subscribers)
+                ? subscribers
+                : Array.Empty<MarketDataSubscription>();
         }
     }
 
     /// <summary> Raises OlderCandlesLoaded event for active subscription when available. </summary>
     private void RaiseOlderCandlesLoaded(CandleCacheKey key, OHLCV[] candles)
     {
-        GetSubscription(key)?.RaiseOlderCandlesLoaded(candles);
+        foreach (var subscriber in GetSubscriptions(key))
+        {
+            try
+            {
+                subscriber.RaiseOlderCandlesLoaded(candles);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Subscriber callback error for {key.Symbol}: {ex.Message}");
+            }
+        }
+    }
+
+    private void RaiseLiveCandleTicked(CandleCacheKey key, OHLCV candle)
+    {
+        foreach (var subscriber in GetSubscriptions(key))
+        {
+            try
+            {
+                subscriber.RaiseLiveCandleTicked(candle);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Subscriber callback error for {key.Symbol}: {ex.Message}");
+            }
+        }
+    }
+
+    private void RaiseCandleClosed(CandleCacheKey key, OHLCV closed, OHLCV next)
+    {
+        foreach (var subscriber in GetSubscriptions(key))
+        {
+            try
+            {
+                subscriber.RaiseCandleClosed(closed, next);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Subscriber callback error for {key.Symbol}: {ex.Message}");
+            }
+        }
     }
 
     /// <summary> Validates stream key for required values. </summary>

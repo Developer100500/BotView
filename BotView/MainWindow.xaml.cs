@@ -56,13 +56,37 @@ namespace BotView
 
         private void SubscribeViewModelEvents()
         {
-            _viewModel.ChartSnapshotReady += OnChartSnapshotReady;
+            _viewModel.ChartSeriesReady += OnChartSeriesReady;
             _viewModel.LiveCandleUpdated += c =>
-                Dispatcher.InvokeAsync(() => chartView.UpdateLastCandle(c));
+            {
+                var series = _viewModel.CurrentSeries;
+                var version = _viewModel.CurrentSeriesVersion;
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (version == _viewModel.CurrentSeriesVersion && ReferenceEquals(series, _viewModel.CurrentSeries))
+                        chartView.OnLiveCandleUpdated();
+                });
+            };
             _viewModel.CandleClosed += (closed, newOpen) =>
-                Dispatcher.InvokeAsync(() => chartView.OnCandleClosed(closed, newOpen));
+            {
+                var series = _viewModel.CurrentSeries;
+                var version = _viewModel.CurrentSeriesVersion;
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (version == _viewModel.CurrentSeriesVersion && ReferenceEquals(series, _viewModel.CurrentSeries))
+                        chartView.OnCandleClosed();
+                });
+            };
             _viewModel.OlderCandlesLoaded += arr =>
-                Dispatcher.InvokeAsync(() => chartView.PrependCandles(arr));
+            {
+                var series = _viewModel.CurrentSeries;
+                var version = _viewModel.CurrentSeriesVersion;
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (version == _viewModel.CurrentSeriesVersion && ReferenceEquals(series, _viewModel.CurrentSeries))
+                        chartView.OnHistoryExtended();
+                });
+            };
             _viewModel.DrawingToolRequested += OnDrawingToolRequested;
             _viewModel.SnapLastToRightRequested += () => chartView.SnapLastCandleToRightEdge();
             _viewModel.ShowMetricsRequested += OnShowMetricsRequested;
@@ -118,11 +142,12 @@ namespace BotView
             }
         }
 
-        private void OnChartSnapshotReady(CandlestickData data, bool useLiveLayout)
+        private void OnChartSeriesReady(ICandleSeriesReader series, string timeframe, bool useLiveLayout, int version)
         {
             void Apply()
             {
-                chartView.SetCandlestickData(data);
+                if (version != _viewModel.CurrentSeriesVersion || !ReferenceEquals(series, _viewModel.CurrentSeries)) return;
+                chartView.SetSeries(series, timeframe);
                 if (useLiveLayout)
                 {
                     chartView.ResetTimeScaleToTimeframe();

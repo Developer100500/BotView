@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using TALib;
 using BotView.Models;
+using BotView.Services;
 
 namespace BotView.Chart.IndicatorPane;
 
@@ -63,21 +64,31 @@ public class RSIIndicator : Indicator
 	/// <param name="candles">OHLCV candlestick data array</param>
 	/// <param name="getTime">Function to get DateTime for each candle index</param>
 	public void Calculate(OHLCV[] candles, Func<int, DateTime> getTime)
+		=> CalculateCore(candles.Length, i => candles[i], getTime);
+
+	public void Calculate(CandleSeriesSnapshot snapshot, ChartController controller)
+		=> CalculateCore(snapshot.Count, i => snapshot[i], i =>
+		{
+			var candle = snapshot[i];
+			return candle.timestamp > 0 ? candle.GetDateTime() : controller.GetCandleTime(i);
+		});
+
+	private void CalculateCore(int count, Func<int, OHLCV> getCandle, Func<int, DateTime> getTime)
 	{
 		Points.Clear();
 
-		if (candles == null || candles.Length < Period + 1)
+		if (count < Period + 1)
 			return;
 
 		// Extract close prices for TA-Lib
-		double[] closePrices = new double[candles.Length];
-		for (int i = 0; i < candles.Length; i++)
+		double[] closePrices = new double[count];
+		for (int i = 0; i < count; i++)
 		{
-			closePrices[i] = candles[i].close;
+			closePrices[i] = getCandle(i).close;
 		}
 
 		// Prepare output array
-		double[] rsiOutput = new double[candles.Length];
+		double[] rsiOutput = new double[count];
 
 		// Calculate RSI using TA-Lib
 		var result = Functions.Rsi(

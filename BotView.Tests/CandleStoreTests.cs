@@ -110,6 +110,19 @@ namespace BotView.Tests
             Assert.Empty(result);
         }
 
+        [Fact]
+        public void ReadingMissingSeriesDoesNotCreateAKey()
+        {
+            var store = new CandleStore();
+            var key = CreateKey("BTC/USDT");
+
+            Assert.Empty(store.GetRange(key, 0, long.MaxValue));
+            Assert.Equal(0, store.GetCount(key));
+            Assert.Null(store.GetOldestTimestamp(key));
+            Assert.Null(store.GetNewestTimestamp(key));
+            Assert.Equal(0, store.GetKeyCount());
+        }
+
         /// <summary> Очищает только выбранный ключ и корректно обновляет количество ключей. </summary>
         [Fact]
         public void Clear_RemovesOnlySpecifiedKeyAndUpdatesKeyCount()

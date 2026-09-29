@@ -4,6 +4,7 @@ using System.Windows.Media;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart.IndicatorPane;
 using BotView.Models;
+using BotView.Services;
 
 namespace BotView.Chart;
 
@@ -58,18 +59,19 @@ public class ChartRenderer
 	/// <summary>Главный метод отрисовки графика</summary>
 	public void Render(DrawingContext drawingContext)
 	{
+		var candles = model.Series.GetSnapshot();
 		controller.RefreshRenderCaches();
 		var frameValues = BuildRenderFrame();
 
 		DrawMainPaneArea(drawingContext, frameValues);
 		DrawMainPaneGrid(drawingContext, frameValues);
 		DrawPriceScale(drawingContext, frameValues);
-		DrawCandlesticks(drawingContext, frameValues, model.CandlestickData.candles);
+		DrawCandlesticks(drawingContext, frameValues, candles);
 		DrawTechnicalAnalysisTools(drawingContext, frameValues);
 		DrawToolCreationPreview(drawingContext);
 		DrawHorizontalToolPriceLabels(drawingContext, frameValues);
 		DrawPriceIndicatorOfSelectedTool(drawingContext, frameValues);
-		DrawCurrentPriceIndicator(drawingContext, frameValues);
+		DrawCurrentPriceIndicator(drawingContext, frameValues, candles);
 
 		DrawDivider(drawingContext, frameValues);
 		DrawIndicatorPaneArea(drawingContext, frameValues);
@@ -150,9 +152,9 @@ public class ChartRenderer
 	}
 
 	/// <summary>Отрисовка всех свечей</summary>
-	private void DrawCandlesticks(DrawingContext context, in RenderFrame frame, OHLCV[] candles)
+	private void DrawCandlesticks(DrawingContext context, in RenderFrame frame, CandleSeriesSnapshot candles)
 	{
-		if (candles == null || candles.Length == 0)
+		if (candles.Count == 0)
 			return;
 
 		var clipGeometry = new RectangleGeometry(frame.MainPaneRect);
@@ -169,13 +171,14 @@ public class ChartRenderer
 			double viewportLeft = frame.Left;
 			double viewportRight = frame.ScaleX;
 
-			for (int i = 0; i < candles.Length; i++)
+			long fromTimestamp = new DateTimeOffset(DateTime.SpecifyKind(viewportMinTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+			long toTimestamp = new DateTimeOffset(DateTime.SpecifyKind(viewportMaxTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+			foreach (var (i, candle) in candles.Enumerate(fromTimestamp, toTimestamp))
 			{
-				OHLCV candle = candles[i];
 				if (candle.low > viewportMaxPrice || candle.high < viewportMinPrice)
 					continue;
 
-				DateTime candleTime = controller.GetCandleTime(i);
+				DateTime candleTime = candle.timestamp > 0 ? candle.GetDateTime() : controller.GetCandleTime(i);
 				if (candleTime < viewportMinTime || candleTime > viewportMaxTime)
 					continue;
 
@@ -287,13 +290,12 @@ public class ChartRenderer
 	}
 
 	/// <summary>Отрисовывает пунктир от текущей свечи и метку рыночной цены на шкале</summary>
-	private void DrawCurrentPriceIndicator(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawCurrentPriceIndicator(DrawingContext drawingContext, in RenderFrame frame, CandleSeriesSnapshot candles)
 	{
-		var candles = model.CandlestickData.candles;
-		if (candles == null || candles.Length == 0)
+		if (candles.Count == 0)
 			return;
 
-		int lastIndex = candles.Length - 1;
+		int lastIndex = candles.Count - 1;
 		OHLCV currentCandle = candles[lastIndex];
 		double currentPrice = currentCandle.close;
 		if (!double.IsFinite(currentPrice) ||
@@ -303,7 +305,9 @@ public class ChartRenderer
 			return;
 		}
 
-		DateTime candleTime = controller.GetCandleTime(lastIndex);
+		DateTime candleTime = currentCandle.timestamp > 0
+			? currentCandle.GetDateTime()
+			: controller.GetCandleTime(lastIndex);
 		double priceY = controller.PriceToViewY(currentPrice);
 		double candleX = controller.TimeToViewX(candleTime);
 		double scaleX = frame.ScaleX;
@@ -363,10 +367,10 @@ public class ChartRenderer
 
 	private bool TryGetCurrentPriceLabelRect(in RenderFrame frame, out Rect labelRect)
 	{
-		var candles = model.CandlestickData.candles;
-		if (candles != null && candles.Length > 0 && IsPriceVisible(candles[^1].close))
+		var candles = model.Series.GetSnapshot();
+		if (candles.Count > 0 && IsPriceVisible(candles[candles.Count - 1].close))
 		{
-			labelRect = GetPriceScaleLabelRect(frame, candles[^1].close);
+			labelRect = GetPriceScaleLabelRect(frame, candles[candles.Count - 1].close);
 			return true;
 		}
 
