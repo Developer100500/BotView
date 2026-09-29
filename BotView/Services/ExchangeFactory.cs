@@ -1,5 +1,6 @@
 using ccxt;
 using System;
+using BotView.Configuration;
 
 namespace BotView.Services
 {
@@ -22,14 +23,7 @@ namespace BotView.Services
                 throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchangeName));
             }
 
-            return exchangeName.ToLowerInvariant() switch
-            {
-                "binance" => new binance(),
-                "bybit" => new bybit(),
-                "okx" => new okx(),
-                "kraken" => new kraken(),
-                _ => throw new NotSupportedException($"Exchange '{exchangeName}' is not supported. Supported exchanges: Binance, Bybit, OKX, Kraken")
-            };
+            return MarketCatalog.GetExchange(exchangeName).CreateClient();
         }
 
         /// <summary>
@@ -38,7 +32,7 @@ namespace BotView.Services
         /// <returns>Array of supported exchange names in lowercase</returns>
         public static string[] GetSupportedExchanges()
         {
-            return new string[] { "binance", "bybit", "okx", "kraken" };
+            return MarketCatalog.Exchanges.Select(exchange => exchange.Id).ToArray();
         }
 
         /// <summary>
@@ -53,11 +47,7 @@ namespace BotView.Services
                 return false;
             }
 
-            return exchangeName.ToLowerInvariant() switch
-            {
-                "binance" or "bybit" or "okx" or "kraken" => true,
-                _ => false
-            };
+            return MarketCatalog.TryGetExchange(exchangeName, out _);
         }
 
         /// <summary>
@@ -73,14 +63,7 @@ namespace BotView.Services
                 throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchangeName));
             }
 
-            return exchangeName.ToLowerInvariant() switch
-            {
-                "binance" => "Binance",
-                "bybit" => "Bybit",
-                "okx" => "OKX",
-                "kraken" => "Kraken",
-                _ => throw new NotSupportedException($"Exchange '{exchangeName}' is not supported")
-            };
+            return MarketCatalog.GetExchange(exchangeName).DisplayName;
         }
     }
 }

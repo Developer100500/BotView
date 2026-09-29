@@ -57,6 +57,16 @@ namespace BotView
         private void SubscribeViewModelEvents()
         {
             _viewModel.ChartSeriesReady += OnChartSeriesReady;
+            _viewModel.ChartSeriesCleared += (timeframe, version) =>
+            {
+                void Clear()
+                {
+                    if (version == _viewModel.CurrentSeriesVersion && _viewModel.CurrentSeries == null)
+                        chartView.SetSeries(new CandleSeries(), timeframe);
+                }
+                if (Dispatcher.CheckAccess()) Clear();
+                else Dispatcher.Invoke(Clear);
+            };
             _viewModel.LiveCandleUpdated += c =>
             {
                 var series = _viewModel.CurrentSeries;

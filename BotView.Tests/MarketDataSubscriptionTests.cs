@@ -63,6 +63,76 @@ public sealed class MarketDataSubscriptionTests
     }
 
     [Fact]
+    public async Task LastSubscriberReleasesOnlyItsMarketHistoryAndInitialCache()
+    {
+        var exchange = new Mock<IExchangeService>();
+        exchange.Setup(x => x.GetCandlestickDataAsync(
+                It.IsAny<string>(), It.IsAny<string>(), "1m", 250, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string _, string _, int _, CancellationToken _) =>
+                new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
+                    new[] { Candle(60_000), Candle(120_000) }));
+        var store = new CandleStore();
+        await using var service = new MarketDataService(exchange.Object, store, TimeSpan.FromHours(1));
+        var btc = new CandleCacheKey("binance", "BTC/USDT", "1m", 250);
+        var eth = new CandleCacheKey("binance", "ETH/USDT", "1m", 250);
+        var first = await service.SubscribeAsync(btc, 250, TestContext.Current.CancellationToken);
+        var second = await service.SubscribeAsync(btc, 250, TestContext.Current.CancellationToken);
+        using var otherMarket = await service.SubscribeAsync(eth, 250, TestContext.Current.CancellationToken);
+
+        first.Dispose();
+        Assert.Equal(2, store.GetKeyCount());
+        Assert.Equal(1, store.GetCount(btc));
+        exchange.Verify(x => x.EvictCandlestickData("binance", "BTC/USDT", "1m", 250), Times.Never);
+
+        second.Dispose();
+        await WaitForEvictionAsync(store, btc);
+        Assert.Equal(1, store.GetKeyCount());
+        Assert.Equal(1, store.GetCount(eth));
+        exchange.Verify(x => x.EvictCandlestickData("binance", "BTC/USDT", "1m", 250), Times.Once);
+    }
+
+    [Fact]
+    public async Task InFlightOlderHistoryCannotRestoreAnUnsubscribedSeries()
+    {
+        var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishFetch = new TaskCompletionSource<List<ccxt.OHLCV>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var exchange = new Mock<IExchangeService>();
+        exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
+                new[] { Candle(180_000), Candle(240_000) }));
+        exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", 0, 250,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                fetchStarted.TrySetResult();
+                return finishFetch.Task;
+            });
+        var store = new CandleStore();
+        await using var service = new MarketDataService(exchange.Object, store, TimeSpan.FromHours(1));
+        var key = new CandleCacheKey("binance", "BTC/USDT", "1m", 250);
+        var subscription = await service.SubscribeAsync(key, 250, TestContext.Current.CancellationToken);
+
+        var pending = service.LoadOlderAsync(key, 250, TestContext.Current.CancellationToken);
+        await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        subscription.Dispose();
+        finishFetch.SetResult(new List<ccxt.OHLCV> { ExchangeCandle(60_000), ExchangeCandle(120_000) });
+
+        Assert.Equal(0, await pending);
+        await WaitForEvictionAsync(store, key);
+        Assert.Equal(0, store.GetKeyCount());
+    }
+
+    private static async Task WaitForEvictionAsync(CandleStore store, CandleCacheKey key)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(2));
+        while (store.GetCount(key) != 0)
+            await Task.Delay(10, timeout.Token);
+    }
+
+    [Fact]
     public async Task LoadingOlderCandlesPrependsSharedBlocksAndPublishesOnlyNewCandles()
     {
         var exchange = new Mock<IExchangeService>();

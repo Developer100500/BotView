@@ -11,6 +11,48 @@ namespace BotView.Tests;
 public sealed class SelectionCancellationTests
 {
     [Fact]
+    public async Task ChangingExchangeReleasesDisplayedSeriesBeforeMarketsFinishLoading()
+    {
+        var exchange = new Mock<IExchangeService>();
+        exchange.Setup(x => x.GetAvailableSymbolsAsync("binance", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "BTC/USDT" });
+        var marketsStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        exchange.Setup(x => x.GetAvailableSymbolsAsync("bybit", It.IsAny<CancellationToken>()))
+            .Returns((string _, CancellationToken ct) => WaitForCancellation(ct));
+
+        async Task<List<string>> WaitForCancellation(CancellationToken ct)
+        {
+            marketsStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            throw new InvalidOperationException();
+        }
+
+        var oldSubscription = new Mock<IMarketDataSubscription>();
+        oldSubscription.SetupGet(x => x.Key)
+            .Returns(new CandleCacheKey("binance", "BTC/USDT", "1d", CandleSeries.CandleChunkSize));
+        oldSubscription.SetupGet(x => x.Series).Returns(new CandleSeries());
+        var marketData = new Mock<IMarketDataService>();
+        marketData.Setup(x => x.SubscribeAsync(It.IsAny<CandleCacheKey>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(oldSubscription.Object);
+
+        using var viewModel = new MainWindowViewModel(
+            new DatabaseService(), new Mock<IDataProvider>().Object, exchange.Object, marketData.Object,
+            new MetricsController(exchange.Object));
+        await viewModel.StartAsync();
+        Assert.NotNull(viewModel.CurrentSeries);
+        var cleared = false;
+        viewModel.ChartSeriesCleared += (_, _) => cleared = true;
+
+        viewModel.SelectedExchange = "bybit";
+        await marketsStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        Assert.True(cleared);
+        Assert.Null(viewModel.CurrentSeries);
+        oldSubscription.Verify(x => x.Dispose(), Times.Once);
+    }
+
+    [Fact]
     public async Task ChangingSelectionCancelsOlderHistoryLoad()
     {
         var exchange = new Mock<IExchangeService>();

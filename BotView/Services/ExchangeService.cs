@@ -10,6 +10,7 @@ using ccxt;
 using BotView.Models;
 using BotView.Interfaces;
 using BotView.Exceptions;
+using BotView.Configuration;
 
 namespace BotView.Services
 {
@@ -23,17 +24,10 @@ namespace BotView.Services
         private readonly ExchangePerformanceMetrics _performanceMetrics;
         private readonly Dictionary<string, CandlestickData> _cache;
         private readonly Dictionary<string, DateTime> _cacheTimestamps;
+        private readonly object _cacheSync = new();
         private readonly TimeSpan _cacheExpiration;
         private readonly int _maxRetryAttempts;
         private readonly TimeSpan _baseRetryDelay;
-
-        /// <summary>
-        /// Supported timeframes across all exchanges
-        /// </summary>
-        private static readonly List<string> SupportedTimeframes = new List<string>
-        {
-            "1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"
-        };
 
         /// <summary>
         /// Initializes a new instance of ExchangeService
@@ -93,17 +87,27 @@ namespace BotView.Services
                 throw new NotSupportedException($"Exchange '{exchange}' is not supported");
 
             // Check if timeframe is supported
-            if (!SupportedTimeframes.Contains(timeframe))
+            if (!MarketCatalog.GetExchange(normalizedExchange).SupportsTimeframe(timeframe))
                 throw new NotSupportedException($"Timeframe '{timeframe}' is not supported");
 
             // Check cache first
             var cacheKey = $"{normalizedExchange}_{symbol}_{timeframe}_{limit}";
-            if (IsCacheValid(cacheKey))
+            CandlestickData? cached = null;
+            DateTime cacheTime = default;
+            lock (_cacheSync)
             {
-                var cacheAge = DateTime.UtcNow - _cacheTimestamps[cacheKey];
+                if (IsCacheValid(cacheKey))
+                {
+                    cached = _cache[cacheKey];
+                    cacheTime = _cacheTimestamps[cacheKey];
+                }
+            }
+            if (cached != null)
+            {
+                var cacheAge = DateTime.UtcNow - cacheTime;
                 _logger?.LogCacheHit(normalizedExchange, symbol, timeframe, cacheAge);
                 _performanceMetrics.RecordCacheHit(normalizedExchange, "GetCandlestickData");
-                return _cache[cacheKey];
+                return cached.Value;
             }
 
             _logger?.LogCacheMiss(normalizedExchange, symbol, timeframe);
@@ -136,8 +140,11 @@ namespace BotView.Services
                     _logger?.LogDataReceived(normalizedExchange, symbol, result.candles.Length, timeframe);
                     
                     // Cache the result
-                    _cache[cacheKey] = result;
-                    _cacheTimestamps[cacheKey] = DateTime.UtcNow;
+                    lock (_cacheSync)
+                    {
+                        _cache[cacheKey] = result;
+                        _cacheTimestamps[cacheKey] = DateTime.UtcNow;
+                    }
                     
                     return result;
                 }
@@ -182,12 +189,19 @@ namespace BotView.Services
             
             // All retry attempts failed, try to fallback to cached data (even if expired)
             ct.ThrowIfCancellationRequested();
-            if (HasCachedData(cacheKey))
+            lock (_cacheSync)
             {
-                var cacheAge = DateTime.UtcNow - _cacheTimestamps[cacheKey];
-                _logger?.LogCacheFallback(normalizedExchange, symbol, timeframe, cacheAge, "API requests failed");
-                // Return expired cached data as fallback
-                return _cache[cacheKey];
+                if (HasCachedData(cacheKey))
+                {
+                    cached = _cache[cacheKey];
+                    cacheTime = _cacheTimestamps[cacheKey];
+                }
+            }
+            if (cached != null)
+            {
+                _logger?.LogCacheFallback(normalizedExchange, symbol, timeframe,
+                    DateTime.UtcNow - cacheTime, "API requests failed");
+                return cached.Value;
             }
             
             // No cached data available, throw the last exception
@@ -222,7 +236,7 @@ namespace BotView.Services
             if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
                 throw new NotSupportedException($"Exchange '{exchange}' is not supported");
 
-            if (!SupportedTimeframes.Contains(timeframe))
+            if (!MarketCatalog.GetExchange(normalizedExchange).SupportsTimeframe(timeframe))
                 throw new NotSupportedException($"Timeframe '{timeframe}' is not supported");
 
             Exception lastException = null;
@@ -421,7 +435,7 @@ namespace BotView.Services
         /// <returns>List of supported timeframe strings</returns>
         public List<string> GetSupportedTimeframes()
         {
-            return new List<string>(SupportedTimeframes);
+            return MarketCatalog.TimeframeIds.ToList();
         }
 
         /// <summary>
@@ -561,15 +575,28 @@ namespace BotView.Services
         /// </summary>
         public void ClearExpiredCache()
         {
-            var expiredKeys = _cacheTimestamps
-                .Where(kvp => DateTime.UtcNow - kvp.Value >= _cacheExpiration)
-                .Select(kvp => kvp.Key)
-                .ToList();
-
-            foreach (var key in expiredKeys)
+            lock (_cacheSync)
             {
-                _cache.Remove(key);
-                _cacheTimestamps.Remove(key);
+                var expiredKeys = _cacheTimestamps
+                    .Where(kvp => DateTime.UtcNow - kvp.Value >= _cacheExpiration)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                foreach (var key in expiredKeys)
+                {
+                    _cache.Remove(key);
+                    _cacheTimestamps.Remove(key);
+                }
+            }
+        }
+
+        public void EvictCandlestickData(string exchange, string symbol, string timeframe, int limit)
+        {
+            var cacheKey = $"{exchange.ToLowerInvariant()}_{symbol}_{timeframe}_{limit}";
+            lock (_cacheSync)
+            {
+                _cache.Remove(cacheKey);
+                _cacheTimestamps.Remove(cacheKey);
             }
         }
 
@@ -578,8 +605,11 @@ namespace BotView.Services
         /// </summary>
         public void ClearCache()
         {
-            _cache.Clear();
-            _cacheTimestamps.Clear();
+            lock (_cacheSync)
+            {
+                _cache.Clear();
+                _cacheTimestamps.Clear();
+            }
             _logger?.LogInfo("Cache cleared");
         }
 

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BotView.Interfaces;
 using BotView.Models;
+using BotView.Configuration;
 using BotView.Services;
 
 public sealed class MarketDataService : IMarketDataService
@@ -43,31 +44,48 @@ public sealed class MarketDataService : IMarketDataService
             throw new ArgumentOutOfRangeException(nameof(initialHistory), "Initial history size must be greater than zero.");
         }
 
-        bool alreadyStreaming;
-        lock (_sync)
-            alreadyStreaming = _subscriptions.ContainsKey(key);
-        if (!alreadyStreaming)
-            await EnsureInitialHistoryAsync(key, initialHistory, ct);
-
-        lock (_sync)
+        var keyLock = GetOrCreateKeyLock(key);
+        await keyLock.WaitAsync(ct);
+        try
         {
-            ThrowIfDisposed();
-            ct.ThrowIfCancellationRequested();
+            lock (_sync)
+                ThrowIfDisposed();
 
-            if (!_subscriptions.TryGetValue(key, out var subscribers))
+            bool alreadyStreaming;
+            lock (_sync)
+                alreadyStreaming = _subscriptions.ContainsKey(key);
+            if (!alreadyStreaming)
+                await EnsureInitialHistoryCoreOrCatchUpAsync(key, initialHistory, ct);
+
+            lock (_sync)
             {
-                subscribers = new HashSet<MarketDataSubscription>();
-                _subscriptions[key] = subscribers;
-                var loopCts = new CancellationTokenSource();
-                _realtimeLoops[key] = loopCts;
-                _ = Task.Run(() => RunRealtimeLoopAsync(key, loopCts.Token), loopCts.Token);
+                ThrowIfDisposed();
+                ct.ThrowIfCancellationRequested();
+
+                if (!_subscriptions.TryGetValue(key, out var subscribers))
+                {
+                    subscribers = new HashSet<MarketDataSubscription>();
+                    _subscriptions[key] = subscribers;
+                    var loopCts = new CancellationTokenSource();
+                    _realtimeLoops[key] = loopCts;
+                    _ = Task.Run(() => RunRealtimeLoopAsync(key, loopCts.Token), loopCts.Token);
+                }
+
+                var created = new MarketDataSubscription(key, _store, RemoveSubscription);
+                subscribers.Add(created);
+                _subscriberSnapshots[key] = subscribers.ToArray();
+
+                return created;
             }
-
-            var created = new MarketDataSubscription(key, _store, RemoveSubscription);
-            subscribers.Add(created);
-            _subscriberSnapshots[key] = subscribers.ToArray();
-
-            return created;
+        }
+        catch
+        {
+            EvictIfUnused(key);
+            throw;
+        }
+        finally
+        {
+            keyLock.Release();
         }
     }
 
@@ -89,6 +107,12 @@ public sealed class MarketDataService : IMarketDataService
         try
         {
             ct.ThrowIfCancellationRequested();
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                if (!_subscriptions.ContainsKey(key))
+                    return 0;
+            }
 
             var oldestTimestamp = _store.GetOldestTimestamp(key);
             if (!oldestTimestamp.HasValue)
@@ -115,6 +139,12 @@ public sealed class MarketDataService : IMarketDataService
 
                 if (fetched != null && fetched.Count > 0)
                 {
+                    lock (_sync)
+                    {
+                        ThrowIfDisposed();
+                        if (!_subscriptions.ContainsKey(key))
+                            return 0;
+                    }
                     var converted = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe);
                     var olderOnly = converted.candles
                         .Where(c => c.timestamp < oldestTimestamp.Value)
@@ -139,14 +169,15 @@ public sealed class MarketDataService : IMarketDataService
     /// <summary>Returns the shared series without flattening its candle blocks.</summary>
     public ICandleSeriesReader GetSeries(CandleCacheKey key) => _store.GetSeries(key);
 
-    /// <summary> Disposes service and releases internal synchronization resources. </summary>
-    public ValueTask DisposeAsync()
+    /// <summary> Stops streams and releases retained candle histories. </summary>
+    public async ValueTask DisposeAsync()
     {
+        CandleCacheKey[] keys;
         lock (_sync)
         {
             if (_isDisposed)
             {
-                return ValueTask.CompletedTask;
+                return;
             }
 
             _isDisposed = true;
@@ -164,15 +195,11 @@ public sealed class MarketDataService : IMarketDataService
             _subscriptions.Clear();
             _subscriberSnapshots.Clear();
 
-            foreach (var gate in _keyLocks.Values)
-            {
-                gate.Dispose();
-            }
-
-            _keyLocks.Clear();
+            keys = _keyLocks.Keys.ToArray();
         }
 
-        return ValueTask.CompletedTask;
+        // Wait for in-flight mutations before dropping the final store references.
+        await Task.WhenAll(keys.Select(EvictWhenIdleAsync)).ConfigureAwait(false);
     }
 
     /// <summary> Removes subscription from registry when it gets disposed. </summary>
@@ -197,7 +224,33 @@ public sealed class MarketDataService : IMarketDataService
                 cts.Dispose();
                 _realtimeLoops.Remove(key);
             }
+            // Eviction waits for any in-flight history mutation to finish.
+            _ = EvictWhenIdleAsync(key);
+        }
+    }
 
+    private async Task EvictWhenIdleAsync(CandleCacheKey key)
+    {
+        var gate = GetOrCreateKeyLock(key);
+        await gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            EvictIfUnused(key);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private void EvictIfUnused(CandleCacheKey key)
+    {
+        lock (_sync)
+        {
+            if (_subscriptions.ContainsKey(key))
+                return;
+            _store.Clear(key);
+            _exchangeService.EvictCandlestickData(key.Exchange, key.Symbol, key.Timeframe, key.Limit);
         }
     }
 
@@ -288,24 +341,15 @@ public sealed class MarketDataService : IMarketDataService
     }
 
     /// <summary> Ensures a key has initial historical candles in store. </summary>
-    private async Task EnsureInitialHistoryAsync(CandleCacheKey key, int initialHistory, CancellationToken ct)
+    private async Task EnsureInitialHistoryCoreOrCatchUpAsync(CandleCacheKey key, int initialHistory, CancellationToken ct)
     {
-        var keyLock = GetOrCreateKeyLock(key);
-        await keyLock.WaitAsync(ct);
-        try
+        if (_store.GetSeries(key).GetSnapshot().Count == 0)
         {
-            if (_store.GetSeries(key).GetSnapshot().Count == 0)
-            {
-                await EnsureInitialHistoryCoreAsync(key, initialHistory, ct);
-            }
-            else
-            {
-                await EnsureRightEdgeCoreAsync(key, ct);
-            }
+            await EnsureInitialHistoryCoreAsync(key, initialHistory, ct);
         }
-        finally
+        else
         {
-            keyLock.Release();
+            await EnsureRightEdgeCoreAsync(key, ct);
         }
     }
 
@@ -515,17 +559,6 @@ public sealed class MarketDataService : IMarketDataService
     /// <summary> Converts timeframe string into milliseconds duration. </summary>
     private static long GetTimeframeMilliseconds(string timeframe)
     {
-        return timeframe switch
-        {
-            "1m" => 60_000L,
-            "5m" => 300_000L,
-            "15m" => 900_000L,
-            "30m" => 1_800_000L,
-            "1h" => 3_600_000L,
-            "4h" => 14_400_000L,
-            "1d" => 86_400_000L,
-            "1w" => 604_800_000L,
-            _ => throw new NotSupportedException($"Unsupported timeframe '{timeframe}'.")
-        };
+        return (long)MarketCatalog.GetTimeframe(timeframe).Duration.TotalMilliseconds;
     }
 }

@@ -66,5 +66,8 @@ namespace BotView.Interfaces
         /// Clears expired cache entries
         /// </summary>
         void ClearExpiredCache();
+
+        /// <summary>Releases cached initial candles for a market with no active subscribers.</summary>
+        void EvictCandlestickData(string exchange, string symbol, string timeframe, int limit);
     }
 }

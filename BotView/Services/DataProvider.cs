@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using BotView.Models;
 using BotView.Interfaces;
+using BotView.Configuration;
 
 namespace BotView.Services
 {
@@ -47,18 +48,9 @@ namespace BotView.Services
         /// <summary> Loads generated demo candlestick data for the specified timeframe. </summary>
         public CandlestickData LoadDemoData(string timeframe)
         {
-            int candleCount = timeframe switch
-            {
-                "1m" => 1440,
-                "5m" => 288,
-                "15m" => 96,
-                "30m" => 48,
-                "1h" => 24,
-                "4h" => 42,
-                "1d" => 30,
-                "1w" => 12,
-                _ => 30
-            };
+            int candleCount = MarketCatalog.TryGetTimeframe(timeframe, out var definition)
+                ? definition!.DemoCandleCount
+                : MarketCatalog.GetTimeframe(MarketCatalog.DefaultTimeframeId).DemoCandleCount;
 
             return DemoDataGenerator.Generate(timeframe, candleCount);
         }

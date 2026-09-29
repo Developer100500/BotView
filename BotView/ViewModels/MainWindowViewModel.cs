@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows.Input;
 using BotView.Chart.TechnicalAnalysis;
+using BotView.Configuration;
 using BotView.Database;
 using BotView.Interfaces;
 using BotView.Models;
@@ -25,9 +26,9 @@ namespace BotView.ViewModels
         private readonly FavoritePairsStore _favoritePairsStore;
         private readonly Timer _metricsTimer;
 
-        private string _selectedExchange = "binance";
+        private string _selectedExchange = MarketCatalog.DefaultExchangeId;
         private string _selectedSymbol = "BTC/USDT";
-        private string _selectedTimeframe = "1d";
+        private string _selectedTimeframe = MarketCatalog.DefaultTimeframeId;
         private string _searchText = string.Empty;
         private string _busyMessage = string.Empty;
         private double _renderTime;
@@ -62,18 +63,11 @@ namespace BotView.ViewModels
             _metricsController = metricsController;
             _favoritePairsStore = favoritePairsStore ?? new FavoritePairsStore();
 
-            Exchanges = new ObservableCollection<ExchangeOption>
-            {
-                new("binance", "Binance"),
-                new("bybit", "Bybit"),
-                new("okx", "OKX"),
-                new("kraken", "Kraken")
-            };
+            Exchanges = new ObservableCollection<ExchangeOption>(MarketCatalog.Exchanges
+                .Select(exchange => new ExchangeOption(exchange.Id, exchange.DisplayName)));
 
-            Timeframes = new ObservableCollection<string>
-            {
-                "1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"
-            };
+            Timeframes = new ObservableCollection<string>(
+                MarketCatalog.GetExchange(_selectedExchange).SupportedTimeframes);
 
             TradingPairs = new ObservableCollection<TradingPairModel>();
             SearchResults = new ObservableCollection<string>();
@@ -119,6 +113,7 @@ namespace BotView.ViewModels
 
                 _selectedExchange = value;
                 OnPropertyChanged();
+                UpdateTimeframesForExchange();
                 OnPropertyChanged(nameof(IsCurrentPairFavorite));
                 OnPropertyChanged(nameof(FavoriteActionText));
                 if (_isReady)
@@ -145,6 +140,25 @@ namespace BotView.ViewModels
                 OnPropertyChanged(nameof(FavoriteActionText));
                 SymbolChanged?.Invoke(_selectedSymbol);
                 _ = StartSelectionLoadAsync();
+            }
+        }
+
+        private void UpdateTimeframesForExchange()
+        {
+            if (!MarketCatalog.TryGetExchange(_selectedExchange, out var exchange))
+                return;
+
+            if (!Timeframes.SequenceEqual(exchange!.SupportedTimeframes))
+            {
+                Timeframes.Clear();
+                foreach (var timeframe in exchange.SupportedTimeframes)
+                    Timeframes.Add(timeframe);
+            }
+
+            if (!exchange.SupportsTimeframe(_selectedTimeframe))
+            {
+                _selectedTimeframe = exchange.SupportedTimeframes[0];
+                OnPropertyChanged(nameof(SelectedTimeframe));
             }
         }
 
@@ -270,6 +284,7 @@ namespace BotView.ViewModels
 
         /// <summary>Shared chart series ready. Last arg selects live layout or demo fit.</summary>
         public event Action<ICandleSeriesReader, string, bool, int>? ChartSeriesReady;
+        public event Action<string, int>? ChartSeriesCleared;
         public ICandleSeriesReader? CurrentSeries { get; private set; }
         public int CurrentSeriesVersion => Volatile.Read(ref _seriesVersion);
 
@@ -424,6 +439,11 @@ namespace BotView.ViewModels
             previousHistory.Cancel();
             previousHistory.Dispose();
             previous?.Cancel();
+            var seriesVersion = Interlocked.Increment(ref _seriesVersion);
+            CurrentSeries = null;
+            _subscription?.Dispose();
+            _subscription = null;
+            ChartSeriesCleared?.Invoke(SelectedTimeframe, seriesVersion);
             return LoadSelectionAsync(current);
         }
 
@@ -629,16 +649,12 @@ namespace BotView.ViewModels
 
         private async Task SwitchSubscriptionAsync(CandleCacheKey key, CancellationToken ct)
         {
-            var seriesVersion = Interlocked.Increment(ref _seriesVersion);
+            var seriesVersion = CurrentSeriesVersion;
 
             try
             {
                 ct.ThrowIfCancellationRequested();
                 SetBusy(true, $"Загрузка {SelectedSymbol}...");
-
-                _subscription?.Dispose();
-                _subscription = null;
-                CurrentSeries = null;
 
                 _currentKey = key;
 

@@ -4,6 +4,7 @@ using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart.IndicatorPane;
 using BotView.Models;
 using BotView.Services;
+using BotView.Configuration;
 
 namespace BotView.Chart;
 
@@ -91,7 +92,7 @@ public class ChartModel
 		TechnicalAnalysisManager = new TechnicalAnalysisManager();
 
 		// Инициализация тестовых данных
-		Timeframe = "1d";
+		Timeframe = MarketCatalog.DefaultTimeframeId;
 		DateTime baseTime = DateTime.Now;
 		OHLCV[] candles = [
 			new OHLCV(new DateTimeOffset(baseTime.AddDays(-1)).ToUnixTimeMilliseconds(), 100, 114, 93, 105, 1000),
@@ -156,5 +157,4 @@ public class ChartModel
 		);
 	}
 }
-
 

@@ -5,6 +5,7 @@ using System.Windows.Input;
 using BotView.Chart.IndicatorPane;
 using BotView.Services;
 using BotView.Models;
+using BotView.Configuration;
 
 namespace BotView.Chart;
 
@@ -704,9 +705,7 @@ public class ChartController
 
 	// === PUBLIC API METHODS ===
 
-	/// <summary>
-	/// Устанавливает новые данные свечей
-	/// </summary>
+	///<summary> Устанавливает новые данные свечей </summary>
 	public void SetCandlestickData(CandlestickData newData)
 	{
 		var series = new CandleSeries();
@@ -920,19 +919,9 @@ public class ChartController
 	/// </summary>
 	public TimeSpan ParseTimeframe(string timeframe)
 	{
-		return timeframe.ToLower() switch
-		{
-			"1m" => TimeSpan.FromMinutes(1),
-			"5m" => TimeSpan.FromMinutes(5),
-			"15m" => TimeSpan.FromMinutes(15),
-			"30m" => TimeSpan.FromMinutes(30),
-			"1h" => TimeSpan.FromHours(1),
-			"4h" => TimeSpan.FromHours(4),
-			"1d" => TimeSpan.FromDays(1),
-			"1w" => TimeSpan.FromDays(7),
-			"1M" => TimeSpan.FromDays(30), // Приблизительно
-			_ => TimeSpan.FromDays(1) // По умолчанию 1 день
-		};
+		return MarketCatalog.TryGetTimeframe(timeframe, out var definition)
+			? definition!.Duration
+			: MarketCatalog.GetTimeframe(MarketCatalog.DefaultTimeframeId).Duration;
 	}
 
 	/// <summary>
