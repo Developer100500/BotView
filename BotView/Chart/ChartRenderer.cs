@@ -28,6 +28,7 @@ public class ChartRenderer
 	private static readonly Pen CurrentPriceDashPen = CreateFrozenDashedPen(Brushes.LightGray, 1, DashStyles.Dot);
 	private static readonly Pen CrosshairPen = CreateFrozenDashedPen(Brushes.LightGray, 1, DashStyles.Dash);
 	private static readonly Pen GridPen = CreateFrozenDashedPen(Brushes.LightGray, 0.5, new DashStyle(new double[] { 2, 4 }, 0));
+	private static readonly Pen ComparisonPen = CreateFrozenPen(Brushes.MediumPurple, 2.5);
 	private static readonly Brush DividerBrush = CreateFrozenBrush(Color.FromRgb(180, 180, 180));
 	private static readonly Brush IndicatorBgBrush = CreateFrozenBrush(Color.FromRgb(250, 250, 252));
 	private static readonly Brush CrosshairLabelBrush = CreateFrozenBrush(Color.FromRgb(96, 96, 96));
@@ -67,6 +68,7 @@ public class ChartRenderer
 		DrawMainPaneGrid(drawingContext, frameValues);
 		DrawPriceScale(drawingContext, frameValues);
 		DrawCandlesticks(drawingContext, frameValues, candles);
+		DrawComparison(drawingContext, frameValues);
 		DrawTechnicalAnalysisTools(drawingContext, frameValues);
 		DrawToolCreationPreview(drawingContext);
 		DrawHorizontalToolPriceLabels(drawingContext, frameValues);
@@ -101,7 +103,7 @@ public class ChartRenderer
 		double indicatorInterval = controller.IndicatorValueInterval;
 
 		double firstPriceTick = priceInterval > 0
-			? Math.Floor(model.Viewport.minPrice / priceInterval) * priceInterval
+			? controller.RoundPriceTickDown(model.Viewport.minPrice, priceInterval)
 			: model.Viewport.minPrice;
 		DateTime firstTimeTick = timeInterval > TimeSpan.Zero
 			? controller.RoundDownToInterval(model.Viewport.minTime, timeInterval)
@@ -214,6 +216,86 @@ public class ChartRenderer
 		{
 			context.Pop();
 		}
+	}
+
+	private void DrawComparison(DrawingContext context, in RenderFrame frame)
+	{
+		if (model.ComparisonSeries == null || model.ComparisonAnchor is not { } anchor)
+			return;
+		var snapshot = model.ComparisonSeries.GetSnapshot();
+		long end = ComparisonSeriesMath.ToUnixMilliseconds(model.Viewport.maxTime);
+		TimeSpan timeframe = controller.ParseTimeframe(model.Timeframe);
+		var points = new List<Point>();
+		long previousTimestamp = 0;
+		double lastVisibleClose = double.NaN;
+		context.PushClip(new RectangleGeometry(frame.MainPaneRect));
+		try
+		{
+			foreach (var (_, candle) in snapshot.Enumerate(anchor.Timestamp, end))
+			{
+				double projected = ComparisonSeriesMath.ToPrimaryPrice(candle.close, anchor);
+				if (!double.IsFinite(projected) || projected <= 0)
+				{
+					DrawSmoothSegment(context, points);
+					points.Clear();
+					previousTimestamp = 0;
+					continue;
+				}
+				if (previousTimestamp != 0 &&
+					!ComparisonSeriesMath.IsContinuous(previousTimestamp, candle.timestamp, timeframe))
+				{
+					DrawSmoothSegment(context, points);
+					points.Clear();
+				}
+				var time = candle.GetDateTime();
+				points.Add(new Point(controller.TimeToViewX(time), controller.PriceToViewY(projected)));
+				previousTimestamp = candle.timestamp;
+				lastVisibleClose = candle.close;
+			}
+			DrawSmoothSegment(context, points);
+		}
+		finally { context.Pop(); }
+
+		string value = double.IsFinite(lastVisibleClose)
+			? $"  {ComparisonSeriesMath.ToPercent(lastVisibleClose, anchor.ComparisonClose):+0.##;-0.##;0}%"
+			: string.Empty;
+		var legend = CreateLabelText($"Compare · {model.ComparisonSymbol}{value}", Brushes.MediumPurple, 11);
+		context.DrawText(legend, new Point(frame.Left + 8, frame.Top + 5));
+		if (snapshot.Count > 0 && snapshot[snapshot.Count - 1].timestamp >= anchor.Timestamp &&
+			snapshot[snapshot.Count - 1].timestamp <= end)
+		{
+			double last = ComparisonSeriesMath.ToPrimaryPrice(snapshot[snapshot.Count - 1].close, anchor);
+			if (double.IsFinite(last) && last >= model.Viewport.minPrice && last <= model.Viewport.maxPrice)
+				DrawPriceScaleLabel(context, frame, last, Brushes.MediumPurple);
+		}
+	}
+
+	private static void DrawSmoothSegment(DrawingContext context, List<Point> points)
+	{
+		if (points.Count < 2) return;
+		var geometry = new StreamGeometry();
+		using (var path = geometry.Open())
+		{
+			path.BeginFigure(points[0], false, false);
+			for (int i = 0; i < points.Count - 1; i++)
+			{
+				var a = points[i];
+				var b = points[i + 1];
+				double dx = b.X - a.X;
+				if (dx <= 0) continue;
+				// Zero tangents at turning points; otherwise average neighboring slopes.
+				double slope = (b.Y - a.Y) / dx;
+				double before = i > 0 ? (a.Y - points[i - 1].Y) / (a.X - points[i - 1].X) : slope;
+				double after = i + 2 < points.Count
+					? (points[i + 2].Y - b.Y) / (points[i + 2].X - b.X) : slope;
+				double startTangent = before * slope <= 0 ? 0 : Math.Sign(slope) * Math.Min(Math.Abs((before + slope) / 2), Math.Abs(slope) * 3);
+				double endTangent = after * slope <= 0 ? 0 : Math.Sign(slope) * Math.Min(Math.Abs((slope + after) / 2), Math.Abs(slope) * 3);
+				path.BezierTo(new Point(a.X + dx / 3, a.Y + startTangent * dx / 3),
+					new Point(b.X - dx / 3, b.Y - endTangent * dx / 3), b, true, false);
+			}
+		}
+		geometry.Freeze();
+		context.DrawGeometry(null, ComparisonPen, geometry);
 	}
 
 	/// <summary>

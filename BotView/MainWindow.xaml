@@ -215,14 +215,63 @@
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0,0,10,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <TextBlock Text="ГРАФИК" Style="{StaticResource SectionTitleStyle}"/>
                     <Button Name="btnSnapLastToRight" Content="Прижать вправо"
                             Style="{StaticResource ToolbarButtonStyle}" Command="{Binding SnapLastToRightCommand}"/>
+                    <Button Content="Сбросить масштаб Y" Style="{StaticResource ToolbarButtonStyle}"
+                            Command="{Binding ResetVerticalScaleCommand}"/>
                     <CheckBox Name="chkCandleOutline" Content="Обводка свечей"
                               IsChecked="{Binding ShowCandleOutlines, ElementName=chartView, Mode=TwoWay}"
                               Foreground="{StaticResource TextPrimaryBrush}" Margin="2,0,0,10"
                               ToolTip="Включить или отключить контур тел свечей"/>
+                    <TextBlock Text="СРАВНЕНИЕ" Style="{StaticResource SectionTitleStyle}" Margin="2,8,0,6"/>
+                    <Grid>
+                        <TextBox x:Name="txtComparisonSearch" Width="148" HorizontalAlignment="Left"
+                                 Text="{Binding ComparisonSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Найти пару для сравнения"
+                                 GotFocus="TxtComparisonSearch_GotFocus"
+                                 LostFocus="TxtComparisonSearch_LostFocus"/>
+                        <TextBlock Text="Найти пару" Foreground="{StaticResource TextMutedBrush}"
+                                   IsHitTestVisible="False" VerticalAlignment="Center" Margin="10,0,0,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Text, ElementName=txtComparisonSearch}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <Popup IsOpen="{Binding IsComparisonDropdownOpen, Mode=TwoWay}"
+                               PlacementTarget="{Binding ElementName=txtComparisonSearch}" Placement="Bottom"
+                               StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade">
+                            <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="#8B5CF6"
+                                    BorderThickness="1" CornerRadius="6" Margin="0,4,0,0"
+                                    Width="220" MaxHeight="250">
+                                <ListBox ItemsSource="{Binding ComparisonSearchResults}" Background="Transparent"
+                                         Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0"
+                                         PreviewMouseLeftButtonDown="ComparisonResults_PreviewMouseLeftButtonDown">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Padding" Value="10,7"/>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                </ListBox>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <TextBlock Text="{Binding ComparisonSymbol, StringFormat=Линия: {0}}"
+                               Foreground="#A78BFA" Margin="2,7,0,0" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding HasComparison, Converter={StaticResource BoolToVis}}"/>
+                    <Button Content="Убрать сравнение" Style="{StaticResource ToolbarButtonStyle}"
+                            Command="{Binding RemoveComparisonCommand}"
+                            Visibility="{Binding HasComparison, Converter={StaticResource BoolToVis}}"/>
+                    <TextBlock Text="{Binding ComparisonStatusText}" Foreground="#FBBF24"
+                               TextWrapping="Wrap" FontSize="10" Margin="2,0,0,4"/>
                     <TextBlock Text="ИНСТРУМЕНТЫ" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
                     <WrapPanel Orientation="Horizontal">
                         <Button Name="btnHorizontalLine" Style="{StaticResource IconButtonStyle}"
@@ -283,6 +332,7 @@
                                    Text="Мышь — панорамирование&#x0a;Колесо — масштаб"/>
                     </Border>
                 </StackPanel>
+                </ScrollViewer>
             </Border>
 
             <Border Grid.Column="1" Background="AliceBlue" BorderBrush="{StaticResource BorderBrush}"

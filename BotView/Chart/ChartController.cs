@@ -47,6 +47,10 @@ public class ChartController
 
 	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
 	public event Action? LeftEdgeApproached;
+	public event Action<DateTime>? VisibleTimeRangeChanged;
+	private bool comparisonAutoFit;
+	private double savedPriceRange;
+	private double savedCameraY;
 
 	// === RENDER / TRANSFORM CACHE (обновляется при изменении layout/camera/zoom) ===
 	private double cachedPixelsPerSecond;
@@ -89,6 +93,7 @@ public class ChartController
 	/// </summary>
 	public void RefreshRenderCaches()
 	{
+		RefreshComparisonAnchor();
 		if (cachedTimeframeKey != model.Timeframe)
 		{
 			cachedTimeframeKey = model.Timeframe;
@@ -321,6 +326,9 @@ public class ChartController
 			topLeftChart.time,       // minTime
 			bottomRightChart.time    // maxTime
 		);
+		RefreshComparisonAnchor();
+		if (comparisonAutoFit)
+			FitComparisonVertically();
 
 		// Also update indicator viewport
 		UpdateIndicatorViewport();
@@ -342,6 +350,91 @@ public class ChartController
 
 		// Уведомляем об изменении viewport
 		ViewportChanged?.Invoke();
+		VisibleTimeRangeChanged?.Invoke(model.Viewport.minTime);
+	}
+
+	public void SetComparison(ICandleSeriesReader series, string symbol)
+	{
+		ArgumentNullException.ThrowIfNull(series);
+		if (model.ComparisonSeries == null)
+		{
+			savedPriceRange = model.PriceRangeInViewport;
+			savedCameraY = model.CameraPosition.y;
+		}
+		model.ComparisonSeries = series;
+		model.ComparisonSymbol = symbol;
+		comparisonAutoFit = true;
+		UpdateViewportFromCamera();
+	}
+
+	public void ClearComparison()
+	{
+		if (model.ComparisonSeries == null)
+			return;
+		model.ComparisonSeries = null;
+		model.ComparisonSymbol = null;
+		model.ComparisonAnchor = null;
+		comparisonAutoFit = false;
+		model.PriceRangeInViewport = savedPriceRange;
+		model.CameraPosition = new Coordinates(model.CameraPosition.x, savedCameraY);
+		UpdateViewportFromCamera();
+	}
+
+	public void OnComparisonChanged()
+	{
+		if (model.ComparisonSeries != null)
+			UpdateViewportFromCamera();
+	}
+
+	private void RefreshComparisonAnchor()
+	{
+		model.ComparisonAnchor = null;
+		if (model.ComparisonSeries == null || model.Viewport.minTime >= model.Viewport.maxTime)
+			return;
+		if (ComparisonSeriesMath.TryFindAnchor(model.Series.GetSnapshot(),
+			model.ComparisonSeries.GetSnapshot(),
+			ComparisonSeriesMath.ToUnixMilliseconds(model.Viewport.minTime),
+			ComparisonSeriesMath.ToUnixMilliseconds(model.Viewport.maxTime), out var anchor))
+			model.ComparisonAnchor = anchor;
+	}
+
+	private void FitComparisonVertically()
+	{
+		if (model.ComparisonAnchor is not { } anchor || model.ComparisonSeries == null)
+			return;
+		long from = ComparisonSeriesMath.ToUnixMilliseconds(model.Viewport.minTime);
+		long to = ComparisonSeriesMath.ToUnixMilliseconds(model.Viewport.maxTime);
+		double min = double.PositiveInfinity, max = double.NegativeInfinity;
+		foreach (var (_, candle) in model.Series.GetSnapshot().Enumerate(from, to))
+		{
+			if (double.IsFinite(candle.low) && candle.low > 0) min = Math.Min(min, candle.low);
+			if (double.IsFinite(candle.high) && candle.high > 0) max = Math.Max(max, candle.high);
+		}
+		foreach (var (_, candle) in model.ComparisonSeries.GetSnapshot().Enumerate(anchor.Timestamp, to))
+		{
+			double projected = ComparisonSeriesMath.ToPrimaryPrice(candle.close, anchor);
+			if (double.IsFinite(projected) && projected > 0)
+			{
+				min = Math.Min(min, projected);
+				max = Math.Max(max, projected);
+			}
+		}
+		if (!double.IsFinite(min) || !double.IsFinite(max)) return;
+		double padding = Math.Max((max - min) * 0.1, anchor.PrimaryClose * 0.001);
+		model.PriceRangeInViewport = Math.Max(1e-8, max - min + 2 * padding);
+		model.CameraPosition = new Coordinates(model.CameraPosition.x,
+			(min + max) / 2 - model.WorldOriginPrice);
+		model.Viewport = new ViewportClippingCoords(min - padding, max + padding,
+			model.Viewport.minTime, model.Viewport.maxTime);
+	}
+
+	public double RoundPriceTickDown(double minPrice, double interval)
+	{
+		if (model.ComparisonAnchor is not { } anchor)
+			return Math.Floor(minPrice / interval) * interval;
+		double percentStep = interval / anchor.PrimaryClose * 100;
+		double firstPercent = Math.Floor(ComparisonSeriesMath.ToPercent(minPrice, anchor.PrimaryClose) / percentStep) * percentStep;
+		return anchor.PrimaryClose * (1 + firstPercent / 100);
 	}
 
 #endregion
@@ -387,6 +480,8 @@ public class ChartController
 	/// <param name="deltaScreenY">Изменение по Y экрана (пиксели)</param>
 	public void PanByPixels(double deltaScreenX, double deltaScreenY)
 	{
+		if (model.ComparisonSeries != null && Math.Abs(deltaScreenY) > 0.001)
+			comparisonAutoFit = false;
 		double deltaWorldX = cachedPixelsPerSecond > 0
 			? -deltaScreenX / cachedPixelsPerSecond
 			: 0;
@@ -406,6 +501,8 @@ public class ChartController
 	/// <param name="worldFocusY">Мировая Y координата для фокуса масштабирования (опционально)</param>
 	public void Zoom(double zoomFactorX, double zoomFactorY, double? worldFocusX = null, double? worldFocusY = null)
 	{
+		if (model.ComparisonSeries != null && Math.Abs(zoomFactorY - 1) > 0.000001)
+			comparisonAutoFit = false;
 		// Используем позицию камеры как точку фокуса по умолчанию
 		double focusX = worldFocusX ?? model.CameraPosition.x;
 		double focusY = worldFocusY ?? model.CameraPosition.y;
@@ -745,13 +842,18 @@ public class ChartController
 	}
 
 	/// <summary>Requests a redraw after the shared live candle changes.</summary>
-	public void OnLiveCandleUpdated() => ViewportChanged?.Invoke();
+	public void OnLiveCandleUpdated()
+	{
+		if (model.ComparisonSeries != null) UpdateViewportFromCamera();
+		else ViewportChanged?.Invoke();
+	}
 
 	/// <summary>Refreshes the data range after the shared series closes a candle.</summary>
 	public void OnCandleClosed()
 	{
 		model.UpdateDataRange();
-		ViewportChanged?.Invoke();
+		if (model.ComparisonSeries != null) UpdateViewportFromCamera();
+		else ViewportChanged?.Invoke();
 	}
 
 	/// <summary>
@@ -804,6 +906,12 @@ public class ChartController
 	/// <summary> Сбрасывает вертикальный масштаб: ±5% от текущей цены на всю высоту экрана </summary>
 	public void ResetPriceScaleToCurrentPrice()
 	{
+		if (model.ComparisonSeries != null)
+		{
+			comparisonAutoFit = true;
+			UpdateViewportFromCamera();
+			return;
+		}
 		var candles = model.Series.GetSnapshot();
 		if (candles.Count == 0)
 			return;
@@ -979,6 +1087,12 @@ public class ChartController
 	/// </summary>
 	public double CalculateOptimalPriceInterval()
 	{
+		if (model.ComparisonAnchor is { } anchor)
+		{
+			double percentRange = model.PriceRangeInViewport / anchor.PrimaryClose * 100;
+			return RoundUpToNicePriceStep(percentRange / GetTargetPriceSectionCount())
+				* anchor.PrimaryClose / 100;
+		}
 		double priceRange = model.Viewport.maxPrice - model.Viewport.minPrice;
 		if (priceRange <= 0 || !double.IsFinite(priceRange))
 			return 1;
@@ -1071,6 +1185,15 @@ public class ChartController
 	/// <summary> Форматирует подпись цены с учётом шага шкалы </summary>
 	public string FormatPriceLabel(double price, double? priceInterval = null)
 	{
+		if (model.ComparisonSeries != null)
+		{
+			if (model.ComparisonAnchor is not { } anchor) return "—";
+			double percent = ComparisonSeriesMath.ToPercent(price, anchor.PrimaryClose);
+			double percentStep = (priceInterval ?? PriceInterval) / anchor.PrimaryClose * 100;
+			int places = GetDecimalPlacesForPriceStep(percentStep);
+			string fractional = places > 0 ? "." + new string('0', places) : string.Empty;
+			return percent.ToString($"+0{fractional};-0{fractional};0{fractional}") + "%";
+		}
 		double interval = priceInterval ?? CalculateOptimalPriceInterval();
 		int decimals = GetDecimalPlacesForPriceStep(interval);
 		return price.ToString($"F{decimals}");
@@ -1079,6 +1202,11 @@ public class ChartController
 	/// <summary>Минимальное изменение цены, различимое в подписи текущей ценовой шкалы.</summary>
 	public double GetMinimumDisplayedPriceStep()
 	{
+		if (model.ComparisonAnchor is { } anchor)
+		{
+			int percentDecimals = GetDecimalPlacesForPriceStep(PriceInterval / anchor.PrimaryClose * 100);
+			return anchor.PrimaryClose * Math.Pow(10, -percentDecimals) / 100;
+		}
 		int decimals = GetDecimalPlacesForPriceStep(PriceInterval);
 		return Math.Pow(10, -decimals);
 	}

@@ -62,12 +62,39 @@ namespace BotView
             };
 
             chartView.LeftEdgeApproached += OnLeftEdgeApproached;
+            chartView.VisibleTimeRangeChanged += _viewModel.RequestComparisonHistory;
             chartView.AddIndicator(new Chart.IndicatorPane.RSIIndicator());
             Loaded += MainWindow_Loaded;
         }
 
         private void SubscribeViewModelEvents()
         {
+            _viewModel.ComparisonSeriesReady += (series, symbol, version) =>
+            {
+                void Apply()
+                {
+                    if (version == _viewModel.CurrentComparisonVersion &&
+                        ReferenceEquals(series, _viewModel.CurrentComparisonSeries))
+                        chartView.SetComparison(series, symbol);
+                }
+                if (Dispatcher.CheckAccess()) Apply();
+                else Dispatcher.Invoke(Apply);
+            };
+            _viewModel.ComparisonSeriesCleared += version =>
+            {
+                void Clear()
+                {
+                    if (version == _viewModel.CurrentComparisonVersion)
+                        chartView.ClearComparison();
+                }
+                if (Dispatcher.CheckAccess()) Clear();
+                else Dispatcher.Invoke(Clear);
+            };
+            _viewModel.ComparisonDataChanged += version => Dispatcher.InvokeAsync(() =>
+            {
+                if (version == _viewModel.CurrentComparisonVersion)
+                    chartView.OnComparisonChanged();
+            });
             _viewModel.ChartSeriesReady += OnChartSeriesReady;
             _viewModel.ChartSeriesCleared += (timeframe, version) =>
             {
@@ -111,6 +138,7 @@ namespace BotView
             };
             _viewModel.DrawingToolRequested += OnDrawingToolRequested;
             _viewModel.SnapLastToRightRequested += () => chartView.SnapLastCandleToRightEdge();
+            _viewModel.ResetVerticalScaleRequested += () => chartView.ResetPriceScaleToCurrentPrice();
             _viewModel.ShowMetricsRequested += OnShowMetricsRequested;
             _viewModel.ExportMetricsRequested += OnExportMetricsRequested;
             _viewModel.ErrorOccurred += OnErrorOccurred;
@@ -165,6 +193,32 @@ namespace BotView
             if (item?.DataContext is string symbol)
             {
                 _viewModel.SelectSearchResultCommand.Execute(symbol);
+                e.Handled = true;
+            }
+        }
+
+        private void TxtComparisonSearch_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel.ComparisonSearchResults.Count > 0)
+                _viewModel.IsComparisonDropdownOpen = true;
+        }
+
+        private void TxtComparisonSearch_LostFocus(object sender, RoutedEventArgs e)
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!txtComparisonSearch.IsKeyboardFocusWithin)
+                    _viewModel.IsComparisonDropdownOpen = false;
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private void ComparisonResults_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ListBox listBox) return;
+            var item = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+            if (item?.DataContext is string symbol)
+            {
+                _viewModel.SelectComparisonResultCommand.Execute(symbol);
                 e.Handled = true;
             }
         }

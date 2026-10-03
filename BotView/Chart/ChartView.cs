@@ -110,6 +110,7 @@ public class ChartView : FrameworkElement
 
 	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
 	public event Action? LeftEdgeApproached;
+	public event Action<DateTime>? VisibleTimeRangeChanged;
 
 	private const double ToolBodyDragThresholdPx = 4.0;
 	private TechnicalAnalysisTool? pendingTool;
@@ -133,6 +134,7 @@ public class ChartView : FrameworkElement
 		// Подписываемся на изменение viewport для перерисовки
 		controller.ViewportChanged += () => InvalidateVisual();
 		controller.LeftEdgeApproached += () => LeftEdgeApproached?.Invoke();
+		controller.VisibleTimeRangeChanged += time => VisibleTimeRangeChanged?.Invoke(time);
 
 		// Делаем контрол фокусируемым для обработки клавиатуры
 		Focusable = true;
@@ -802,6 +804,12 @@ public class ChartView : FrameworkElement
 		controller.SetSeries(series, timeframe);
 		RecalculateIndicators();
 	}
+
+	public void SetComparison(ICandleSeriesReader series, string symbol) => controller.SetComparison(series, symbol);
+
+	public void ClearComparison() => controller.ClearComparison();
+
+	public void OnComparisonChanged() => controller.OnComparisonChanged();
 
 	/// <summary>Refreshes the chart after history was added to the shared series.</summary>
 	public void OnHistoryExtended()

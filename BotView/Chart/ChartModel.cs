@@ -15,6 +15,9 @@ public class ChartModel
 {
 	// === DATA ===
 	public ICandleSeriesReader Series { get; set; }
+	internal ICandleSeriesReader? ComparisonSeries { get; set; }
+	internal string? ComparisonSymbol { get; set; }
+	internal ComparisonSeriesMath.Anchor? ComparisonAnchor { get; set; }
 	public string Timeframe { get; set; } = string.Empty;
 	//public int PollInterval { get; set; } = 250; // milliseconds
 
@@ -36,7 +39,7 @@ public class ChartModel
 
 	// Margins are constants
 	public double LeftMargin { get; } = 10;
-	public double RightMargin { get; } = 60;  // Увеличено для шкалы цены
+	public double RightMargin { get; } = 80;
 	public double TopMargin { get; } = 20;
 	public double BottomMargin { get; } = 30; // Увеличено для шкалы времени
 

@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows.Input;
 using BotView.Chart.TechnicalAnalysis;
+using BotView.Chart;
 using BotView.Configuration;
 using BotView.Database;
 using BotView.Interfaces;
@@ -30,6 +31,17 @@ namespace BotView.ViewModels
         private string _selectedSymbol = "BTC/USDT";
         private string _selectedTimeframe = MarketCatalog.DefaultTimeframeId;
         private string _searchText = string.Empty;
+        private string _comparisonSearchText = string.Empty;
+        private string? _comparisonSymbol;
+        private string _comparisonStatusText = string.Empty;
+        private bool _isComparisonDropdownOpen;
+        private IMarketDataSubscription? _comparisonSubscription;
+        private CandleCacheKey _comparisonKey;
+        private CancellationTokenSource? _comparisonSessionCts;
+        private int _comparisonVersion;
+        private bool _comparisonHistoryLoading;
+        private bool _comparisonHistoryExhausted;
+        private DateTime _comparisonHistoryTarget = DateTime.MaxValue;
         private string _busyMessage = string.Empty;
         private double _renderTime;
         private bool _isBusy;
@@ -73,8 +85,10 @@ namespace BotView.ViewModels
 
             TradingPairs = new ObservableCollection<TradingPairModel>();
             SearchResults = new ObservableCollection<string>();
+            ComparisonSearchResults = new ObservableCollection<string>();
 
             SnapLastToRightCommand = new RelayCommand(() => SnapLastToRightRequested?.Invoke());
+            ResetVerticalScaleCommand = new RelayCommand(() => ResetVerticalScaleRequested?.Invoke());
             StartHorizontalLineCommand = new RelayCommand(() =>
                 DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.HorizontalLine));
             StartHorizontalRayCommand = new RelayCommand(() =>
@@ -88,6 +102,8 @@ namespace BotView.ViewModels
             ShowMetricsCommand = new RelayCommand(ShowMetrics);
             ExportMetricsCommand = new RelayCommand(ExportMetrics);
             SelectSearchResultCommand = new RelayCommand(SelectSearchResult);
+            SelectComparisonResultCommand = new RelayCommand(SelectComparisonResult);
+            RemoveComparisonCommand = new RelayCommand(RemoveComparison);
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
             RemoveFavoriteCommand = new RelayCommand(RemoveFavorite);
 
@@ -102,6 +118,7 @@ namespace BotView.ViewModels
         public ObservableCollection<string> Timeframes { get; }
         public ObservableCollection<TradingPairModel> TradingPairs { get; }
         public ObservableCollection<string> SearchResults { get; }
+        public ObservableCollection<string> ComparisonSearchResults { get; }
         public FuturesQuoteViewModel? FuturesQuote { get; }
 
         public string SelectedExchange
@@ -114,6 +131,7 @@ namespace BotView.ViewModels
                     return;
                 }
 
+                RemoveComparison();
                 _selectedExchange = value;
                 OnPropertyChanged();
                 UpdateTimeframesForExchange();
@@ -138,6 +156,9 @@ namespace BotView.ViewModels
                 }
 
                 _selectedSymbol = value;
+                if (string.Equals(_comparisonSymbol, value, StringComparison.OrdinalIgnoreCase))
+                    RemoveComparison();
+                UpdateComparisonSearchResults();
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsCurrentPairFavorite));
                 OnPropertyChanged(nameof(FavoriteActionText));
@@ -198,6 +219,54 @@ namespace BotView.ViewModels
                 {
                     UpdateSearchResults();
                 }
+            }
+        }
+
+        public string ComparisonSearchText
+        {
+            get => _comparisonSearchText;
+            set
+            {
+                if (_comparisonSearchText == value) return;
+                _comparisonSearchText = value ?? string.Empty;
+                OnPropertyChanged();
+                UpdateComparisonSearchResults();
+            }
+        }
+
+        public bool IsComparisonDropdownOpen
+        {
+            get => _isComparisonDropdownOpen;
+            set
+            {
+                if (_isComparisonDropdownOpen == value) return;
+                _isComparisonDropdownOpen = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string? ComparisonSymbol
+        {
+            get => _comparisonSymbol;
+            private set
+            {
+                if (_comparisonSymbol == value) return;
+                _comparisonSymbol = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasComparison));
+            }
+        }
+
+        public bool HasComparison => ComparisonSymbol != null;
+
+        public string ComparisonStatusText
+        {
+            get => _comparisonStatusText;
+            private set
+            {
+                if (_comparisonStatusText == value) return;
+                _comparisonStatusText = value;
+                OnPropertyChanged();
             }
         }
 
@@ -274,6 +343,7 @@ namespace BotView.ViewModels
         }
 
         public ICommand SnapLastToRightCommand { get; }
+        public ICommand ResetVerticalScaleCommand { get; }
         public ICommand StartHorizontalLineCommand { get; }
         public ICommand StartHorizontalRayCommand { get; }
         public ICommand StartTrendLineCommand { get; }
@@ -282,6 +352,8 @@ namespace BotView.ViewModels
         public ICommand ShowMetricsCommand { get; }
         public ICommand ExportMetricsCommand { get; }
         public ICommand SelectSearchResultCommand { get; }
+        public ICommand SelectComparisonResultCommand { get; }
+        public ICommand RemoveComparisonCommand { get; }
         public ICommand ToggleFavoriteCommand { get; }
         public ICommand RemoveFavoriteCommand { get; }
 
@@ -290,12 +362,18 @@ namespace BotView.ViewModels
         public event Action<string, int>? ChartSeriesCleared;
         public ICandleSeriesReader? CurrentSeries { get; private set; }
         public int CurrentSeriesVersion => Volatile.Read(ref _seriesVersion);
+        public ICandleSeriesReader? CurrentComparisonSeries { get; private set; }
+        public int CurrentComparisonVersion => Volatile.Read(ref _comparisonVersion);
+        public event Action<ICandleSeriesReader, string, int>? ComparisonSeriesReady;
+        public event Action<int>? ComparisonSeriesCleared;
+        public event Action<int>? ComparisonDataChanged;
 
         public event Action<OHLCV>? LiveCandleUpdated;
         public event Action<OHLCV, OHLCV>? CandleClosed;
         public event Action<OHLCV[]>? OlderCandlesLoaded;
         public event Action<TechnicalAnalysisToolType>? DrawingToolRequested;
         public event Action? SnapLastToRightRequested;
+        public event Action? ResetVerticalScaleRequested;
         public event Action<string>? ShowMetricsRequested;
         public event Action<string>? ExportMetricsRequested;
         public event Action<string, string>? ErrorOccurred;
@@ -386,8 +464,9 @@ namespace BotView.ViewModels
 
         public void Dispose()
         {
-            FuturesQuote?.Dispose();
             _isReady = false;
+            StopComparisonSubscription();
+            FuturesQuote?.Dispose();
             var selectionLoad = _selectionLoadCts;
             _selectionLoadCts = null;
             selectionLoad?.Cancel();
@@ -443,6 +522,7 @@ namespace BotView.ViewModels
             previousHistory.Cancel();
             previousHistory.Dispose();
             previous?.Cancel();
+            StopComparisonSubscription();
             var seriesVersion = Interlocked.Increment(ref _seriesVersion);
             CurrentSeries = null;
             _subscription?.Dispose();
@@ -557,6 +637,7 @@ namespace BotView.ViewModels
                 _allSymbols = symbols;
                 _loadedSymbolsExchange = exchange;
                 UpdateSearchResults();
+                UpdateComparisonSearchResults();
 
                 if (_allSymbols.Count > 0 &&
                     !_allSymbols.Contains(SelectedSymbol, StringComparer.OrdinalIgnoreCase))
@@ -593,6 +674,8 @@ namespace BotView.ViewModels
                 _allSymbols = new List<string>();
                 SearchResults.Clear();
                 IsSearchDropdownOpen = false;
+                ComparisonSearchResults.Clear();
+                IsComparisonDropdownOpen = false;
 
                 Debug.WriteLine($"Failed to load markets for {exchange}: {ex.Message}");
                 ErrorOccurred?.Invoke(
@@ -651,6 +734,153 @@ namespace BotView.ViewModels
             SelectedSymbol = symbol;
         }
 
+        private void UpdateComparisonSearchResults()
+        {
+            ComparisonSearchResults.Clear();
+            var query = _comparisonSearchText.Trim();
+            if (query.Length == 0 || _allSymbols.Count == 0)
+            {
+                IsComparisonDropdownOpen = false;
+                return;
+            }
+            foreach (var symbol in _allSymbols
+                .Where(s => !s.Equals(SelectedSymbol, StringComparison.OrdinalIgnoreCase) &&
+                            s.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .Take(MaxSearchResults))
+                ComparisonSearchResults.Add(symbol);
+            IsComparisonDropdownOpen = ComparisonSearchResults.Count > 0;
+        }
+
+        private void SelectComparisonResult(object? parameter)
+        {
+            if (parameter is not string symbol ||
+                symbol.Equals(SelectedSymbol, StringComparison.OrdinalIgnoreCase) ||
+                !_allSymbols.Contains(symbol, StringComparer.OrdinalIgnoreCase)) return;
+            ComparisonSymbol = symbol;
+            _comparisonSearchText = symbol;
+            OnPropertyChanged(nameof(ComparisonSearchText));
+            ComparisonSearchResults.Clear();
+            IsComparisonDropdownOpen = false;
+            _ = StartComparisonLoadAsync();
+        }
+
+        private void RemoveComparison()
+        {
+            StopComparisonSubscription();
+            ComparisonSymbol = null;
+            ComparisonSearchText = string.Empty;
+            ComparisonStatusText = string.Empty;
+        }
+
+        private void StopComparisonSubscription()
+        {
+            _comparisonSessionCts?.Cancel();
+            _comparisonSessionCts?.Dispose();
+            _comparisonSessionCts = null;
+            _comparisonSubscription?.Dispose();
+            _comparisonSubscription = null;
+            CurrentComparisonSeries = null;
+            _comparisonHistoryLoading = false;
+            _comparisonHistoryTarget = DateTime.MaxValue;
+            _comparisonHistoryExhausted = false;
+            int version = Interlocked.Increment(ref _comparisonVersion);
+            ComparisonSeriesCleared?.Invoke(version);
+        }
+
+        private async Task StartComparisonLoadAsync()
+        {
+            StopComparisonSubscription();
+            if (!_isReady || CurrentSeries == null || ComparisonSymbol is not { } symbol)
+                return;
+            var key = new CandleCacheKey(SelectedExchange, symbol, SelectedTimeframe, HistoryBatchSize);
+            var source = new CancellationTokenSource();
+            _comparisonSessionCts = source;
+            int version = CurrentComparisonVersion;
+            ComparisonStatusText = $"Загрузка {symbol}...";
+            try
+            {
+                var sub = await _marketDataService.SubscribeAsync(key, HistoryBatchSize, source.Token);
+                if (source.IsCancellationRequested || !_isReady || version != CurrentComparisonVersion ||
+                    CurrentSeries == null || ComparisonSymbol != symbol ||
+                    key.Exchange != SelectedExchange || key.Timeframe != SelectedTimeframe)
+                {
+                    sub.Dispose();
+                    return;
+                }
+                _comparisonKey = key;
+                _comparisonSubscription = sub;
+                CurrentComparisonSeries = sub.Series;
+                ComparisonStatusText = string.Empty;
+                ComparisonSeriesReady?.Invoke(sub.Series, symbol, version);
+                sub.LiveCandleTicked += _ => RaiseComparisonDataChanged(sub, version);
+                sub.CandleClosed += (_, _) => RaiseComparisonDataChanged(sub, version);
+                sub.OlderCandlesLoaded += _ => RaiseComparisonDataChanged(sub, version);
+            }
+            catch (OperationCanceledException) when (source.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                if (!source.IsCancellationRequested && version == CurrentComparisonVersion)
+                    ComparisonStatusText = $"Не удалось загрузить {symbol}: {ex.Message}";
+            }
+        }
+
+        private void RaiseComparisonDataChanged(IMarketDataSubscription sub, int version)
+        {
+            if (ReferenceEquals(_comparisonSubscription, sub) && version == CurrentComparisonVersion)
+                ComparisonDataChanged?.Invoke(version);
+        }
+
+        public void RequestComparisonHistory(DateTime visibleFrom)
+        {
+            if (_comparisonSubscription == null || _comparisonHistoryExhausted) return;
+            if (visibleFrom < _comparisonHistoryTarget) _comparisonHistoryTarget = visibleFrom;
+            if (!_comparisonHistoryLoading) _ = LoadComparisonHistoryAsync();
+        }
+
+        private async Task LoadComparisonHistoryAsync()
+        {
+            var sub = _comparisonSubscription;
+            var source = _comparisonSessionCts;
+            if (sub == null || source == null) return;
+            int version = CurrentComparisonVersion;
+            _comparisonHistoryLoading = true;
+            try
+            {
+                while (!source.IsCancellationRequested && ReferenceEquals(sub, _comparisonSubscription))
+                {
+                    var oldest = sub.Series.GetSnapshot().OldestTimestamp;
+                    if (!oldest.HasValue || oldest.Value <= ComparisonSeriesMath.ToUnixMilliseconds(_comparisonHistoryTarget))
+                        break;
+                    int loaded = await _marketDataService.LoadOlderAsync(_comparisonKey, HistoryBatchSize, source.Token);
+                    if (loaded == 0)
+                    {
+                        _comparisonHistoryExhausted = true;
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (source.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                if (ReferenceEquals(sub, _comparisonSubscription))
+                {
+                    _comparisonHistoryExhausted = true;
+                    ComparisonStatusText = $"Не удалось загрузить историю сравнения: {ex.Message}";
+                }
+            }
+            finally
+            {
+                if (version == CurrentComparisonVersion)
+                {
+                    _comparisonHistoryLoading = false;
+                    if (!source.IsCancellationRequested && ReferenceEquals(sub, _comparisonSubscription) &&
+                        !_comparisonHistoryExhausted && sub.Series.GetSnapshot().OldestTimestamp is { } oldest &&
+                        oldest > ComparisonSeriesMath.ToUnixMilliseconds(_comparisonHistoryTarget))
+                        _ = LoadComparisonHistoryAsync();
+                }
+            }
+        }
+
         private async Task SwitchSubscriptionAsync(CandleCacheKey key, CancellationToken ct)
         {
             var seriesVersion = CurrentSeriesVersion;
@@ -675,6 +905,7 @@ namespace BotView.ViewModels
                 _subscription = sub;
                 CurrentSeries = sub.Series;
                 ChartSeriesReady?.Invoke(sub.Series, key.Timeframe, true, seriesVersion);
+                if (ComparisonSymbol != null) _ = StartComparisonLoadAsync();
 
                 sub.LiveCandleTicked += c =>
                 {
@@ -716,6 +947,8 @@ namespace BotView.ViewModels
                 demoSeries.LoadInitial(demoData.candles);
                 CurrentSeries = demoSeries;
                 ChartSeriesReady?.Invoke(demoSeries, demoData.timeframe, false, seriesVersion);
+                if (ComparisonSymbol != null)
+                    ComparisonStatusText = "Сравнение недоступно для демонстрационных данных.";
             }
         }
 
