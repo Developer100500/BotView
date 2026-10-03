@@ -26,7 +26,7 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
 
     public string PriceText { get => _priceText; private set => Set(ref _priceText, value); }
-    public string DirectionText { get => _directionText; private set => Set(ref _directionText, value); }
+    //public string DirectionText { get => _directionText; private set => Set(ref _directionText, value); }
     public string ChangeText { get => _changeText; private set => Set(ref _changeText, value); }
     public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }
     public string ChangeColor { get => _changeColor; private set => Set(ref _changeColor, value); }
@@ -50,28 +50,26 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
                 : null);
             if (movement is null)
             {
-                DirectionText = "Нет цены сравнения";
+                StatusText = $"{quote.Source} (Нет цены сравнения)";
                 ChangeText = "—";
                 ChangeColor = "#94A3B8";
             }
             else
             {
-                DirectionText = movement.ChangePoints > 0 ? "▲ Растёт" :
-                    movement.ChangePoints < 0 ? "▼ Падает" : "● Без изменений";
                 ChangeColor = movement.ChangePoints > 0 ? "#22C55E" :
                     movement.ChangePoints < 0 ? "#EF4444" : "#94A3B8";
                 ChangeText = $"{movement.ChangePoints.ToString("+0.00;-0.00;0.00", DisplayCulture)} п. " +
                     $"({movement.ChangePercent.ToString("+0.00;-0.00;0.00", DisplayCulture)}%)";
             }
 
-            var localTime = quote.AsOf.ToLocalTime().ToString("dd.MM HH:mm", DisplayCulture);
+            //var localTime = quote.AsOf.ToLocalTime().ToString("dd.MM HH:mm", DisplayCulture);
             var source = quote.IsDelayed ? $"{quote.Source} (с задержкой)" : quote.Source;
-            var reference = morningMovement is not null
-                ? $"От 09:30 NY {movement!.ReferencePrice.ToString("N2", DisplayCulture)}"
-                : movement is not null
-                    ? $"От предыдущего закрытия {movement.ReferencePrice.ToString("N2", DisplayCulture)}"
-                    : "Нет цены для сравнения";
-            StatusText = $"{reference} · {source} · {localTime} местн.";
+            //var reference = morningMovement is not null
+            //    ? $"От 09:30 NY {movement!.ReferencePrice.ToString("N2", DisplayCulture)}"
+            //    : movement is not null
+            //        ? $"От предыдущего закрытия {movement.ReferencePrice.ToString("N2", DisplayCulture)}"
+            //        : "Нет цены для сравнения";
+            StatusText = $"{source}";
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -81,7 +79,7 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
         {
             if (_disposed) return;
             PriceText = "—";
-            DirectionText = "Котировка недоступна";
+            //DirectionText = "Котировка недоступна";
             ChangeText = "—";
             ChangeColor = "#94A3B8";
             StatusText = $"Ошибка получения котировки: {ex.Message}";

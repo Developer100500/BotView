@@ -140,7 +140,6 @@
                     </ComboBox>
                 </StackPanel>
                 <Grid Grid.Column="3" HorizontalAlignment="Left" VerticalAlignment="Bottom">
-                    <!--<StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch">-->
                     <TextBox x:Name="txtSymbolSearch"
                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                             Width="400"
@@ -170,15 +169,14 @@
                                 Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0"
                                 PreviewMouseLeftButtonDown="SearchResults_PreviewMouseLeftButtonDown">
                                 <ListBox.ItemContainerStyle>
-                                        <Style TargetType="ListBoxItem">
-                                            <Setter Property="Padding" Value="10,7"/>
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                        </Style>
-                                    </ListBox.ItemContainerStyle>
-                                </ListBox>
-                            </Border>
-                        </Popup>
-                    <!--</StackPanel>-->
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Padding" Value="10,7"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </Border>
+                    </Popup>
 
                 </Grid>
                 <Button Grid.Column="4" Style="{StaticResource FavoriteButtonStyle}"
@@ -192,21 +190,18 @@
                 BorderThickness="0,0,0,1" Padding="18,9">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="190"/>
-                    <ColumnDefinition Width="105"/>
-                    <ColumnDefinition Width="150"/>
-                    <ColumnDefinition Width="165"/>
+                    <ColumnDefinition Width="180"/>
+                    <ColumnDefinition Width="85"/>
+                    <ColumnDefinition Width="120"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="S&amp;P 500 · ФЬЮЧЕРС ES=F"
                            FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
                 <TextBlock Grid.Column="1" Text="{Binding PriceText}" FontSize="17" FontWeight="Bold"
                            VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
-                <TextBlock Grid.Column="2" Text="{Binding DirectionText}" Foreground="{Binding ChangeColor}"
+                <TextBlock Grid.Column="2" Text="{Binding ChangeText}" Foreground="{Binding ChangeColor}"
                            FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="3" Text="{Binding ChangeText}" Foreground="{Binding ChangeColor}"
-                           FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="4" Text="{Binding StatusText}" ToolTip="{Binding StatusText}"
+                <TextBlock Grid.Column="3" Text="{Binding StatusText}" ToolTip="{Binding StatusText}"
                            Foreground="{StaticResource TextMutedBrush}" FontSize="11"
                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
             </Grid>

@@ -79,7 +79,6 @@ public class FuturesQuoteTests
 
         await widget.RefreshAsync();
 
-        Assert.Equal("▲ Растёт", widget.DirectionText);
         Assert.Equal("+9,75 п. (+0,13%)", widget.ChangeText);
         Assert.StartsWith("От предыдущего закрытия", widget.StatusText);
     }
