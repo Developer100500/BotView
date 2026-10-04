@@ -209,10 +209,63 @@ public class ChartView : FrameworkElement
 	}
 
 	// === MOUSE INTERACTION ===
+	public void StartDrawingTool(TechnicalAnalysisToolType type)
+	{
+		CloseToolContextMenu();
+		ClearMeasurement();
+		TechnicalAnalysisTool.StopCreating();
+		TechnicalAnalysisTool.StopEditing();
+		pendingTool = null;
+		isDraggingToolBody = false;
+		controller.HandleMouseLeftButtonUp();
+		ReleaseMouseCapture();
+		renderer.CurrentMouseChartCoords = null;
+		if (type == TechnicalAnalysisToolType.Measure) model.Measurement.Arm();
+		else if (type != TechnicalAnalysisToolType.None) TechnicalAnalysisTool.StartCreating(type);
+		Cursor = type == TechnicalAnalysisToolType.None ? Cursors.Arrow : Cursors.Cross;
+		Focus();
+		InvalidateVisual();
+	}
+
+	public void ClearMeasurement()
+	{
+		model.Measurement.Clear();
+		Cursor = Cursors.Arrow;
+		InvalidateVisual();
+	}
+
+	internal bool HandleMeasurementClick(Point position)
+	{
+		if (model.Measurement.Phase == MeasurementPhase.Idle) return false;
+		bool inMainPane = controller.DetectPane(position) == ChartPane.Main;
+		if (inMainPane)
+		{
+			model.Measurement.Click(controller.ViewToChart(new Coordinates(position.X, position.Y)), model.Series.GetSnapshot());
+			Cursor = model.Measurement.Phase is MeasurementPhase.Armed or MeasurementPhase.Measuring ? Cursors.Cross : Cursors.Arrow;
+			InvalidateVisual();
+		}
+		// Once fixed, scale and indicator interactions remain available.
+		return model.Measurement.Phase != MeasurementPhase.Completed || inMainPane;
+	}
+
+	internal bool HandleMeasurementMove(Point position)
+	{
+		if (model.Measurement.Phase is not (MeasurementPhase.Armed or MeasurementPhase.Measuring)) return false;
+		if (controller.DetectPane(position) == ChartPane.Main)
+			model.Measurement.Move(controller.ViewToChart(new Coordinates(position.X, position.Y)), model.Series.GetSnapshot());
+		Cursor = Cursors.Cross;
+		InvalidateVisual();
+		return true;
+	}
 
 	protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
 	{
 		base.OnMouseLeftButtonDown(e);
+		if (HandleMeasurementClick(e.GetPosition(this)))
+		{
+			e.Handled = true;
+			return;
+		}
 		if (toolContextMenu.IsOpen)
 		{
 			toolContextMenu.CloseMenu();
@@ -282,6 +335,7 @@ public class ChartView : FrameworkElement
 	protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
 	{
 		base.OnMouseRightButtonUp(e);
+		if (model.Measurement.Phase is MeasurementPhase.Armed or MeasurementPhase.Measuring) return;
 		if (TechnicalAnalysisTool.IsCreatingTool || e.LeftButton == MouseButtonState.Pressed)
 			return;
 
@@ -565,6 +619,12 @@ public class ChartView : FrameworkElement
 	protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
 	{
 		base.OnMouseLeftButtonUp(e);
+		if (model.Measurement.Phase is MeasurementPhase.Armed or MeasurementPhase.Measuring)
+		{
+			Cursor = Cursors.Cross;
+			e.Handled = true;
+			return;
+		}
 
 		if (pendingTool != null)
 		{
@@ -622,6 +682,7 @@ public class ChartView : FrameworkElement
 		var viewCoords = new Coordinates(currentPosition.X, currentPosition.Y);
 
 		UpdateCrosshairFromMouse(currentPosition);
+		if (HandleMeasurementMove(currentPosition)) return;
 
 		if (TechnicalAnalysisTool.IsCreatingTool && TechnicalAnalysisTool.CreationStep > 0)
 		{
@@ -686,6 +747,12 @@ public class ChartView : FrameworkElement
 	protected override void OnKeyDown(KeyEventArgs e)
 	{
 		base.OnKeyDown(e);
+		if (e.Key == Key.Escape && model.Measurement.Phase != MeasurementPhase.Idle)
+		{
+			ClearMeasurement();
+			e.Handled = true;
+			return;
+		}
 
 		if ((e.Key == Key.Up || e.Key == Key.Down) &&
 			Keyboard.Modifiers == ModifierKeys.None &&
@@ -793,6 +860,7 @@ public class ChartView : FrameworkElement
 	/// </summary>
 	public void SetCandlestickData(CandlestickData newData)
 	{
+		ClearMeasurement();
 		controller.SetCandlestickData(newData);
 		
 		// Recalculate all indicators with new data
@@ -801,6 +869,7 @@ public class ChartView : FrameworkElement
 
 	public void SetSeries(ICandleSeriesReader series, string timeframe)
 	{
+		ClearMeasurement();
 		controller.SetSeries(series, timeframe);
 		RecalculateIndicators();
 	}

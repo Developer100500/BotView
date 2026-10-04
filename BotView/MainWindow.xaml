@@ -320,6 +320,15 @@
                                 </Canvas>
                             </Viewbox>
                         </Button>
+                        <Button Name="btnMeasure" Style="{StaticResource IconButtonStyle}"
+                                Command="{Binding StartMeasureCommand}" ToolTip="Линейка">
+                            <Viewbox Width="24" Height="24">
+                                <Canvas Width="64" Height="64">
+                                    <Path Data="M8,42 L42,8 L56,22 L22,56 Z M17,33 L24,40 M25,25 L32,32 M33,17 L40,24"
+                                          Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="Transparent"/>
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
                     </WrapPanel>
                     <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,14"/>
                     <TextBlock Text="ДИАГНОСТИКА" Style="{StaticResource SectionTitleStyle}"/>

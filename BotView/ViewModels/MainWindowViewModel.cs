@@ -99,6 +99,8 @@ namespace BotView.ViewModels
                 DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.TrendChannel));
             StartRectangleCommand = new RelayCommand(() =>
                 DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.Rectangle));
+            StartMeasureCommand = new RelayCommand(() =>
+                DrawingToolRequested?.Invoke(TechnicalAnalysisToolType.Measure));
             ShowMetricsCommand = new RelayCommand(ShowMetrics);
             ExportMetricsCommand = new RelayCommand(ExportMetrics);
             SelectSearchResultCommand = new RelayCommand(SelectSearchResult);
@@ -349,6 +351,7 @@ namespace BotView.ViewModels
         public ICommand StartTrendLineCommand { get; }
         public ICommand StartTrendChannelCommand { get; }
         public ICommand StartRectangleCommand { get; }
+        public ICommand StartMeasureCommand { get; }
         public ICommand ShowMetricsCommand { get; }
         public ICommand ExportMetricsCommand { get; }
         public ICommand SelectSearchResultCommand { get; }

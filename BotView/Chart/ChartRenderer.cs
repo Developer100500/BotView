@@ -82,6 +82,83 @@ public class ChartRenderer
 		indicatorRenderer?.Render(drawingContext);
 		DrawTimeScale(drawingContext, frameValues);
 		DrawCrosshair(drawingContext, frameValues);
+		DrawMeasurement(drawingContext, frameValues, candles);
+	}
+
+	private void DrawMeasurement(DrawingContext context, in RenderFrame frame, CandleSeriesSnapshot candles)
+	{
+		if (!model.IsInitialized || frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0 ||
+			model.Measurement.Start is not { } start || model.Measurement.End is not { } end) return;
+		var a = controller.ChartToView(start);
+		var b = controller.ChartToView(end);
+		if (!double.IsFinite(a.x) || !double.IsFinite(a.y) || !double.IsFinite(b.x) || !double.IsFinite(b.y)) return;
+		var result = MeasurementMath.Calculate(start, end, candles);
+		Color color = result.IsFalling ? Color.FromRgb(242, 54, 69) : Color.FromRgb(41, 98, 255);
+		var brush = CreateFrozenBrush(color);
+		var fill = CreateFrozenBrush(Color.FromArgb(45, color.R, color.G, color.B));
+		var pen = CreateFrozenPen(brush, 1);
+		var rectangle = new Rect(new Point(Math.Min(a.x, b.x), Math.Min(a.y, b.y)),
+			new Point(Math.Max(a.x, b.x), Math.Max(a.y, b.y)));
+		if (!rectangle.IntersectsWith(frame.MainPaneRect)) return;
+		context.PushClip(new RectangleGeometry(frame.MainPaneRect));
+		try
+		{
+			context.DrawRectangle(fill, null, rectangle);
+			double middleX = (a.x + b.x) / 2, middleY = (a.y + b.y) / 2;
+			DrawMeasurementArrow(context, pen, new Point(a.x, middleY), new Point(b.x, middleY));
+			DrawMeasurementArrow(context, pen, new Point(middleX, a.y), new Point(middleX, b.y));
+			var priceText = CreateLabelText(result.PriceText, Brushes.White, 12);
+			var timeText = CreateLabelText(result.TimeText, Brushes.White, 12);
+			Rect card = GetMeasurementCardRect(rectangle, frame.MainPaneRect,
+				new Size(Math.Max(priceText.Width, timeText.Width) + 16, priceText.Height + timeText.Height + 14), result.IsFalling);
+			context.DrawRoundedRectangle(brush, null, card, 3, 3);
+			context.DrawText(priceText, new Point(card.X + (card.Width - priceText.Width) / 2, card.Y + 5));
+			context.DrawText(timeText, new Point(card.X + (card.Width - timeText.Width) / 2, card.Y + 9 + priceText.Height));
+		}
+		finally { context.Pop(); }
+
+		// The scale has its own clip so offscreen anchors cannot paint over other panes.
+		context.PushClip(new RectangleGeometry(new Rect(frame.ScaleX, frame.MainPaneRect.Top,
+			model.RightMargin, frame.MainPaneHeight)));
+		try
+		{
+			double top = Math.Max(rectangle.Top, frame.MainPaneRect.Top);
+			double bottom = Math.Min(rectangle.Bottom, frame.MainPaneRect.Bottom);
+			context.DrawRectangle(fill, null, new Rect(frame.ScaleX, top, model.RightMargin, Math.Max(0, bottom - top)));
+			DrawMeasurementPriceLabel(context, frame, start.price, brush);
+			if (start.price != end.price) DrawMeasurementPriceLabel(context, frame, end.price, brush);
+		}
+		finally { context.Pop(); }
+	}
+
+	private void DrawMeasurementPriceLabel(DrawingContext context, in RenderFrame frame, double price, Brush brush)
+	{
+		if (!IsPriceVisible(price)) return;
+		// Measurements always report primary prices, including in comparison mode.
+		var text = CreateLabelText(price.ToString("G10", System.Globalization.CultureInfo.CurrentCulture), Brushes.White, 10);
+		var bounds = GetPriceScaleLabelRect(frame, price, text);
+		context.DrawRectangle(brush, null, bounds);
+		context.DrawText(text, new Point(bounds.X + 4, bounds.Y + (bounds.Height - text.Height) / 2));
+	}
+
+	internal static Rect GetMeasurementCardRect(Rect measurement, Rect pane, Size size, bool falling)
+	{
+		double width = Math.Min(size.Width, pane.Width), height = Math.Min(size.Height, pane.Height);
+		double x = Math.Clamp(measurement.X + (measurement.Width - width) / 2, pane.Left, pane.Right - width);
+		double y = Math.Clamp(falling ? measurement.Bottom + 8 : measurement.Top - height - 8, pane.Top, pane.Bottom - height);
+		return new Rect(x, y, width, height);
+	}
+
+	private static void DrawMeasurementArrow(DrawingContext context, Pen pen, Point start, Point end)
+	{
+		context.DrawLine(pen, start, end);
+		Vector direction = end - start;
+		if (direction.Length < 1) return;
+		double length = Math.Min(5, direction.Length / 2);
+		direction.Normalize();
+		Vector perpendicular = new(-direction.Y, direction.X);
+		context.DrawLine(pen, end, end - direction * length + perpendicular * length);
+		context.DrawLine(pen, end, end - direction * length - perpendicular * length);
 	}
 
 	/// <summary>Собирает layout и шаги шкал один раз на кадр</summary>

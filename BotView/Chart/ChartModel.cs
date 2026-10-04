@@ -13,6 +13,7 @@ namespace BotView.Chart;
 /// </summary>
 public class ChartModel
 {
+	internal ChartMeasurement Measurement { get; } = new();
 	// === DATA ===
 	public ICandleSeriesReader Series { get; set; }
 	internal ICandleSeriesReader? ComparisonSeries { get; set; }

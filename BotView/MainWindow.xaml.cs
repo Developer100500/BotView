@@ -258,13 +258,12 @@ namespace BotView
 
         private void OnDrawingToolRequested(TechnicalAnalysisToolType toolType)
         {
-            chartView.CloseToolContextMenu();
-            TechnicalAnalysisTool.StartCreating(toolType);
-            chartView.Cursor = Cursors.Cross;
+            chartView.StartDrawingTool(toolType);
         }
 
         private async void OnSymbolChanged(string symbol)
         {
+            chartView.ClearMeasurement();
             chartView.CloseToolContextMenu();
             var taManager = chartView.GetTechnicalAnalysisManager();
             await taManager.SetSymbolAsync(symbol);
