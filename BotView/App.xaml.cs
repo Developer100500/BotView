@@ -18,7 +18,9 @@ namespace BotView
         public static IDataProviderLogger DataProviderLogger { get; private set; } = null!;
         public static IMarketDataService MarketDataService { get; private set; } = null!;
         public static IQuoteProvider QuoteProvider { get; private set; } = null!;
+        public static ICoinInfoProvider CoinInfoProvider { get; private set; } = null!;
         private static readonly HttpClient QuoteHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
+        private static readonly HttpClient CoinInfoHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         public static TimeSpan RealtimePollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
         // Доступ к конфигурации бирж через статический класс
@@ -66,6 +68,8 @@ namespace BotView
                 var candleStore = new CandleStore();
                 MarketDataService = new MarketDataService(ExchangeService, candleStore, RealtimePollInterval);
                 QuoteProvider = new YahooFinanceQuoteProvider(QuoteHttpClient);
+                CoinInfoProvider = new CoinGeckoInfoProvider(CoinInfoHttpClient,
+                    Environment.GetEnvironmentVariable("COINGECKO_DEMO_API_KEY"));
 
                 // Логирование успешной инициализации
                 System.Diagnostics.Debug.WriteLine("Services initialized successfully");
@@ -100,6 +104,7 @@ namespace BotView
                 MarketDataService.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
             QuoteHttpClient.Dispose();
+            CoinInfoHttpClient.Dispose();
             
             base.OnExit(e);
         }

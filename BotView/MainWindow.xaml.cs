@@ -17,6 +17,7 @@ namespace BotView
         private readonly MainWindowViewModel _viewModel;
         private readonly System.Windows.Threading.DispatcherTimer _renderTimeUpdateTimer;
         private readonly System.Windows.Threading.DispatcherTimer _quoteUpdateTimer;
+        private ContextMenu? _pairContextMenu;
 
         public MainWindow()
         {
@@ -149,7 +150,8 @@ namespace BotView
             // Delay so ListBox click can run before popup closes.
             Dispatcher.BeginInvoke(() =>
             {
-                if (!txtSymbolSearch.IsKeyboardFocusWithin)
+                if (!txtSymbolSearch.IsKeyboardFocusWithin && !lstSearchResults.IsKeyboardFocusWithin &&
+                    _pairContextMenu?.IsOpen != true)
                 {
                     _viewModel.IsSearchDropdownOpen = false;
                 }
@@ -169,6 +171,29 @@ namespace BotView
                 _viewModel.SelectSearchResultCommand.Execute(symbol);
                 e.Handled = true;
             }
+        }
+
+        private void Pair_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not FrameworkElement target) return;
+            var menu = Views.CoinInfoContextMenu.Create(target, pair =>
+            {
+                _viewModel.IsSearchDropdownOpen = false;
+                new Views.CoinInfoWindow(pair, App.CoinInfoProvider) { Owner = this }.Show();
+            });
+            if (menu is null) return;
+            if (_pairContextMenu is not null) _pairContextMenu.IsOpen = false;
+            _pairContextMenu = menu;
+            menu.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_pairContextMenu, menu)) _pairContextMenu = null;
+                if (!txtSymbolSearch.IsKeyboardFocusWithin && !lstSearchResults.IsKeyboardFocusWithin)
+                    _viewModel.IsSearchDropdownOpen = false;
+            };
+            // Handle the preview event so right-clicking a row does not switch the chart.
+            e.Handled = true;
+            target.ContextMenu = menu;
+            menu.IsOpen = true;
         }
 
         private void OnChartSeriesReady(ICandleSeriesReader series, string timeframe, bool useLiveLayout, int version)
