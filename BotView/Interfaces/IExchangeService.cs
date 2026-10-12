@@ -28,6 +28,9 @@ namespace BotView.Interfaces
         Task<List<string>> GetAvailableSymbolsAsync(string exchange);
         Task<List<string>> GetAvailableSymbolsAsync(string exchange, CancellationToken ct);
 
+        /// <summary>Gets rolling 24-hour changes for active spot pairs quoted in USDT.</summary>
+        Task<IReadOnlyList<MarketMover>> GetMarketMoversAsync(string exchange, CancellationToken ct = default);
+
         /// <summary> Gets raw OHLCV candles from exchange with optional since timestamp. </summary>
         Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500);
         Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since, int limit, CancellationToken ct);

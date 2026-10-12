@@ -64,6 +64,7 @@ namespace BotView.ViewModels
             _metricsController = metricsController;
             _favoritePairsStore = favoritePairsStore ?? new FavoritePairsStore();
             FuturesQuote = quoteProvider is null ? null : new FuturesQuoteViewModel(quoteProvider);
+            MarketMovers = new MarketMoversViewModel(exchangeService);
 
             Exchanges = new ObservableCollection<ExchangeOption>(MarketCatalog.Exchanges
                 .Select(exchange => new ExchangeOption(exchange.Id, exchange.DisplayName)));
@@ -103,6 +104,7 @@ namespace BotView.ViewModels
         public ObservableCollection<TradingPairModel> TradingPairs { get; }
         public ObservableCollection<string> SearchResults { get; }
         public FuturesQuoteViewModel? FuturesQuote { get; }
+        public MarketMoversViewModel MarketMovers { get; }
 
         public string SelectedExchange
         {
@@ -122,6 +124,7 @@ namespace BotView.ViewModels
                 if (_isReady)
                 {
                     LoadFavoriteTradingPairs();
+                    _ = MarketMovers.SetExchangeAsync(_selectedExchange);
                 }
                 _ = StartSelectionLoadAsync();
             }
@@ -322,6 +325,7 @@ namespace BotView.ViewModels
         public async Task StartAsync()
         {
             _isReady = true;
+            _ = MarketMovers.SetExchangeAsync(SelectedExchange);
             SymbolChanged?.Invoke(SelectedSymbol);
             await StartSelectionLoadAsync();
         }
@@ -387,6 +391,7 @@ namespace BotView.ViewModels
         public void Dispose()
         {
             FuturesQuote?.Dispose();
+            MarketMovers.Dispose();
             _isReady = false;
             var selectionLoad = _selectionLoadCts;
             _selectionLoadCts = null;

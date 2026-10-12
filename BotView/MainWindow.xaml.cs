@@ -57,8 +57,10 @@ namespace BotView
             };
             _quoteUpdateTimer.Tick += async (_, _) =>
             {
+                var moversRefresh = _viewModel.MarketMovers.RefreshAsync();
                 if (_viewModel.FuturesQuote is { } quote)
                     await quote.RefreshAsync();
+                await moversRefresh;
             };
 
             chartView.LeftEdgeApproached += OnLeftEdgeApproached;
@@ -126,9 +128,9 @@ namespace BotView
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            _quoteUpdateTimer.Start();
             if (_viewModel.FuturesQuote is { } quote)
             {
-                _quoteUpdateTimer.Start();
                 _ = quote.RefreshAsync();
             }
             await _viewModel.StartAsync();

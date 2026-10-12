@@ -380,6 +380,55 @@ namespace BotView.Services
                 finalErrorType, lastException);
         }
 
+        /// <summary>Gets all spot USDT movers using a single bulk ticker request.</summary>
+        public async Task<IReadOnlyList<MarketMover>> GetMarketMoversAsync(string exchange, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(exchange))
+                throw new ArgumentException("Exchange name cannot be empty", nameof(exchange));
+            var normalizedExchange = exchange.ToLowerInvariant();
+            if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
+                throw new NotSupportedException($"Exchange '{exchange}' is not supported");
+
+            Exception? lastException = null;
+            for (var attempt = 1; attempt <= _maxRetryAttempts; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var stopwatch = Stopwatch.StartNew();
+                try
+                {
+                    var client = GetExchangeInstance(normalizedExchange);
+                    var markets = await client.LoadMarkets().WaitAsync(ct);
+                    var tickers = await client.FetchTickers(null!, new Dictionary<string, object>
+                    {
+                        ["type"] = "spot"
+                    }).WaitAsync(ct);
+                    ct.ThrowIfCancellationRequested();
+                    var movers = MarketMoversCalculator.Calculate(markets.Values, tickers.tickers);
+                    _logger?.LogApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, true);
+                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, true);
+                    return movers;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    lastException = ex;
+                    _logger?.LogApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, false);
+                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, false);
+                    if (!ShouldRetry(DetermineErrorType(ex), attempt))
+                        break;
+                    if (attempt < _maxRetryAttempts)
+                        await Task.Delay(CalculateRetryDelay(attempt), ct);
+                }
+            }
+            throw new ExchangeException(normalizedExchange,
+                $"Failed to get 24-hour tickers: {lastException?.Message}",
+                DetermineErrorType(lastException!), lastException!);
+        }
+
         /// <summary>
         /// Tests connection to specified exchange
         /// </summary>
