@@ -13,7 +13,7 @@ namespace BotView.Chart;
 /// </summary>
 public class ChartRenderer
 {
-	private readonly IndicatorRenderer indicatorRenderer = new();
+	private IndicatorRenderer? indicatorRenderer;
 
 	// === Shared frozen drawing resources (never change) ===
 	private static readonly Typeface LabelTypeface = new Typeface("Arial");
@@ -46,11 +46,15 @@ public class ChartRenderer
 		DrawPriceIndicatorOfSelectedTool(drawingContext, frame);
 		DrawCurrentPriceIndicator(drawingContext, frame, candles);
 
-		DrawDivider(drawingContext, frame);
-		DrawIndicatorPaneArea(drawingContext, frame);
-		DrawIndicatorPaneGrid(drawingContext, frame);
-		DrawIndicatorScale(drawingContext, frame);
-		indicatorRenderer.Render(drawingContext, frame);
+		if (frame.IsIndicatorPaneVisible)
+		{
+			DrawDivider(drawingContext, frame);
+			DrawIndicatorPaneArea(drawingContext, frame);
+			DrawIndicatorPaneGrid(drawingContext, frame);
+			DrawIndicatorScale(drawingContext, frame);
+			(indicatorRenderer ??= new()).Render(drawingContext, frame);
+		}
+		else indicatorRenderer = null;
 		DrawTimeScale(drawingContext, frame);
 		DrawCrosshair(drawingContext, frame);
 	}

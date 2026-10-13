@@ -43,6 +43,7 @@ public class ChartController : INotifyPropertyChanged
 	public ViewportClippingCoords Viewport => state.Viewport;
 	public bool IsReady => state.IsInitialized && state.ChartWidth > 0 && state.MainPaneHeight > 0 && state.Series.GetSnapshot().Count > 0;
 	public IReadOnlyList<Indicator> Indicators => state.Indicators;
+	public bool IsIndicatorPaneVisible => state.IsIndicatorPaneVisible;
 	public bool IsSwitchingSymbol => state.IsSwitchingSymbol;
 	public bool ShowCandleOutlines
 	{
@@ -74,6 +75,8 @@ public class ChartController : INotifyPropertyChanged
 	public ICommand BeginToolCreationCommand { get; }
 	public ICommand CancelInteractionCommand { get; }
 	public ICommand DeleteSelectedToolCommand { get; }
+	public ICommand ShowRsiCommand { get; }
+	public ICommand CloseIndicatorPaneCommand { get; }
 	public event PropertyChangedEventHandler? PropertyChanged;
 	public event Action? RenderRequested;
 	public event Action<InteractionResult>? ViewActionRequested;
@@ -105,6 +108,8 @@ public class ChartController : INotifyPropertyChanged
 		}, parameter => IsReady && !IsSwitchingSymbol && parameter is TechnicalAnalysisToolType type && IsSupportedTool(type));
 		CancelInteractionCommand = new RelayCommand(RequestCancellation);
 		DeleteSelectedToolCommand = new RelayCommand(_ => DeleteSelectedTool(), _ => SelectedTool != null);
+		ShowRsiCommand = new RelayCommand(ShowRsi);
+		CloseIndicatorPaneCommand = new RelayCommand(CloseIndicatorPane);
 		RefreshRenderCaches();
 	}
 
@@ -116,7 +121,8 @@ public class ChartController : INotifyPropertyChanged
 			state.LeftMargin, state.TopMargin, state.ChartWidth, state.MainPaneHeight,
 			state.IndicatorPaneTop, state.IndicatorPaneHeight, state.IndicatorCameraY,
 			state.IndicatorRangeInViewport, cachedTimeframeSpan);
-		Axes = new AxisLayout(state.Viewport, state.IndicatorViewport, state.MainPaneHeight, cachedTimeframeSpan);
+		Axes = new AxisLayout(state.Viewport, state.IndicatorViewport, state.MainPaneHeight,
+			cachedTimeframeSpan, IsIndicatorPaneVisible);
 	}
 
 #region === COORDINATE CONVERSION METHODS ===
@@ -134,6 +140,7 @@ public class ChartController : INotifyPropertyChanged
 	/// <summary>Updates the indicator viewport based on indicator camera position</summary>
 	private void RebuildIndicatorViewport()
 	{
+		if (!IsIndicatorPaneVisible) return;
 		double minValue = state.IndicatorCameraY - state.IndicatorRangeInViewport / 2;
 		double maxValue = state.IndicatorCameraY + state.IndicatorRangeInViewport / 2;
 		state.IndicatorViewport = new IndicatorViewport(minValue, maxValue);
@@ -143,7 +150,7 @@ public class ChartController : INotifyPropertyChanged
 	public ChartPane DetectPane(Point point)
 	{
 		// Check if in divider area
-		if (point.Y >= state.DividerY && point.Y <= state.DividerY + state.DividerHeight &&
+		if (IsIndicatorPaneVisible && point.Y >= state.DividerY && point.Y <= state.DividerY + state.DividerHeight &&
 			point.X >= state.LeftMargin && point.X <= state.LeftMargin + state.ChartWidth)
 		{
 			return ChartPane.Divider;
@@ -157,7 +164,7 @@ public class ChartController : INotifyPropertyChanged
 		}
 
 		// Check if in indicator pane
-		if (point.Y > state.IndicatorPaneTop && point.Y <= state.IndicatorPaneTop + state.IndicatorPaneHeight &&
+		if (IsIndicatorPaneVisible && point.Y > state.IndicatorPaneTop && point.Y <= state.IndicatorPaneTop + state.IndicatorPaneHeight &&
 			point.X >= state.LeftMargin && point.X <= state.LeftMargin + state.ChartWidth)
 		{
 			return ChartPane.Indicator;
@@ -480,7 +487,7 @@ public class ChartController : INotifyPropertyChanged
 		}
 
 		// Проверяем область шкалы индикатора (справа от indicator pane)
-		if (point.X >= priceScaleX - tolerance && point.X <= priceScaleX + state.RightMargin &&
+		if (IsIndicatorPaneVisible && point.X >= priceScaleX - tolerance && point.X <= priceScaleX + state.RightMargin &&
 			point.Y > state.IndicatorPaneTop && point.Y <= state.IndicatorPaneTop + state.IndicatorPaneHeight)
 		{
 			return ScaleZoomMode.IndicatorScale;
@@ -535,6 +542,7 @@ public class ChartController : INotifyPropertyChanged
 	/// <summary>Zooms the indicator pane Y-axis independently</summary>
 	public void ZoomIndicatorAxis(double zoomFactor)
 	{
+		if (!IsIndicatorPaneVisible) return;
 		if (!double.IsFinite(zoomFactor) || zoomFactor <= 0) return;
 		state.IndicatorRangeInViewport = Math.Clamp(state.IndicatorRangeInViewport * zoomFactor, 1, 10000);
 		UpdateViewportFromCamera();
@@ -897,7 +905,10 @@ public class ChartController : INotifyPropertyChanged
 		else UpdateViewportFromCamera();
 	}
 
-	public void UpdateIndicatorViewport() => UpdateViewportFromCamera();
+	public void UpdateIndicatorViewport()
+	{
+		if (IsIndicatorPaneVisible) UpdateViewportFromCamera();
+	}
 
 	private static bool IsSupportedTool(TechnicalAnalysisToolType type) => type is
 		TechnicalAnalysisToolType.HorizontalLine or TechnicalAnalysisToolType.HorizontalRay or
@@ -1166,29 +1177,55 @@ public class ChartController : INotifyPropertyChanged
 
 	public void AddIndicator(Indicator indicator)
 	{
+		bool opening = !IsIndicatorPaneVisible;
+		state.IsIndicatorPaneVisible = true;
 		state.MutableIndicators.Add(indicator);
 		AutoFitIndicatorViewport();
 		OnPropertyChanged(nameof(Indicators));
+		if (opening) OnPropertyChanged(nameof(IsIndicatorPaneVisible));
 	}
 
 	public void RemoveIndicator(string id)
 	{
 		state.MutableIndicators.RemoveAll(indicator => indicator.Id == id);
+		if (state.MutableIndicators.Count == 0)
+		{
+			CloseIndicatorPane();
+			return;
+		}
 		AutoFitIndicatorViewport();
 		OnPropertyChanged(nameof(Indicators));
 	}
 
-	public void ClearIndicators()
+	public void ClearIndicators() => CloseIndicatorPane();
+
+	public void CloseIndicatorPane()
 	{
+		if (!IsIndicatorPaneVisible) return;
+		HandleCaptureLost();
+		state.IsIndicatorPaneVisible = false;
 		state.MutableIndicators.Clear();
+		interaction.CrosshairVisible = false;
+		interaction.CrosshairPane = ChartPane.None;
+		UpdateViewportFromCamera();
 		OnPropertyChanged(nameof(Indicators));
-		RequestRender();
+		OnPropertyChanged(nameof(IsIndicatorPaneVisible));
+		ViewActionRequested?.Invoke(new(true, interaction.IsCreatingTool ? Cursors.Cross : Cursors.Arrow,
+			MouseCaptureAction.Release, Menu: ContextMenuAction.Close));
+	}
+
+	/// <summary>The toolbar action is idempotent while any indicator pane is open.</summary>
+	public void ShowRsi()
+	{
+		if (IsIndicatorPaneVisible) return;
+		AddRSI();
 	}
 
 	public List<Indicator> GetIndicators() => state.Indicators.ToList();
 
 	public void AutoFitIndicatorViewport()
 	{
+		if (!IsIndicatorPaneVisible) return;
 		// Preserve the current indicator scaling policy; RSI uses its explicit range.
 		if (!state.Indicators.Any(indicator => indicator.IsVisible && indicator.Points.Count > 0))
 		{
@@ -1200,6 +1237,8 @@ public class ChartController : INotifyPropertyChanged
 
 	public RSIIndicator AddRSI(int period = 14)
 	{
+		bool opening = !IsIndicatorPaneVisible;
+		state.IsIndicatorPaneVisible = true;
 		state.MutableIndicators.RemoveAll(indicator => indicator.Id == "rsi");
 		var rsi = new RSIIndicator(period);
 		var snapshot = state.Series.GetSnapshot();
@@ -1209,11 +1248,13 @@ public class ChartController : INotifyPropertyChanged
 		state.IndicatorRangeInViewport = 110;
 		UpdateViewportFromCamera();
 		OnPropertyChanged(nameof(Indicators));
+		if (opening) OnPropertyChanged(nameof(IsIndicatorPaneVisible));
 		return rsi;
 	}
 
 	public void RecalculateIndicators(bool invalidateVisual = true)
 	{
+		if (!IsIndicatorPaneVisible || state.Indicators.Count == 0) return;
 		var snapshot = state.Series.GetSnapshot();
 		var timeframe = ParseTimeframe(state.Timeframe);
 		foreach (var rsi in state.Indicators.OfType<RSIIndicator>())

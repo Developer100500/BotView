@@ -44,11 +44,12 @@ public class ChartState
 	public double BottomMargin { get; } = 30; // Увеличено для шкалы времени
 
 	// === INDICATOR PANE STATE ===
+	public bool IsIndicatorPaneVisible { get; internal set; }
 	/// <summary>Ratio of indicator pane height to total chart height (0.0 to 1.0)</summary>
 	public double IndicatorPaneHeightRatio { get; internal set; } = 0.25;
 
 	/// <summary>Height of the divider between panes in pixels</summary>
-	public double DividerHeight { get; } = 2;
+	public double DividerHeight => IsIndicatorPaneVisible ? 2 : 0;
 
 	/// <summary>Minimum height ratio for indicator pane</summary>
 	public double MinIndicatorPaneRatio { get; } = 0.1;
@@ -57,12 +58,12 @@ public class ChartState
 	public double MaxIndicatorPaneRatio { get; } = 0.5;
 
 	/// <summary>Height of main candlestick pane in pixels</summary>
-	public double MainPaneHeight => ChartHeight > DividerHeight 
+	public double MainPaneHeight => !IsIndicatorPaneVisible ? ChartHeight : ChartHeight > DividerHeight
 		? (ChartHeight - DividerHeight) * (1.0 - IndicatorPaneHeightRatio) 
 		: 0;
 
 	/// <summary>Height of indicator pane in pixels</summary>
-	public double IndicatorPaneHeight => ChartHeight > DividerHeight 
+	public double IndicatorPaneHeight => IsIndicatorPaneVisible && ChartHeight > DividerHeight
 		? (ChartHeight - DividerHeight) * IndicatorPaneHeightRatio 
 		: 0;
 
@@ -71,6 +72,20 @@ public class ChartState
 
 	/// <summary>Y position where the indicator pane starts</summary>
 	public double IndicatorPaneTop => DividerY + DividerHeight;
+
+	/// <summary>Layout shared by the native close button and the indicator pane.</summary>
+	public System.Windows.Rect IndicatorCloseButtonBounds
+	{
+		get
+		{
+			if (!IsIndicatorPaneVisible || ChartWidth <= 0 || IndicatorPaneHeight <= 0)
+				return System.Windows.Rect.Empty;
+			double size = Math.Min(22, Math.Min(ChartWidth, IndicatorPaneHeight));
+			double insetX = Math.Min(4, ChartWidth - size);
+			double insetY = Math.Min(4, IndicatorPaneHeight - size);
+			return new(LeftMargin + ChartWidth - size - insetX, IndicatorPaneTop + insetY, size, size);
+		}
+	}
 
 	/// <summary>Viewport for indicator pane Y-axis (min/max values)</summary>
 	public IndicatorViewport IndicatorViewport { get; internal set; } = new IndicatorViewport(0, 100);

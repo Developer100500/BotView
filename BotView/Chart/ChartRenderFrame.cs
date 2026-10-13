@@ -17,6 +17,7 @@ public sealed class ChartRenderFrame
 	public IReadOnlyList<Indicator> Indicators { get; }
 	public bool IsInitialized { get; }
 	public bool ShowCandleOutlines { get; }
+	public bool IsIndicatorPaneVisible { get; }
 	public double Left { get; }
 	public double Top { get; }
 	public double LeftMargin => Left;
@@ -60,7 +61,10 @@ public sealed class ChartRenderFrame
 		Viewport = state.Viewport;
 		IndicatorViewport = state.IndicatorViewport;
 		Tools = Array.AsReadOnly(state.TechnicalAnalysisManager.GetTools().ToArray());
-		Indicators = Array.AsReadOnly(state.Indicators.ToArray());
+		IsIndicatorPaneVisible = state.IsIndicatorPaneVisible;
+		Indicators = IsIndicatorPaneVisible
+			? Array.AsReadOnly(state.Indicators.ToArray())
+			: Array.Empty<Indicator>();
 		IsInitialized = state.IsInitialized;
 		ShowCandleOutlines = state.ShowCandleOutlines;
 		Left = state.LeftMargin;

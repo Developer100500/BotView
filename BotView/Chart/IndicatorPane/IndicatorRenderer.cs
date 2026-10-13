@@ -10,7 +10,7 @@ public class IndicatorRenderer
 	/// <summary>Main render method for all indicators</summary>
 	public void Render(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (frame.Indicators.Count == 0)
+		if (!frame.IsIndicatorPaneVisible || frame.Indicators.Count == 0)
 			return;
 
 		// Create clipping region for indicator pane

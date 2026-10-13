@@ -22,10 +22,10 @@ public sealed class ChartTransform
 		WorldOriginPrice = originPrice;
 		PixelsPerSecond = timeRange.TotalSeconds > 0 ? width / timeRange.TotalSeconds : 0;
 		PixelsPerPriceUnit = priceRange > 0 ? mainHeight / priceRange : 0;
-		PixelsPerIndicatorUnit = indicatorRange > 0 ? indicatorHeight / indicatorRange : 0;
+		PixelsPerIndicatorUnit = indicatorHeight > 0 && indicatorRange > 0 ? indicatorHeight / indicatorRange : 0;
 		cachedViewCenterX = left + width / 2;
 		cachedViewCenterY = top + mainHeight / 2;
-		cachedIndicatorViewCenterY = indicatorTop + indicatorHeight / 2;
+		cachedIndicatorViewCenterY = indicatorHeight > 0 ? indicatorTop + indicatorHeight / 2 : 0;
 		cachedCameraX = camera.x;
 		cachedCameraY = camera.y;
 		cachedIndicatorCameraY = indicatorCameraY;

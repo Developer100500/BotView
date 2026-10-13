@@ -303,6 +303,10 @@
                               IsChecked="{Binding ShowCandleOutlines, ElementName=chartView, Mode=TwoWay}"
                               Foreground="{StaticResource TextPrimaryBrush}" Margin="2,0,0,10"
                               ToolTip="Включить или отключить контур тел свечей"/>
+                    <TextBlock Text="ИНДИКАТОРЫ" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
+                    <Button Name="btnAddRsi" Content="Добавить RSI" Style="{StaticResource ToolbarButtonStyle}"
+                            Command="{Binding Controller.ShowRsiCommand, ElementName=chartView}"
+                            ToolTip="Открыть панель индикаторов с RSI"/>
                     <TextBlock Text="ИНСТРУМЕНТЫ" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
                     <WrapPanel Orientation="Horizontal">
                         <Button Name="btnHorizontalLine" Style="{StaticResource IconButtonStyle}"

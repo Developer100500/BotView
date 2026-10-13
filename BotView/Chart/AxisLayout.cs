@@ -7,6 +7,7 @@ public sealed class AxisLayout
 	private readonly BotView.Chart.IndicatorPane.IndicatorViewport indicatorViewport;
 	private readonly double mainPaneHeight;
 	private readonly TimeSpan timeframe;
+	private readonly bool indicatorPaneVisible;
 	public double PriceInterval { get; }
 	public TimeSpan TimeInterval { get; }
 	public double IndicatorValueInterval { get; }
@@ -16,19 +17,21 @@ public sealed class AxisLayout
 
 	public AxisLayout(ViewportClippingCoords viewport,
 		BotView.Chart.IndicatorPane.IndicatorViewport indicatorViewport,
-		double mainPaneHeight, TimeSpan timeframe)
+		double mainPaneHeight, TimeSpan timeframe, bool indicatorPaneVisible = true)
 	{
 		this.viewport = viewport;
 		this.indicatorViewport = indicatorViewport;
 		this.mainPaneHeight = mainPaneHeight;
 		this.timeframe = timeframe;
+		this.indicatorPaneVisible = indicatorPaneVisible;
 		PriceInterval = CalculateOptimalPriceInterval();
 		TimeInterval = CalculateOptimalTimeInterval();
 		IndicatorValueInterval = CalculateOptimalIndicatorInterval();
 		PriceTicks = NumericTicks(viewport.minPrice, viewport.maxPrice, PriceInterval,
 			value => FormatPriceLabel(value, PriceInterval));
-		IndicatorTicks = NumericTicks(indicatorViewport.MinValue, indicatorViewport.MaxValue,
-			IndicatorValueInterval, FormatIndicatorValue);
+		IndicatorTicks = indicatorPaneVisible
+			? NumericTicks(indicatorViewport.MinValue, indicatorViewport.MaxValue, IndicatorValueInterval, FormatIndicatorValue)
+			: Array.Empty<AxisTick<double>>();
 		var times = new List<AxisTick<DateTime>>();
 		if (viewport.minTime < viewport.maxTime)
 		{
@@ -65,6 +68,7 @@ public sealed class AxisLayout
 	/// <summary>Вычисляет оптимальный интервал для меток шкалы индикатора</summary>
 	public double CalculateOptimalIndicatorInterval()
 	{
+		if (!indicatorPaneVisible) return 0;
 		var viewport = indicatorViewport;
 		double valueRange = viewport.MaxValue - viewport.MinValue;
 		if (valueRange <= 0 || !double.IsFinite(valueRange))

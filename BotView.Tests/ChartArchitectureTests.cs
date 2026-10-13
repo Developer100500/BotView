@@ -26,6 +26,7 @@ public sealed class ChartArchitectureTests
 		var controller = new ChartController();
 		controller.SetViewSize(870, 550);
 		controller.SetSeries(series, "1m");
+		controller.AddRSI();
 		return controller;
 	}
 
@@ -300,19 +301,22 @@ public sealed class ChartArchitectureTests
 	[Fact]
 	public void FrameReadsOneSnapshotAndIsUnaffectedByLaterLiveUpdatesOrCameraMoves()
 	{
-		var controller = Ready(out var series);
-		series.UpdateLive(Candle(200, 101), out _);
-		var reader = new CountingReader(series);
-		controller.SetSeries(reader, "1m");
-		reader.Reads = 0;
-		var frame = controller.PrepareRenderFrame();
-		Assert.Equal(1, reader.Reads);
-		var before = frame.Viewport;
-		series.UpdateLive(Candle(200, 102), out _);
-		controller.Pan(100, 1);
-		Assert.Equal(101, frame.Candles[frame.Candles.Count - 1].close);
-		AssertSameViewport(before, frame.Viewport);
-		RunSta(() => Render(frame));
+		RunSta(() =>
+		{
+			var controller = Ready(out var series);
+			series.UpdateLive(Candle(200, 101), out _);
+			var reader = new CountingReader(series);
+			controller.SetSeries(reader, "1m");
+			reader.Reads = 0;
+			var frame = controller.PrepareRenderFrame();
+			Assert.Equal(1, reader.Reads);
+			var before = frame.Viewport;
+			series.UpdateLive(Candle(200, 102), out _);
+			controller.Pan(100, 1);
+			Assert.Equal(101, frame.Candles[frame.Candles.Count - 1].close);
+			AssertSameViewport(before, frame.Viewport);
+			Render(frame);
+		});
 	}
 
 	[Fact]
@@ -489,6 +493,183 @@ public sealed class ChartArchitectureTests
 		controller.SetSeries(replacement, "1h");
 		Assert.Equal(oldTime, frame.GetCandleTime(0));
 		Assert.NotEqual(controller.GetCandleTime(0), frame.GetCandleTime(0));
+	}
+
+	[Fact]
+	public void ClosingPaneGivesMainChartAllSpaceAndPreservesItsCamera()
+	{
+		var controller = Ready(out _);
+		controller.IndicatorPaneHeightRatio = 0.4;
+		var before = controller.Viewport;
+		double scale = controller.Transform.PixelsPerPriceUnit;
+		controller.CloseIndicatorPaneCommand.Execute(null);
+		Assert.False(controller.IsIndicatorPaneVisible);
+		Assert.Empty(controller.Indicators);
+		Assert.Equal(controller.State.ChartHeight, controller.State.MainPaneHeight);
+		Assert.Equal(0, controller.State.IndicatorPaneHeight);
+		Assert.Equal(0, controller.State.DividerHeight);
+		Assert.True(controller.Transform.PixelsPerPriceUnit > scale);
+		Assert.Equal(0, controller.Transform.PixelsPerIndicatorUnit);
+		Assert.Empty(controller.Axes.IndicatorTicks);
+		Assert.Equal(0, controller.Axes.IndicatorValueInterval);
+		AssertSameViewport(before, controller.Viewport);
+		var frame = controller.PrepareRenderFrame();
+		Assert.False(frame.IsIndicatorPaneVisible);
+		Assert.Empty(frame.Indicators);
+		Assert.Equal(frame.MainPaneRect.Bottom, frame.TimeScaleY);
+		Assert.Equal(ChartPane.Main, controller.DetectPane(new(300, 450)));
+		Assert.NotEqual(ChartPane.Divider, controller.DetectPane(new(300, 520)));
+		controller.ShowRsiCommand.Execute(null);
+		Assert.True(controller.IsIndicatorPaneVisible);
+		Assert.Equal(0.4, controller.IndicatorPaneHeightRatio);
+		Assert.Equal(scale, controller.Transform.PixelsPerPriceUnit, 8);
+	}
+
+	[Fact]
+	public void ClosedPaneDoesNotCalculateReadSeriesOrDrawIndicators()
+	{
+		RunSta(() =>
+		{
+			var controller = Ready(out var series);
+			var oldRsi = Assert.IsType<RSIIndicator>(Assert.Single(controller.Indicators));
+			var oldValues = oldRsi.Points.Select(point => point.Value).ToArray();
+			var spy = new CountingIndicator();
+			controller.AddIndicator(spy);
+			var reader = new CountingReader(series);
+			controller.SetSeries(reader, "1m");
+			Render(controller.PrepareRenderFrame());
+			Assert.Equal(1, spy.DrawCalls);
+			Assert.Equal(1, spy.ReferenceCalls);
+			controller.CloseIndicatorPane();
+			reader.Reads = 0;
+			controller.RecalculateIndicators();
+			controller.RecalculateIndicators(false);
+			controller.AutoFitIndicatorViewport();
+			controller.UpdateIndicatorViewport();
+			controller.ZoomIndicatorAxis(2);
+			Assert.Equal(0, reader.Reads);
+			series.UpdateLive(Candle(200, 500), out _);
+			series.UpdateLive(Candle(201, 600), out _);
+			controller.OnCandleClosed();
+			series.PrependHistory([Candle(-1)]);
+			controller.OnHistoryExtended();
+			controller.SetSeries(series, "1h");
+			Render(controller.PrepareRenderFrame());
+			Assert.False(controller.IsIndicatorPaneVisible);
+			Assert.Equal(oldValues, oldRsi.Points.Select(point => point.Value));
+			Assert.Equal(1, spy.DrawCalls);
+			Assert.Equal(1, spy.ReferenceCalls);
+			Assert.Empty(controller.Axes.IndicatorTicks);
+		});
+	}
+
+	[Fact]
+	public void RsiButtonIsANoOpWhileOpenAndReopensWithCurrentData()
+	{
+		var controller = Ready(out var series);
+		var existing = Assert.IsType<RSIIndicator>(Assert.Single(controller.Indicators));
+		existing.Period = 7;
+		var reader = new CountingReader(series);
+		controller.SetSeries(reader, "1m");
+		reader.Reads = 0;
+		int renderRequests = 0;
+		controller.RenderRequested += () => renderRequests++;
+		controller.ShowRsiCommand.Execute(null);
+		Assert.Same(existing, Assert.Single(controller.Indicators));
+		Assert.Equal(7, existing.Period);
+		Assert.Equal(0, reader.Reads);
+		Assert.Equal(0, renderRequests);
+		controller.CloseIndicatorPane();
+		series.UpdateLive(Candle(200, 500), out _);
+		controller.OnCandleClosed();
+		controller.ShowRsiCommand.Execute(null);
+		var reopened = Assert.IsType<RSIIndicator>(Assert.Single(controller.Indicators));
+		Assert.NotSame(existing, reopened);
+		Assert.Equal(14, reopened.Period);
+		var snapshot = series.GetSnapshot();
+		var expected = new RSIIndicator();
+		expected.Calculate(snapshot, i => snapshot[i].GetDateTime());
+		Assert.Equal(expected.Points.Select(point => point.Value), reopened.Points.Select(point => point.Value));
+	}
+
+	[Fact]
+	public void NativeCloseButtonIsPositionedAtPaneTopRightAndRemovedWhenClosed()
+	{
+		RunSta(() =>
+		{
+			var view = new ChartView();
+			var series = new CandleSeries();
+			series.LoadInitial(Enumerable.Range(0, 200).Select(i => Candle(i, 100 + Math.Sin(i / 5.0))));
+			view.SetSeries(series, "1m");
+			Assert.Equal(0, VisualTreeHelper.GetChildrenCount(view));
+			view.ShowRsi();
+			view.Measure(new Size(870, 550));
+			view.Arrange(new Rect(0, 0, 870, 550));
+			view.UpdateLayout();
+			Assert.Equal(1, VisualTreeHelper.GetChildrenCount(view));
+			var button = Assert.IsType<System.Windows.Controls.Button>(VisualTreeHelper.GetChild(view, 0));
+			button.ApplyTemplate();
+			view.UpdateLayout();
+			var position = button.TranslatePoint(new Point(), view);
+			Assert.Equal(view.Controller.State.IndicatorCloseButtonBounds.Location, position);
+			Assert.Equal("×", button.Content);
+			Assert.True(button.ActualWidth > 0 && button.ActualHeight > 0);
+			ExportViewPreview(view, "BOTVIEW_INDICATORS_OPEN_PREVIEW");
+			view.SetIndicatorPaneRatio(0.4);
+			view.UpdateLayout();
+			Assert.Equal(view.Controller.State.IndicatorCloseButtonBounds.Location, button.TranslatePoint(new Point(), view));
+			var peer = new System.Windows.Automation.Peers.ButtonAutomationPeer(button);
+			var invoke = (System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(
+				System.Windows.Automation.Peers.PatternInterface.Invoke);
+			invoke.Invoke();
+			Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+			Assert.False(view.Controller.IsIndicatorPaneVisible);
+			Assert.Equal(0, VisualTreeHelper.GetChildrenCount(view));
+			Assert.Empty(view.GetIndicators());
+			view.UpdateLayout();
+			ExportViewPreview(view, "BOTVIEW_INDICATORS_CLOSED_PREVIEW");
+			view.ShowRsi();
+			Assert.Equal(1, VisualTreeHelper.GetChildrenCount(view));
+			Assert.Single(view.GetIndicators());
+		});
+	}
+
+	[Fact]
+	public void PaneCanBeClosedBeforeDataAndReopenedBeforeFirstRender()
+	{
+		var controller = new ChartController();
+		controller.ShowRsi();
+		Assert.True(controller.IsIndicatorPaneVisible);
+		Assert.Empty(Assert.IsType<RSIIndicator>(Assert.Single(controller.Indicators)).Points);
+		controller.CloseIndicatorPane();
+		controller.SetViewSize(870, 550);
+		var series = new CandleSeries();
+		series.LoadInitial(Enumerable.Range(0, 200).Select(i => Candle(i)));
+		controller.SetSeries(series, "1m");
+		Assert.False(controller.IsIndicatorPaneVisible);
+		controller.ShowRsi();
+		Assert.True(controller.IsIndicatorPaneVisible);
+		Assert.NotEmpty(Assert.IsType<RSIIndicator>(Assert.Single(controller.Indicators)).Points);
+	}
+
+	private static void ExportViewPreview(ChartView view, string variable)
+	{
+		var path = Environment.GetEnvironmentVariable(variable);
+		if (string.IsNullOrEmpty(path)) return;
+		var bitmap = new RenderTargetBitmap(870, 550, 96, 96, PixelFormats.Pbgra32);
+		bitmap.Render(view);
+		var encoder = new PngBitmapEncoder();
+		encoder.Frames.Add(BitmapFrame.Create(bitmap));
+		using var stream = System.IO.File.Create(path);
+		encoder.Save(stream);
+	}
+
+	private sealed class CountingIndicator : Indicator
+	{
+		public int DrawCalls, ReferenceCalls;
+		public CountingIndicator() => Points.Add(new(DateTime.UnixEpoch, 50));
+		public override void Draw(IndicatorDrawContext context) => DrawCalls++;
+		public override void DrawReferenceLines(IndicatorDrawContext context) => ReferenceCalls++;
 	}
 
 	private static RenderTargetBitmap Render(ChartRenderFrame frame)
