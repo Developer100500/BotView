@@ -4,6 +4,10 @@
 
 Реализована система отрисовки шкал времени и цены с автоматическими подписями и сеткой для торгового графика. Система использует данные из `ViewportClippingCoords` для определения видимого диапазона и автоматически адаптируется к различным уровням масштабирования.
 
+Деления и подписи подготавливает `AxisLayout`; шкалы и сетка используют общий набор
+делений. `ChartTransform` преобразует значения в пиксели, а `ChartRenderer` рисует
+готовый кадр. Владение состоянием описано в [Architecture.md](Architecture.md).
+
 ## Компоненты системы шкал
 
 ### 1. Шкала времени (горизонтальная ось)
@@ -35,8 +39,8 @@
 
 **Начальный вертикальный масштаб** (при смене инструмента/таймфрейма):
 - Берётся последняя `close` как текущая цена
-- Фиксированный диапазон: `PriceRangeInViewport = abs(currentPrice) × 10%`
-- 5% вниз и 5% вверх от текущей цены на всю высоту main pane
+- Фиксированный диапазон: `PriceRangeInViewport = abs(currentPrice) × 20%`
+- 10% вниз и 10% вверх от текущей цены на всю высоту main pane
 - Камера по Y центрируется на текущей цене
 - Диапазон свечей (`high/low`) не используется
 
@@ -60,7 +64,7 @@ private TimeSpan CalculateOptimalTimeInterval()
 {
     TimeSpan viewportRange = viewport.maxTime - viewport.minTime;
     double totalSeconds = viewportRange.TotalSeconds;
-    int targetTickCount = 8; // Целевое количество меток
+    int targetTickCount = 10; // Целевое количество меток
     double secondsPerTick = totalSeconds / targetTickCount;
     
     // Выбор подходящего интервала
@@ -109,9 +113,9 @@ private double CalculateOptimalPriceInterval()
 
 ```csharp
 private double leftMargin = 10;    // Минимальный отступ слева
-private double rightMargin = 80;   // Место для шкалы цены
+private double rightMargin = 60;   // Место для шкалы цены
 private double topMargin = 20;     // Минимальный отступ сверху
-private double bottomMargin = 40;  // Место для шкалы времени
+private double bottomMargin = 30;  // Место для шкалы времени
 ```
 
 ## Адаптивность

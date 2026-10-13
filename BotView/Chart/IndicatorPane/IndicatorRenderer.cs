@@ -7,27 +7,18 @@ namespace BotView.Chart.IndicatorPane;
 /// <summary>Renders indicator data in the indicator pane</summary>
 public class IndicatorRenderer
 {
-	private readonly ChartModel model;
-	private readonly ChartController controller;
-
-	public IndicatorRenderer(ChartModel model, ChartController controller)
-	{
-		this.model = model ?? throw new ArgumentNullException(nameof(model));
-		this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
-	}
-
 	/// <summary>Main render method for all indicators</summary>
-	public void Render(DrawingContext drawingContext)
+	public void Render(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (model.Indicators.Count == 0)
+		if (frame.Indicators.Count == 0)
 			return;
 
 		// Create clipping region for indicator pane
 		RectangleGeometry clipGeometry = new RectangleGeometry(new Rect(
-			model.LeftMargin,
-			model.IndicatorPaneTop,
-			model.ChartWidth,
-			model.IndicatorPaneHeight
+			frame.LeftMargin,
+			frame.IndicatorPaneTop,
+			frame.ChartWidth,
+			frame.IndicatorPaneHeight
 		));
 
 		drawingContext.PushClip(clipGeometry);
@@ -35,9 +26,9 @@ public class IndicatorRenderer
 		try
 		{
 			// Create draw context for indicators
-			var context = new IndicatorDrawContext(drawingContext, model, controller);
+			var context = new IndicatorDrawContext(drawingContext, frame);
 
-			foreach (var indicator in model.Indicators)
+			foreach (var indicator in frame.Indicators)
 			{
 				if (!indicator.IsVisible || indicator.Points.Count == 0)
 					continue;

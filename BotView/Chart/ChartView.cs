@@ -1,96 +1,22 @@
-using System;
-using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
-using BotView.Chart.TechnicalAnalysis;
-using BotView.Chart.IndicatorPane;
-using BotView.Services;
 using BotView.Chart.ChartViews;
+using BotView.Chart.IndicatorPane;
+using BotView.Chart.TechnicalAnalysis;
 using BotView.Models;
+using BotView.Services;
 
 namespace BotView.Chart;
 
-/// <summary>
-/// Универсальная структура для хранения координат
-/// Используется для различных систем координат в графике:
-/// 
-/// 1. View Coordinates (Координаты окна):
-///    - Пиксели от верхнего левого угла компонента ChartView
-///    - Используется для позиционирования UI элементов и обработки мыши
-/// 
-/// 2. World Coordinates (Мировые координаты):
-///    - x: секунды от базового времени (worldOriginTime)
-///    - y: единицы цены от базовой цены (worldOriginPrice)
-///    - Используется для позиционирования графика, операций zoom/pan
-/// </summary>
-public struct Coordinates
-{
-	public double x;
-	public double y;
-
-	public Coordinates(double x, double y)
-	{
-		this.x = x;
-		this.y = y;
-	}
-
-	// Конструктор для целочисленных координат
-	public Coordinates(int x, int y)
-	{
-		this.x = x;
-		this.y = y;
-	}
-}
-
-/// <summary>
-/// Координаты в виде цены и времени (Chart Coordinates)
-/// Используются для позиционирования свечек согласно OHLCV данным
-/// </summary>
-public struct ChartCoordinates
-{
-	public DateTime time;
-	public double price;
-
-	public ChartCoordinates(DateTime time, double price)
-	{
-		this.time = time;
-		this.price = price;
-	}
-}
-
-/// <summary>
-/// Viewport/Camera - определяет какую часть мирового пространства мы видим
-/// </summary>
-public struct ViewportClippingCoords
-{
-	public double minPrice; // минимальная цена в нашем текующем viewport (низ нашего порта)
-	public double maxPrice;
-	public DateTime minTime; // точка времени на которую сейчас приходится левый край нешего viewport
-	public DateTime maxTime;
-
-	public ViewportClippingCoords(double minPrice, double maxPrice, DateTime minTime, DateTime maxTime)
-	{
-		this.minPrice = minPrice;
-		this.maxPrice = maxPrice;
-		this.minTime = minTime;
-		this.maxTime = maxTime;
-	}
-}
-
+/// <summary>WPF adapter for chart commands, input effects and rendering.</summary>
 public class ChartView : FrameworkElement
 {
-	/// <summary>Controls whether candlestick bodies are rendered with an outline.</summary>
-	public static readonly DependencyProperty ShowCandleOutlinesProperty =
-		DependencyProperty.Register(
-			nameof(ShowCandleOutlines),
-			typeof(bool),
-			typeof(ChartView),
-			new FrameworkPropertyMetadata(true, OnShowCandleOutlinesChanged));
+	public static readonly DependencyProperty ShowCandleOutlinesProperty = DependencyProperty.Register(
+		nameof(ShowCandleOutlines), typeof(bool), typeof(ChartView),
+		new FrameworkPropertyMetadata(true, OnShowCandleOutlinesChanged));
 
 	public bool ShowCandleOutlines
 	{
@@ -98,939 +24,183 @@ public class ChartView : FrameworkElement
 		set => SetValue(ShowCandleOutlinesProperty, value);
 	}
 
-	// === MVC COMPONENTS ===
-	private readonly ChartModel model;
-	private readonly ChartController controller;
-	private readonly ChartRenderer renderer;
+	public ChartController Controller { get; } = new();
+	private readonly ChartRenderer renderer = new();
 	private readonly ChartContextMenu toolContextMenu;
-
-	// === RENDER TIME COUNTER ===
-	/// <summary>Время последней отрисовки в миллисекундах</summary>
+	private bool subscribed;
 	public double LastRenderTimeMs { get; private set; }
-
-	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
 	public event Action? LeftEdgeApproached;
 
-	private const double ToolBodyDragThresholdPx = 4.0;
-	private TechnicalAnalysisTool? pendingTool;
-	private Point pendingStartView;
-	private ChartCoordinates pendingLastChart;
-	private bool isDraggingToolBody;
-
-	public ChartView() : base()
+	public ChartView()
 	{
-		// Инициализируем модель (она создаст тестовые данные и инструменты)
-		model = new ChartModel();
-		
-		// Инициализируем контроллер
-		controller = new ChartController(model);
-		
-		// Инициализируем рендерер
-		renderer = new ChartRenderer(model, controller);
-		toolContextMenu = new ChartContextMenu(this, model.TechnicalAnalysisManager);
-		renderer.ShowCandleOutlines = ShowCandleOutlines;
-		
-		// Подписываемся на изменение viewport для перерисовки
-		controller.ViewportChanged += () => InvalidateVisual();
-		controller.LeftEdgeApproached += () => LeftEdgeApproached?.Invoke();
-
-		// Делаем контрол фокусируемым для обработки клавиатуры
+		toolContextMenu = new ChartContextMenu(this, Controller);
 		Focusable = true;
-	}
-
-	private static void OnShowCandleOutlinesChanged(DependencyObject dependencyObject,
-		DependencyPropertyChangedEventArgs eventArgs)
-	{
-		var chartView = (ChartView)dependencyObject;
-		chartView.renderer.ShowCandleOutlines = (bool)eventArgs.NewValue;
-		chartView.InvalidateVisual();
-	}
-
-	private void UpdateCrosshairFromMouse(Point mousePos)
-	{
-		ChartPane pane = controller.DetectPane(mousePos);
-		if (pane == ChartPane.Main || pane == ChartPane.Indicator || pane == ChartPane.Divider)
+		Subscribe();
+		Loaded += (_, _) =>
 		{
-			renderer.CrosshairVisible = true;
-			renderer.CrosshairViewPosition = mousePos;
-			renderer.CrosshairPane = pane;
-		}
-		else
+			Subscribe();
+			SetCurrentValue(ShowCandleOutlinesProperty, Controller.ShowCandleOutlines);
+			Controller.SetViewSize(ActualWidth, ActualHeight);
+			InvalidateVisual();
+		};
+		Unloaded += (_, _) =>
 		{
-			ClearCrosshair();
-		}
+			Apply(Controller.CancelInteraction());
+			Controller.RenderRequested -= OnRenderRequested;
+			Controller.PropertyChanged -= OnControllerPropertyChanged;
+			Controller.ViewActionRequested -= Apply;
+			Controller.LeftEdgeApproached -= OnLeftEdgeApproached;
+			subscribed = false;
+		};
 	}
 
-	private void ClearCrosshair()
+	private void Subscribe()
 	{
-		if (!renderer.CrosshairVisible)
-			return;
-
-		renderer.CrosshairVisible = false;
-		renderer.CrosshairPane = ChartPane.None;
+		if (subscribed) return;
+		Controller.RenderRequested += OnRenderRequested;
+		Controller.PropertyChanged += OnControllerPropertyChanged;
+		Controller.ViewActionRequested += Apply;
+		Controller.LeftEdgeApproached += OnLeftEdgeApproached;
+		subscribed = true;
 	}
 
-	protected override void OnRender(DrawingContext drawingContext)
+	private void OnRenderRequested() => InvalidateVisual();
+	private void OnLeftEdgeApproached() => LeftEdgeApproached?.Invoke();
+	private void OnControllerPropertyChanged(object? sender, PropertyChangedEventArgs args)
 	{
-		// Начинаем измерение времени
-		Stopwatch stopwatch = Stopwatch.StartNew();
+		if (args.PropertyName == nameof(ChartController.ShowCandleOutlines))
+			SetCurrentValue(ShowCandleOutlinesProperty, Controller.ShowCandleOutlines);
+	}
 
-		base.OnRender(drawingContext);
+	private static void OnShowCandleOutlinesChanged(DependencyObject owner, DependencyPropertyChangedEventArgs args)
+	{
+		var view = (ChartView)owner;
+		view.Controller.ShowCandleOutlines = (bool)args.NewValue;
+	}
 
-		// Initialize camera only once
-		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0 &&
-			model.Series.GetSnapshot().Count > 0)
-		{
-			controller.InitializeCamera();
-			model.IsInitialized = true;
-		}
-
-		renderer.Render(drawingContext); // Делегируем отрисовку в renderer
-
-		// Завершаем измерение времени и сохраняем результат в миллисекундах
-		stopwatch.Stop();
-		LastRenderTimeMs = stopwatch.Elapsed.TotalMilliseconds;
+	protected override void OnRender(DrawingContext context)
+	{
+		var watch = Stopwatch.StartNew();
+		base.OnRender(context);
+		renderer.Render(context, Controller.PrepareRenderFrame());
+		LastRenderTimeMs = watch.Elapsed.TotalMilliseconds;
 	}
 
 	protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
 	{
 		base.OnRenderSizeChanged(sizeInfo);
-
-		UpdateChartDimensions();
-
-		// При изменении размера окна обновляем viewport и запрашиваем перерисовку всех инструментов
-		if (model.IsInitialized)
-		{
-			controller.UpdateViewportFromCamera();
-			renderer.RequestRedrawAllTechnicalTools();
-		}
+		Controller.SetViewSize(ActualWidth, ActualHeight);
 	}
 
-	// === MOUSE INTERACTION ===
-
-	protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+	private void Apply(InteractionResult result)
 	{
-		base.OnMouseLeftButtonDown(e);
+		if (result.Menu == ContextMenuAction.Close) toolContextMenu.CloseMenu();
+		if (result.RequestFocus) Focus();
+		if (result.Capture == MouseCaptureAction.Capture) CaptureMouse();
+		else if (result.Capture == MouseCaptureAction.Release && IsMouseCaptured) ReleaseMouseCapture();
+		if (result.Cursor != null) Cursor = result.Cursor;
+		if (result.Menu == ContextMenuAction.Open && result.MenuTool != null)
+			toolContextMenu.OpenMenu(result.MenuTool, result.MenuPosition);
+	}
+
+	protected override void OnMouseLeftButtonDown(MouseButtonEventArgs args)
+	{
+		base.OnMouseLeftButtonDown(args);
 		if (toolContextMenu.IsOpen)
 		{
 			toolContextMenu.CloseMenu();
-			e.Handled = true;
+			args.Handled = true;
 			return;
 		}
-		
-		// Проверяем, находимся ли мы в режиме создания инструмента теханализа
-		if (TechnicalAnalysisTool.IsCreatingTool)
+		var result = Controller.HandlePointerDown(args.GetPosition(this));
+		Apply(result);
+		args.Handled = result.Handled;
+	}
+
+	protected override void OnMouseLeftButtonUp(MouseButtonEventArgs args)
+	{
+		base.OnMouseLeftButtonUp(args);
+		var result = Controller.HandlePointerUp();
+		Apply(result);
+		args.Handled = result.Handled;
+	}
+
+	protected override void OnMouseMove(MouseEventArgs args)
+	{
+		base.OnMouseMove(args);
+		var result = Controller.HandlePointerMove(args.GetPosition(this), args.LeftButton == MouseButtonState.Pressed);
+		Apply(result);
+		args.Handled = result.Handled;
+	}
+
+	protected override void OnMouseRightButtonUp(MouseButtonEventArgs args)
+	{
+		base.OnMouseRightButtonUp(args);
+		var result = Controller.HandleContextMenu(args.GetPosition(this), args.LeftButton == MouseButtonState.Pressed);
+		Apply(result);
+		args.Handled = result.Handled;
+	}
+
+	protected override void OnMouseWheel(MouseWheelEventArgs args)
+	{
+		base.OnMouseWheel(args);
+		Controller.HandleMouseWheel(args.GetPosition(this), args.Delta);
+	}
+
+	protected override void OnMouseLeave(MouseEventArgs args)
+	{
+		base.OnMouseLeave(args);
+		Controller.HandlePointerLeave(IsMouseCaptured);
+	}
+
+	protected override void OnLostMouseCapture(MouseEventArgs args)
+	{
+		base.OnLostMouseCapture(args);
+		Controller.HandleCaptureLost();
+		Cursor = Cursors.Arrow;
+	}
+
+	protected override void OnKeyDown(KeyEventArgs args)
+	{
+		base.OnKeyDown(args);
+		if (args.Key == Key.Escape && toolContextMenu.IsOpen)
 		{
-			HandleToolCreation(e);
+			toolContextMenu.CloseMenu();
+			args.Handled = true;
 			return;
 		}
-
-		Point mousePos = e.GetPosition(this);
-		var viewCoords = new Coordinates(mousePos.X, mousePos.Y);
-
-		// Если инструмент в режиме редактирования — проверяем клик на контрольную точку
-		var editingTool = TechnicalAnalysisTool.EditingTool;
-		if (editingTool != null && editingTool.IsBeingEdited)
-		{
-			int controlPointIndex = editingTool.GetControlPointIndex(viewCoords, controller.ChartToView);
-			if (controlPointIndex >= 0)
-			{
-				TechnicalAnalysisTool.EditingControlPointIndex = controlPointIndex;
-				this.CaptureMouse();
-				this.Cursor = editingTool.GetControlPointCursor(controlPointIndex);
-				e.Handled = true;
-				return;
-			}
-		}
-		
-		// Проверяем, кликнули ли на инструмент
-		var toolAtPoint = model.TechnicalAnalysisManager.GetToolAtPoint(
-			viewCoords,
-			controller.ChartToView,
-			model.Viewport,
-			tolerance: 5.0
-		);
-
-		if (toolAtPoint != null)
-		{
-			BeginPendingToolInteraction(toolAtPoint, mousePos, viewCoords);
-			e.Handled = true;
-			return;
-		}
-
-		if (TechnicalAnalysisTool.IsEditingTool)
-		{
-			TechnicalAnalysisTool.StopEditing();
-			InvalidateVisual();
-		}
-
-		var result = controller.HandleMouseLeftButtonDown(mousePos);
-
-		if (result.ShouldCaptureMouse)
-		{
-			this.CaptureMouse();
-		}
-
-		if (result.Cursor != null)
-		{
-			this.Cursor = result.Cursor;
-		}
-	}
-
-	protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
-	{
-		base.OnMouseRightButtonUp(e);
-		if (TechnicalAnalysisTool.IsCreatingTool || e.LeftButton == MouseButtonState.Pressed)
-			return;
-
-		Point position = e.GetPosition(this);
-		var tool = model.TechnicalAnalysisManager.GetToolAtPoint(
-			new Coordinates(position.X, position.Y),
-			controller.ChartToView,
-			model.Viewport,
-			tolerance: 5.0);
-		if (tool is not IStrokeStyleTool) return;
-
-		if (TechnicalAnalysisTool.EditingTool != tool)
-		{
-			TechnicalAnalysisTool.StopEditing();
-			tool.SetEditMode(true);
-			TechnicalAnalysisTool.StartEditing(tool);
-		}
-		Focus();
-		toolContextMenu.OpenMenu(tool, position);
-		InvalidateVisual();
-		e.Handled = true;
-	}
-
-	/// <summary>Зажимает фигуру: клик без движения включит редактирование, сдвиг сразу переместит её целиком</summary>
-	private void BeginPendingToolInteraction(TechnicalAnalysisTool tool, Point mousePos, Coordinates viewCoords)
-	{
-		Focus();
-
-		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != tool)
-		{
-			TechnicalAnalysisTool.StopEditing();
-			InvalidateVisual();
-		}
-
-		pendingTool = tool;
-		pendingStartView = mousePos;
-		pendingLastChart = controller.ViewToChart(viewCoords);
-		isDraggingToolBody = false;
-		this.CaptureMouse();
-		this.Cursor = tool.GetEditCursor();
-	}
-
-	/// <summary>Обработка клика для создания инструмента технического анализа</summary>
-	private void HandleToolCreation(MouseButtonEventArgs e)
-	{
-		Point mousePos = e.GetPosition(this);
-		ChartCoordinates chartCoords = controller.ViewToChart(new Coordinates(mousePos.X, mousePos.Y));
-
-		this.Cursor = Cursors.Cross;
-
-		// Обработка многоточечных инструментов (TrendLine - 2 клика)
-		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendLine)
-		{
-			HandleTrendLineCreation(chartCoords);
-			e.Handled = true;
-			return;
-		}
-
-		// Обработка многоточечных инструментов (TrendChannel - 3 клика)
-		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendChannel)
-		{
-			HandleTrendChannelCreation(chartCoords);
-			e.Handled = true;
-			return;
-		}
-
-		// Обработка создания прямоугольника (2 клика)
-		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.Rectangle)
-		{
-			HandleRectangleCreation(chartCoords);
-			e.Handled = true;
-			return;
-		}
-
-		// Обработка одноточечных инструментов (например, HorizontalLine)
-		TechnicalAnalysisTool? newTool = TechnicalAnalysisTool.CreatingToolType switch
-		{
-			TechnicalAnalysisToolType.HorizontalLine => new HorizontalLine(
-				price: chartCoords.price,
-				color: Brushes.Red,
-				thickness: 2.0
-			),
-			TechnicalAnalysisToolType.HorizontalRay => new HorizontalRay(
-				startTime: chartCoords.time,
-				price: chartCoords.price,
-				color: Brushes.OrangeRed,
-				thickness: 2.0
-			),
-			_ => null
-		};
-
-		if (newTool != null)
-		{
-			model.TechnicalAnalysisManager.AddTool(newTool, TechnicalAnalysisTool.CreatingToolType);
-		}
-		
-		TechnicalAnalysisTool.StopCreating();
-		this.Cursor = Cursors.Arrow;
-		InvalidateVisual();
-		e.Handled = true;
-	}
-
-	/// <summary>Обработка создания трендовой линии (два клика)</summary>
-	private void HandleTrendLineCreation(ChartCoordinates chartCoords)
-	{
-		if (TechnicalAnalysisTool.CreationStep == 0)
-		{
-			// Первый клик: сохраняем первую точку
-			TechnicalAnalysisTool.CreationPoints[0] = chartCoords;
-			TechnicalAnalysisTool.CreationStep = 1;
-			InvalidateVisual();
-		}
-		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.CreationPoints[0].HasValue)
-		{
-			// Второй клик: создаём линию
-			var firstPoint = TechnicalAnalysisTool.CreationPoints[0].Value;
-			var newTool = new TrendLine(
-				startTime: firstPoint.time,
-				startPrice: firstPoint.price,
-				endTime: chartCoords.time,
-				endPrice: chartCoords.price,
-				color: Brushes.Blue,
-				thickness: 2.0,
-				style: LineStyle.Solid
-			);
-
-			model.TechnicalAnalysisManager.AddTool(newTool, TechnicalAnalysisToolType.TrendLine);
-			TechnicalAnalysisTool.StopCreating();
-			this.Cursor = Cursors.Arrow;
-			InvalidateVisual();
-		}
-	}
-
-	/// <summary>Обработка создания трендового канала (три клика)</summary>
-	private void HandleTrendChannelCreation(ChartCoordinates chartCoords)
-	{
-		if (TechnicalAnalysisTool.CreationStep == 0)
-		{
-			// Первый клик: сохраняем первую точку
-			TechnicalAnalysisTool.CreationPoints[0] = chartCoords;
-			TechnicalAnalysisTool.CreationStep = 1;
-
-			InvalidateVisual();
-		}
-		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.CreationPoints[0].HasValue)
-		{
-			// Второй клик: создаём первую линию канала и переходим к шагу 2
-			var firstPoint = TechnicalAnalysisTool.CreationPoints[0].Value;
-			
-			// Создаём временный канал с нулевым offset для превью
-			var channel = new TrendChannel(
-				startTime: firstPoint.time,
-				startPrice: firstPoint.price,
-				endTime: chartCoords.time,
-				endPrice: chartCoords.price,
-				parallelOffset: 0,
-				color: Brushes.Green,
-				thickness: 2.0,
-				style: LineStyle.Solid
-			);
-
-			TechnicalAnalysisTool.CreationPoints[1] = chartCoords;
-			TechnicalAnalysisTool.CreatingToolInstance = channel;
-			TechnicalAnalysisTool.CreationStep = 2;
-			InvalidateVisual();
-		}
-		else if (TechnicalAnalysisTool.CreationStep == 2 && 
-				 TechnicalAnalysisTool.CreatingToolInstance is TrendChannel channel)
-		{
-			// Третий клик: устанавливаем offset параллельной линии и завершаем создание
-			double parallelOffset = chartCoords.price - channel.StartPrice;
-			channel.ParallelOffset = parallelOffset;
-
-			model.TechnicalAnalysisManager.AddTool(channel, TechnicalAnalysisToolType.TrendChannel);
-			TechnicalAnalysisTool.StopCreating();
-			this.Cursor = Cursors.Arrow;
-			InvalidateVisual();
-		}
-	}
-
-	/// <summary>Обработка создания прямоугольника (два клика)</summary>
-	private void HandleRectangleCreation(ChartCoordinates chartCoords)
-	{
-		if (TechnicalAnalysisTool.CreationStep == 0)
-		{
-			// Первый клик: сохраняем первый угол
-			TechnicalAnalysisTool.CreationPoints[0] = chartCoords;
-			TechnicalAnalysisTool.CreationStep = 1;
-			InvalidateVisual();
-		}
-		else if (TechnicalAnalysisTool.CreationStep == 1 && TechnicalAnalysisTool.CreationPoints[0].HasValue)
-		{
-			// Второй клик: создаём прямоугольник по диагонали
-			var firstPoint = TechnicalAnalysisTool.CreationPoints[0].Value;
-			var newTool = new TechnicalAnalysis.Rectangle(
-				startTime: firstPoint.time,
-				startPrice: firstPoint.price,
-				endTime: chartCoords.time,
-				endPrice: chartCoords.price,
-				color: Brushes.Orange,
-				thickness: 2.0,
-				style: LineStyle.Solid
-			);
-
-			model.TechnicalAnalysisManager.AddTool(newTool, TechnicalAnalysisToolType.Rectangle);
-			TechnicalAnalysisTool.StopCreating();
-			this.Cursor = Cursors.Arrow;
-			InvalidateVisual();
-		}
-	}
-
-	/// <summary>Обрабатывает перетаскивание контрольной точки</summary>
-	private bool HandleControlPointDragging(Coordinates viewCoords)
-	{
-		var tool = TechnicalAnalysisTool.EditingTool;
-		if (tool == null || TechnicalAnalysisTool.EditingControlPointIndex < 0)
-			return false;
-
-		tool.UpdateControlPoint(TechnicalAnalysisTool.EditingControlPointIndex, controller.ViewToChart(viewCoords));
-		InvalidateVisual();
-		return true;
-	}
-
-	/// <summary>Перемещает зажатую фигуру целиком после превышения порога сдвига</summary>
-	private bool HandlePendingToolMove(Point currentPosition, Coordinates viewCoords)
-	{
-		if (pendingTool == null)
-			return false;
-
-		if (!isDraggingToolBody)
-		{
-			double dx = currentPosition.X - pendingStartView.X;
-			double dy = currentPosition.Y - pendingStartView.Y;
-			if ((dx * dx) + (dy * dy) < ToolBodyDragThresholdPx * ToolBodyDragThresholdPx)
-				return true;
-
-			isDraggingToolBody = true;
-		}
-
-		var chartCoords = controller.ViewToChart(viewCoords);
-		pendingTool.Translate(
-			chartCoords.time - pendingLastChart.time,
-			chartCoords.price - pendingLastChart.price);
-		pendingLastChart = chartCoords;
-		InvalidateVisual();
-		return true;
-	}
-
-	/// <summary>Обрабатывает наведение мыши на инструменты</summary>
-	/// <returns>true если курсор изменён</returns>
-	private bool HandleToolHover(Coordinates viewCoords)
-	{
-		var editingTool = TechnicalAnalysisTool.EditingTool;
-
-		if (editingTool != null && editingTool.IsBeingEdited)
-		{
-			int controlPointIndex = editingTool.GetControlPointIndex(viewCoords, controller.ChartToView);
-			if (controlPointIndex >= 0)
-			{
-				this.Cursor = editingTool.GetControlPointCursor(controlPointIndex);
-				return true;
-			}
-		}
-
-		var toolAtPoint = model.TechnicalAnalysisManager.GetToolAtPoint(
-			viewCoords,
-			controller.ChartToView,
-			model.Viewport,
-			tolerance: 5.0
-		);
-
-		if (toolAtPoint != null)
-		{
-			this.Cursor = toolAtPoint.GetHoverCursor();
-			return true;
-		}
-
-		return false;
-	}
-
-	protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
-	{
-		base.OnMouseLeftButtonUp(e);
-
-		if (pendingTool != null)
-		{
-			FinishPendingToolInteraction();
-			return;
-		}
-
-		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingControlPointIndex >= 0)
-		{
-			TechnicalAnalysisTool.EditingControlPointIndex = -1;
-			this.Cursor = Cursors.Arrow;
-			this.ReleaseMouseCapture();
-			InvalidateVisual();
-			return;
-		}
-
-		controller.HandleMouseLeftButtonUp();
-		this.Cursor = Cursors.Arrow;
-		this.ReleaseMouseCapture();
-	}
-
-	/// <summary>Клик без движения — режим редактирования; drag — только перемещение фигуры</summary>
-	private void FinishPendingToolInteraction()
-	{
-		var tool = pendingTool;
-		bool dragged = isDraggingToolBody;
-		pendingTool = null;
-		isDraggingToolBody = false;
-		this.ReleaseMouseCapture();
-		this.Cursor = Cursors.Arrow;
-
-		if (tool == null)
-			return;
-
-		if (dragged)
-			return;
-
-		if (TechnicalAnalysisTool.EditingTool != tool || !tool.IsBeingEdited)
-		{
-			if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != tool)
-				TechnicalAnalysisTool.StopEditing();
-
-			tool.SetEditMode(true);
-			TechnicalAnalysisTool.StartEditing(tool, -1);
-		}
-
-		InvalidateVisual();
-	}
-
-	protected override void OnMouseMove(MouseEventArgs e)
-	{
-		base.OnMouseMove(e);
-
-		Point currentPosition = e.GetPosition(this);
-		var viewCoords = new Coordinates(currentPosition.X, currentPosition.Y);
-
-		UpdateCrosshairFromMouse(currentPosition);
-
-		if (TechnicalAnalysisTool.IsCreatingTool && TechnicalAnalysisTool.CreationStep > 0)
-		{
-			renderer.CurrentMouseChartCoords = controller.ViewToChart(viewCoords);
-			InvalidateVisual();
-			return;
-		}
-
-		if (pendingTool != null && e.LeftButton == MouseButtonState.Pressed)
-		{
-			HandlePendingToolMove(currentPosition, viewCoords);
-			InvalidateVisual();
-			return;
-		}
-
-		if (TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingControlPointIndex >= 0)
-		{
-			HandleControlPointDragging(viewCoords);
-			InvalidateVisual();
-			return;
-		}
-
-		if (e.LeftButton != MouseButtonState.Pressed)
-		{
-			if (HandleToolHover(viewCoords))
-			{
-				InvalidateVisual();
-				return;
-			}
-		}
-
-		var cursor = controller.HandleMouseMove(currentPosition);
-
-		if (cursor != null)
-		{
-			this.Cursor = cursor;
-		}
-
-		InvalidateVisual();
-	}
-
-	protected override void OnMouseLeave(MouseEventArgs e)
-	{
-		base.OnMouseLeave(e);
-
-		if (!IsMouseCaptured)
-		{
-			ClearCrosshair();
-			InvalidateVisual();
-		}
-	}
-
-	protected override void OnMouseWheel(MouseWheelEventArgs e)
-	{
-		base.OnMouseWheel(e);
-			
-		// Масштабирование к позиции курсора
-		Point mousePosition = e.GetPosition(this);
-		controller.HandleMouseWheel(mousePosition, e.Delta);
-	}
-
-	protected override void OnKeyDown(KeyEventArgs e)
-	{
-		base.OnKeyDown(e);
-
-		if ((e.Key == Key.Up || e.Key == Key.Down) &&
-			Keyboard.Modifiers == ModifierKeys.None &&
-			TechnicalAnalysisTool.IsEditingTool &&
-			TechnicalAnalysisTool.EditingTool is HorizontalLine or HorizontalRay)
-		{
-			e.Handled = true;
-			var tool = TechnicalAnalysisTool.EditingTool;
-			controller.RefreshRenderCaches();
-			double step = controller.GetMinimumDisplayedPriceStep();
-			double delta = e.Key == Key.Up ? step : -step;
-			tool.Translate(TimeSpan.Zero, delta);
-			tool.NeedsRedrawing = true;
-			
-			InvalidateVisual();
-
-			return;
-		}
-
-		// Удаление инструмента по нажатию Delete
-		if (e.Key == Key.Delete && TechnicalAnalysisTool.IsEditingTool && TechnicalAnalysisTool.EditingTool != null)
-		{
-			DeleteEditingTool();
-			e.Handled = true;
-			return;
-		}
-
-		// Отмена создания инструмента по Escape
-		if (e.Key == Key.Escape)
-		{
-			if (toolContextMenu.IsOpen)
-			{
-				toolContextMenu.CloseMenu();
-				e.Handled = true;
-				return;
-			}
-			if (pendingTool != null)
-			{
-				pendingTool = null;
-				isDraggingToolBody = false;
-				this.ReleaseMouseCapture();
-				this.Cursor = Cursors.Arrow;
-			}
-
-			if (TechnicalAnalysisTool.IsCreatingTool)
-			{
-				TechnicalAnalysisTool.StopCreating();
-				this.Cursor = Cursors.Arrow;
-				InvalidateVisual();
-				e.Handled = true;
-			}
-			else if (TechnicalAnalysisTool.IsEditingTool)
-			{
-				TechnicalAnalysisTool.StopEditing();
-				InvalidateVisual();
-				e.Handled = true;
-			}
-		}
-	}
-
-	/// <summary>Удаляет инструмент, который сейчас редактируется</summary>
-	private void DeleteEditingTool()
-	{
-		toolContextMenu.CloseMenu();
-		var tool = TechnicalAnalysisTool.EditingTool;
-		if (tool == null) return;
-
-		// Удаляем из менеджера
-		model.TechnicalAnalysisManager.RemoveTool(tool);
-
-		// Сохраняем изменения в файл
-		model.TechnicalAnalysisManager.SaveTools();
-
-		// Выходим из режима редактирования
-		TechnicalAnalysisTool.StopEditing();
-
-		// Перерисовываем
-		InvalidateVisual();
+		var result = Controller.HandleKey(args.Key, Keyboard.Modifiers);
+		Apply(result);
+		args.Handled = result.Handled;
 	}
 
 	public void CloseToolContextMenu() => toolContextMenu.CloseMenu();
-
-	/// <summary>Update chart dimensions (called on every render to handle window resize)</summary>
-	private void UpdateChartDimensions()
-	{
-		model.ChartWidth = Math.Max(0, this.ActualWidth - model.LeftMargin - model.RightMargin);
-		model.ChartHeight = Math.Max(0, this.ActualHeight - model.TopMargin - model.BottomMargin);
-	}
-
-	// === COORDINATE CONVERSION METHODS (delegated to controller) ===
-
-	/// <summary>
-	/// Прямая конвертация из Chart координат в View координаты
-	/// Возвращает экземпляр Coordinates для View Coordinates
-	/// </summary>
-	internal Coordinates ChartToView(ChartCoordinates chartCoords)
-	{
-		return controller.ChartToView(chartCoords);
-	}
-
-	// === PUBLIC API METHODS (delegated to controller) ===
-
-	/// <summary>
-	/// Устанавливает новые данные свечей
-	/// </summary>
-	public void SetCandlestickData(CandlestickData newData)
-	{
-		controller.SetCandlestickData(newData);
-		
-		// Recalculate all indicators with new data
-		RecalculateIndicators();
-	}
-
-	public void SetSeries(ICandleSeriesReader series, string timeframe)
-	{
-		controller.SetSeries(series, timeframe);
-		RecalculateIndicators();
-	}
-
-	/// <summary>Refreshes the chart after history was added to the shared series.</summary>
-	public void OnHistoryExtended()
-	{
-		controller.OnHistoryExtended();
-		RecalculateIndicators(invalidateVisual: false);
-	}
-
-	/// <summary>Redraws the updated live candle from the shared series.</summary>
-	public void OnLiveCandleUpdated()
-	{
-		controller.OnLiveCandleUpdated();
-	}
-
-	/// <summary>Recalculates indicators after the shared series closes a candle.</summary>
-	public void OnCandleClosed()
-	{
-		controller.OnCandleClosed();
-		RecalculateIndicators(invalidateVisual: false);
-	}
-
-	/// <summary>
-	/// Центрирует график на определенном времени
-	/// </summary>
-	public void CenterOnTime(DateTime time)
-	{
-		controller.CenterOnTime(time);
-		InvalidateVisual();
-	}
-
-	/// <summary>
-	/// Центрирует график на определенной цене
-	/// </summary>
-	public void CenterOnPrice(double price)
-	{
-		controller.CenterOnPrice(price);
-		InvalidateVisual();
-	}
-
-	/// <summary>
-	/// Подгоняет график чтобы показать все данные
-	/// </summary>
-	public void FitToData()
-	{
-		controller.FitToData();
-		InvalidateVisual();
-	}
-
-	/// <summary>
-	/// Получает текущий viewport в chart координатах
-	/// </summary>
-	public ViewportClippingCoords GetCurrentViewport()
-	{
-		return controller.GetCurrentViewport();
-	}
-
-	/// <summary>
-	/// Получает позицию камеры в chart координатах
-	/// </summary>
-	public ChartCoordinates GetCameraPosition()
-	{
-		return controller.GetCameraPosition();
-	}
-
-	/// <summary>
-	/// Прокручивает график так, чтобы последняя свеча касалась правой границы области отрисовки.
-	/// </summary>
-	public void SnapLastCandleToRightEdge()
-	{
-		controller.SnapLastCandleToRightEdge();
-		InvalidateVisual();
-	}
-
-	/// <summary> Сбрасывает вертикальный масштаб по текущей цене и высоте панели </summary>
-	public void ResetPriceScaleToCurrentPrice()
-	{
-		controller.ResetPriceScaleToCurrentPrice();
-		InvalidateVisual();
-	}
-
-	/// <summary> Сбрасывает горизонтальный масштаб под текущий таймфрейм </summary>
-	public void ResetTimeScaleToTimeframe()
-	{
-		controller.ResetTimeScaleToTimeframe();
-		InvalidateVisual();
-	}
-
-	/// <summary>
-	/// Масштабирование только по одной оси с сохранением фокуса на центре экрана
-	/// </summary>
-	/// <param name="timeZoomFactor">Фактор масштабирования по времени</param>
-	/// <param name="priceZoomFactor">Фактор масштабирования по цене</param>
-	public void ZoomAxis(double timeZoomFactor, double priceZoomFactor)
-	{
-		controller.ZoomAxis(timeZoomFactor, priceZoomFactor);
-		InvalidateVisual();
-	}
-
-	/// <summary>Получает менеджер инструментов технического анализа</summary>
-	public TechnicalAnalysisManager GetTechnicalAnalysisManager()
-	{
-		return model.TechnicalAnalysisManager;
-	}
-
-	/// <summary>Конвертирует View координаты (пиксели) в Chart координаты (время и цена)</summary>
-	/// <param name="viewCoords">Координаты в пикселях от верхнего левого угла</param>
-	/// <returns>Координаты в виде времени и цены</returns>
-	public ChartCoordinates ViewToChart(Coordinates viewCoords)
-	{
-		return controller.ViewToChart(viewCoords);
-	}
-
-	// === INDICATOR PANE API ===
-
-	/// <summary>Adds an indicator to the indicator pane</summary>
-	public void AddIndicator(Indicator indicator)
-	{
-		model.Indicators.Add(indicator);
-		AutoFitIndicatorViewport();
-		InvalidateVisual();
-	}
-
-	/// <summary>Removes an indicator by ID</summary>
-	public void RemoveIndicator(string indicatorId)
-	{
-		model.Indicators.RemoveAll(i => i.Id == indicatorId);
-		AutoFitIndicatorViewport();
-		InvalidateVisual();
-	}
-
-	/// <summary>Clears all indicators from the indicator pane</summary>
-	public void ClearIndicators()
-	{
-		model.Indicators.Clear();
-		InvalidateVisual();
-	}
-
-	/// <summary>Gets all indicators</summary>
-	public List<Indicator> GetIndicators()
-	{
-		return model.Indicators;
-	}
-
-	/// <summary>Sets the indicator pane height ratio (0.1 to 0.5)</summary>
-	public void SetIndicatorPaneRatio(double ratio)
-	{
-		model.IndicatorPaneHeightRatio = Math.Clamp(ratio, model.MinIndicatorPaneRatio, model.MaxIndicatorPaneRatio);
-		InvalidateVisual();
-	}
-
-	/// <summary>Auto-fits the indicator viewport to show all indicator data</summary>
-	public void AutoFitIndicatorViewport()
-	{
-		if (model.Indicators.Count == 0)
-		{
-			model.IndicatorCameraY = 50;
-			model.IndicatorRangeInViewport = 100;
-			return;
-		}
-
-		double minValue = double.MaxValue;
-		double maxValue = double.MinValue;
-
-		foreach (var indicator in model.Indicators)
-		{
-			if (!indicator.IsVisible || indicator.Points.Count == 0)
-				continue;
-
-			var (indicatorMin, indicatorMax) = indicator.GetValueRange();
-			minValue = Math.Min(minValue, indicatorMin);
-			maxValue = Math.Max(maxValue, indicatorMax);
-		}
-
-		if (minValue == double.MaxValue || maxValue == double.MinValue)
-		{
-			model.IndicatorCameraY = 50;
-			model.IndicatorRangeInViewport = 100;
-			return;
-		}
-
-		// Add 10% padding
-		//double range = maxValue - minValue;
-		//double padding = range * 0.1;
-		//minValue -= padding;
-		//maxValue += padding;
-
-		//model.IndicatorCameraY = (minValue + maxValue) / 2;
-		//model.IndicatorRangeInViewport = Math.Max(maxValue - minValue, 1);
-		
-		controller.UpdateIndicatorViewport();
-	}
-
-	/// <summary>Adds RSI indicator calculated from current candlestick data</summary>
-	/// <param name="period">RSI period (default 14)</param>
-	/// <returns>The created RSI indicator</returns>
-	public RSIIndicator AddRSI(int period = 14)
-	{
-		// Remove existing RSI if present
-		RemoveIndicator("rsi");
-
-		var rsi = new RSIIndicator(period);
-		rsi.Calculate(model.Series.GetSnapshot(), controller);
-		
-		model.Indicators.Add(rsi);
-		
-		// RSI is always 0-100, set viewport accordingly
-		model.IndicatorCameraY = 50;
-		model.IndicatorRangeInViewport = 110; // Slight padding
-		controller.UpdateIndicatorViewport();
-		
-		InvalidateVisual();
-		return rsi;
-	}
-
-	/// <summary>Recalculates all indicators (call after candlestick data changes)</summary>
-	public void RecalculateIndicators(bool invalidateVisual = true)
-	{
-		foreach (var indicator in model.Indicators)
-		{
-			if (indicator is RSIIndicator rsi)
-			{
-				rsi.Calculate(model.Series.GetSnapshot(), controller);
-			}
-			// Add other indicator types here as needed
-		}
-		
-		AutoFitIndicatorViewport();
-		if (invalidateVisual)
-			InvalidateVisual();
-	}
-
+	public void BeginToolCreation(TechnicalAnalysisToolType type) => Controller.BeginToolCreation(type);
+	public Task SetSymbolAsync(string symbol) => Controller.SetSymbolAsync(symbol);
+	public void SaveTools() => Controller.SaveTools();
+	public void SetCandlestickData(CandlestickData data) => Controller.SetCandlestickData(data);
+	public void SetSeries(ICandleSeriesReader series, string timeframe) => Controller.SetSeries(series, timeframe);
+	public void OnHistoryExtended() => Controller.OnHistoryExtended();
+	public void OnLiveCandleUpdated() => Controller.OnLiveCandleUpdated();
+	public void OnCandleClosed() => Controller.OnCandleClosed();
+	public void CenterOnTime(DateTime time) => Controller.CenterOnTime(time);
+	public void CenterOnPrice(double price) => Controller.CenterOnPrice(price);
+	public void FitToData() => Controller.FitToData();
+	public ViewportClippingCoords GetCurrentViewport() => Controller.GetCurrentViewport();
+	public ChartCoordinates GetCameraPosition() => Controller.GetCameraPosition();
+	public void SnapLastCandleToRightEdge() => Controller.SnapLastCandleToRightEdge();
+	public void ResetPriceScaleToCurrentPrice() => Controller.ResetPriceScaleToCurrentPrice();
+	public void ResetTimeScaleToTimeframe() => Controller.ResetTimeScaleToTimeframe();
+	public void ZoomAxis(double timeFactor, double priceFactor) => Controller.ZoomAxis(timeFactor, priceFactor);
+	public TechnicalAnalysisManager GetTechnicalAnalysisManager() => Controller.State.TechnicalAnalysisManager;
+	internal Coordinates ChartToView(ChartCoordinates point) => Controller.Transform.ChartToView(point);
+	public ChartCoordinates ViewToChart(Coordinates point) => Controller.ViewToChart(point);
+	public void AddIndicator(Indicator indicator) => Controller.AddIndicator(indicator);
+	public void RemoveIndicator(string id) => Controller.RemoveIndicator(id);
+	public void ClearIndicators() => Controller.ClearIndicators();
+	public List<Indicator> GetIndicators() => Controller.GetIndicators();
+	public void SetIndicatorPaneRatio(double ratio) => Controller.IndicatorPaneHeightRatio = ratio;
+	public void AutoFitIndicatorViewport() => Controller.AutoFitIndicatorViewport();
+	public RSIIndicator AddRSI(int period = 14) => Controller.AddRSI(period);
+	public void RecalculateIndicators(bool invalidateVisual = true) => Controller.RecalculateIndicators(invalidateVisual);
 }

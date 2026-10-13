@@ -106,11 +106,10 @@ public sealed class CandleSeriesTests
             .ToArray();
         var series = new CandleSeries();
         series.LoadInitial(candles);
-        var controller = new ChartController(new ChartModel());
         var fromBlocks = new RSIIndicator();
         var fromArray = new RSIIndicator();
 
-        fromBlocks.Calculate(series.GetSnapshot(), controller);
+        fromBlocks.Calculate(series.GetSnapshot(), i => candles[i].GetDateTime());
         fromArray.Calculate(candles, i => candles[i].GetDateTime());
 
         Assert.Equal(fromArray.Points.Count, fromBlocks.Points.Count);
@@ -178,7 +177,7 @@ public sealed class CandleSeriesTests
         var series = new CandleSeries();
         series.LoadInitial(Enumerable.Range(0, 250)
             .Select(i => Candle(start + i * 60_000L)));
-        var model = new ChartModel { ChartWidth = 800, ChartHeight = 500 };
+        var model = new ChartState { ChartWidth = 800, ChartHeight = 500 };
         var controller = new ChartController(model);
         controller.SetSeries(series, "1m");
         int requests = 0;

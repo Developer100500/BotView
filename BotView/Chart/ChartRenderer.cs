@@ -13,9 +13,7 @@ namespace BotView.Chart;
 /// </summary>
 public class ChartRenderer
 {
-	private readonly ChartModel model;
-	private readonly ChartController controller;
-	private readonly IndicatorRenderer? indicatorRenderer;
+	private readonly IndicatorRenderer indicatorRenderer = new();
 
 	// === Shared frozen drawing resources (never change) ===
 	private static readonly Typeface LabelTypeface = new Typeface("Arial");
@@ -32,127 +30,48 @@ public class ChartRenderer
 	private static readonly Brush IndicatorBgBrush = CreateFrozenBrush(Color.FromRgb(250, 250, 252));
 	private static readonly Brush CrosshairLabelBrush = CreateFrozenBrush(Color.FromRgb(96, 96, 96));
 
-	public bool RedrawAllTechnicalTools { get; set; } = false;
-
-	/// <summary>Determines whether candlestick bodies are drawn with a border.</summary>
-	public bool ShowCandleOutlines { get; set; } = true;
-
-	/// <summary>Текущие координаты мыши для превью инструмента (устанавливается из ChartView)</summary>
-	public ChartCoordinates? CurrentMouseChartCoords { get; set; } = null;
-
-	/// <summary>Whether crosshair should be drawn</summary>
-	public bool CrosshairVisible { get; set; }
-
-	/// <summary>Mouse position in view coordinates for crosshair</summary>
-	public Point CrosshairViewPosition { get; set; }
-
-	/// <summary>Pane under the cursor (affects horizontal line / price label)</summary>
-	public ChartPane CrosshairPane { get; set; } = ChartPane.None;
-
-	public ChartRenderer(ChartModel model, ChartController controller)
-	{
-		this.model = model ?? throw new ArgumentNullException(nameof(model));
-		this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
-		this.indicatorRenderer = new IndicatorRenderer(model, controller);
-	}
-
 	/// <summary>Главный метод отрисовки графика</summary>
-	public void Render(DrawingContext drawingContext)
+	public void Render(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		var candles = model.Series.GetSnapshot();
-		controller.RefreshRenderCaches();
-		var frameValues = BuildRenderFrame();
+		var candles = frame.Candles;
+		if (frame.ChartWidth <= 0) return;
 
-		DrawMainPaneArea(drawingContext, frameValues);
-		DrawMainPaneGrid(drawingContext, frameValues);
-		DrawPriceScale(drawingContext, frameValues);
-		DrawCandlesticks(drawingContext, frameValues, candles);
-		DrawTechnicalAnalysisTools(drawingContext, frameValues);
-		DrawToolCreationPreview(drawingContext);
-		DrawHorizontalToolPriceLabels(drawingContext, frameValues);
-		DrawPriceIndicatorOfSelectedTool(drawingContext, frameValues);
-		DrawCurrentPriceIndicator(drawingContext, frameValues, candles);
+		DrawMainPaneArea(drawingContext, frame);
+		DrawMainPaneGrid(drawingContext, frame);
+		DrawPriceScale(drawingContext, frame);
+		DrawCandlesticks(drawingContext, frame, candles);
+		DrawTechnicalAnalysisTools(drawingContext, frame);
+		DrawToolCreationPreview(drawingContext, frame);
+		DrawHorizontalToolPriceLabels(drawingContext, frame);
+		DrawPriceIndicatorOfSelectedTool(drawingContext, frame);
+		DrawCurrentPriceIndicator(drawingContext, frame, candles);
 
-		DrawDivider(drawingContext, frameValues);
-		DrawIndicatorPaneArea(drawingContext, frameValues);
-		DrawIndicatorPaneGrid(drawingContext, frameValues);
-		DrawIndicatorScale(drawingContext, frameValues);
-		indicatorRenderer?.Render(drawingContext);
-		DrawTimeScale(drawingContext, frameValues);
-		DrawCrosshair(drawingContext, frameValues);
+		DrawDivider(drawingContext, frame);
+		DrawIndicatorPaneArea(drawingContext, frame);
+		DrawIndicatorPaneGrid(drawingContext, frame);
+		DrawIndicatorScale(drawingContext, frame);
+		indicatorRenderer.Render(drawingContext, frame);
+		DrawTimeScale(drawingContext, frame);
+		DrawCrosshair(drawingContext, frame);
 	}
 
-	/// <summary>Собирает layout и шаги шкал один раз на кадр</summary>
-	private RenderFrame BuildRenderFrame()
-	{
-		double left = model.LeftMargin;
-		double top = model.TopMargin;
-		double chartWidth = model.ChartWidth;
-		double mainPaneHeight = model.MainPaneHeight;
-		double indicatorPaneTop = model.IndicatorPaneTop;
-		double indicatorPaneHeight = model.IndicatorPaneHeight;
-		double dividerY = model.DividerY;
-		double dividerHeight = model.DividerHeight;
-		double scaleX = left + chartWidth;
-		double timeScaleY = indicatorPaneTop + indicatorPaneHeight;
-
-		double priceInterval = controller.PriceInterval;
-		TimeSpan timeInterval = controller.TimeInterval;
-		double indicatorInterval = controller.IndicatorValueInterval;
-
-		double firstPriceTick = priceInterval > 0
-			? Math.Floor(model.Viewport.minPrice / priceInterval) * priceInterval
-			: model.Viewport.minPrice;
-		DateTime firstTimeTick = timeInterval > TimeSpan.Zero
-			? controller.RoundDownToInterval(model.Viewport.minTime, timeInterval)
-			: model.Viewport.minTime;
-
-		var indicatorViewport = model.IndicatorViewport;
-		double firstIndicatorTick = indicatorInterval > 0
-			? Math.Floor(indicatorViewport.MinValue / indicatorInterval) * indicatorInterval
-			: indicatorViewport.MinValue;
-
-		return new RenderFrame(
-			left,
-			top,
-			chartWidth,
-			mainPaneHeight,
-			indicatorPaneTop,
-			indicatorPaneHeight,
-			dividerY,
-			dividerHeight,
-			scaleX,
-			timeScaleY,
-			controller.CandleWidthPixels,
-			priceInterval,
-			timeInterval,
-			firstPriceTick,
-			firstTimeTick,
-			indicatorInterval,
-			firstIndicatorTick,
-			indicatorViewport.MaxValue,
-			new Rect(left, top, chartWidth, mainPaneHeight),
-			new Rect(left, dividerY, chartWidth, dividerHeight),
-			new Rect(left, indicatorPaneTop, chartWidth, indicatorPaneHeight));
-	}
-
-	private void DrawMainPaneArea(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawMainPaneArea(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
 		drawingContext.DrawRectangle(Brushes.White, BorderPen, frame.MainPaneRect);
 	}
 
-	private void DrawDivider(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawDivider(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
 		drawingContext.DrawRectangle(DividerBrush, null, frame.DividerRect);
 	}
 
-	private void DrawIndicatorPaneArea(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawIndicatorPaneArea(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
 		drawingContext.DrawRectangle(IndicatorBgBrush, BorderPen, frame.IndicatorPaneRect);
 	}
 
 	/// <summary>Отрисовка всех свечей</summary>
-	private void DrawCandlesticks(DrawingContext context, in RenderFrame frame, CandleSeriesSnapshot candles)
+	private void DrawCandlesticks(DrawingContext context, ChartRenderFrame frame, CandleSeriesSnapshot candles)
 	{
 		if (candles.Count == 0)
 			return;
@@ -162,10 +81,10 @@ public class ChartRenderer
 
 		try
 		{
-			double viewportMinPrice = model.Viewport.minPrice;
-			double viewportMaxPrice = model.Viewport.maxPrice;
-			DateTime viewportMinTime = model.Viewport.minTime;
-			DateTime viewportMaxTime = model.Viewport.maxTime;
+			double viewportMinPrice = frame.Viewport.minPrice;
+			double viewportMaxPrice = frame.Viewport.maxPrice;
+			DateTime viewportMinTime = frame.Viewport.minTime;
+			DateTime viewportMaxTime = frame.Viewport.maxTime;
 			double candleWidthPixels = frame.CandleWidthPixels;
 			double halfWidth = candleWidthPixels / 2;
 			double viewportLeft = frame.Left;
@@ -178,20 +97,20 @@ public class ChartRenderer
 				if (candle.low > viewportMaxPrice || candle.high < viewportMinPrice)
 					continue;
 
-				DateTime candleTime = candle.timestamp > 0 ? candle.GetDateTime() : controller.GetCandleTime(i);
+				DateTime candleTime = candle.timestamp > 0 ? candle.GetDateTime() : frame.GetCandleTime(i);
 				if (candleTime < viewportMinTime || candleTime > viewportMaxTime)
 					continue;
 
-				double centerX = controller.TimeToViewX(candleTime);
+				double centerX = frame.Transform.TimeToViewX(candleTime);
 				double candleLeft = centerX - halfWidth;
 				double candleRight = centerX + halfWidth;
 				if (candleRight < viewportLeft || candleLeft > viewportRight)
 					continue;
 
-				double highY = controller.PriceToViewY(candle.high);
-				double lowY = controller.PriceToViewY(candle.low);
-				double openY = controller.PriceToViewY(candle.open);
-				double closeY = controller.PriceToViewY(candle.close);
+				double highY = frame.Transform.PriceToViewY(candle.high);
+				double lowY = frame.Transform.PriceToViewY(candle.low);
+				double openY = frame.Transform.PriceToViewY(candle.open);
+				double closeY = frame.Transform.PriceToViewY(candle.close);
 
 				bool isBullish = candle.close > candle.open;
 				Brush bodyBrush = isBullish ? Brushes.LightGreen : Brushes.LightCoral;
@@ -206,7 +125,7 @@ public class ChartRenderer
 
 				context.DrawRectangle(
 					bodyBrush,
-					ShowCandleOutlines ? bodyPen : null,
+					frame.ShowCandleOutlines ? bodyPen : null,
 					new Rect(candleLeft, bodyTop, candleWidthPixels, bodyHeight));
 			}
 		}
@@ -220,13 +139,13 @@ public class ChartRenderer
 	/// Метки цен видимых горизонтальных линий и лучей на правой шкале.
 	/// Метка текущей цены имеет приоритет при пересечении.
 	/// </summary>
-	private void DrawHorizontalToolPriceLabels(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawHorizontalToolPriceLabels(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (!model.IsInitialized || frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0)
+		if (!frame.IsInitialized || frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0)
 			return;
 
 		bool hasCurrentPriceLabel = TryGetCurrentPriceLabelRect(frame, out Rect currentPriceLabelRect);
-		foreach (var tool in model.TechnicalAnalysisManager.GetTools())
+		foreach (var tool in frame.Tools)
 		{
 			if (!tool.IsVisible)
 				continue;
@@ -239,7 +158,7 @@ public class ChartRenderer
 					price = line.Price;
 					brush = line.Color;
 					break;
-				case HorizontalRay ray when ray.StartTime <= model.Viewport.maxTime:
+				case HorizontalRay ray when ray.StartTime <= frame.Viewport.maxTime:
 					price = ray.Price;
 					brush = ray.Color;
 					break;
@@ -247,7 +166,7 @@ public class ChartRenderer
 					continue;
 			}
 
-			if (!IsPriceVisible(price))
+			if (!IsPriceVisible(frame, price))
 				continue;
 
 			Rect labelRect = GetPriceScaleLabelRect(frame, price);
@@ -261,9 +180,9 @@ public class ChartRenderer
 	/// <summary>
 	/// Метка цены на шкале для выбранного плоского инструмента (кроме горизонтальной линии и луча).
 	/// </summary>
-	private void DrawPriceIndicatorOfSelectedTool(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawPriceIndicatorOfSelectedTool(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		var tool = TechnicalAnalysisTool.EditingTool;
+		var tool = frame.SelectedTool;
 		if (tool == null || !tool.IsBeingEdited || tool is HorizontalLine or HorizontalRay)
 			return;
 
@@ -271,8 +190,8 @@ public class ChartRenderer
 			return;
 
 		if (!double.IsFinite(price1) ||
-			price1 < model.Viewport.minPrice ||
-			price1 > model.Viewport.maxPrice)
+			price1 < frame.Viewport.minPrice ||
+			price1 > frame.Viewport.maxPrice)
 		{
 			return;
 		}
@@ -280,8 +199,8 @@ public class ChartRenderer
 		DrawPriceScaleLabel(drawingContext, frame, price1, Brushes.Gray);
 
 		if (!double.IsFinite(price2) ||
-			price2 < model.Viewport.minPrice ||
-			price2 > model.Viewport.maxPrice)
+			price2 < frame.Viewport.minPrice ||
+			price2 > frame.Viewport.maxPrice)
 		{
 			return;
 		}
@@ -290,7 +209,7 @@ public class ChartRenderer
 	}
 
 	/// <summary>Отрисовывает пунктир от текущей свечи и метку рыночной цены на шкале</summary>
-	private void DrawCurrentPriceIndicator(DrawingContext drawingContext, in RenderFrame frame, CandleSeriesSnapshot candles)
+	private void DrawCurrentPriceIndicator(DrawingContext drawingContext, ChartRenderFrame frame, CandleSeriesSnapshot candles)
 	{
 		if (candles.Count == 0)
 			return;
@@ -299,17 +218,17 @@ public class ChartRenderer
 		OHLCV currentCandle = candles[lastIndex];
 		double currentPrice = currentCandle.close;
 		if (!double.IsFinite(currentPrice) ||
-			currentPrice < model.Viewport.minPrice ||
-			currentPrice > model.Viewport.maxPrice)
+			currentPrice < frame.Viewport.minPrice ||
+			currentPrice > frame.Viewport.maxPrice)
 		{
 			return;
 		}
 
 		DateTime candleTime = currentCandle.timestamp > 0
 			? currentCandle.GetDateTime()
-			: controller.GetCandleTime(lastIndex);
-		double priceY = controller.PriceToViewY(currentPrice);
-		double candleX = controller.TimeToViewX(candleTime);
+			: frame.GetCandleTime(lastIndex);
+		double priceY = frame.Transform.PriceToViewY(currentPrice);
+		double candleX = frame.Transform.TimeToViewX(candleTime);
 		double scaleX = frame.ScaleX;
 		double candleRight = candleX + frame.CandleWidthPixels / 2;
 		double lineStartX = Math.Max(frame.Left, candleRight);
@@ -332,11 +251,11 @@ public class ChartRenderer
 	/// <summary>Рисует цветную метку цены на правой шкале</summary>
 	private void DrawPriceScaleLabel(
 		DrawingContext drawingContext,
-		in RenderFrame frame,
+		ChartRenderFrame frame,
 		double price,
 		Brush backgroundBrush)
 	{
-		string priceText = controller.FormatPriceLabel(price, frame.PriceInterval);
+		string priceText = frame.Axes.FormatPriceLabel(price, frame.PriceInterval);
 		FormattedText formattedText = CreateLabelText(priceText, Brushes.White, 10);
 		Rect labelRect = GetPriceScaleLabelRect(frame, price, formattedText);
 
@@ -349,26 +268,26 @@ public class ChartRenderer
 				labelRect.Y + (labelRect.Height - formattedText.Height) / 2));
 	}
 
-	private Rect GetPriceScaleLabelRect(in RenderFrame frame, double price)
+	private Rect GetPriceScaleLabelRect(ChartRenderFrame frame, double price)
 	{
-		string priceText = controller.FormatPriceLabel(price, frame.PriceInterval);
+		string priceText = frame.Axes.FormatPriceLabel(price, frame.PriceInterval);
 		return GetPriceScaleLabelRect(frame, price, CreateLabelText(priceText, Brushes.White, 10));
 	}
 
-	private Rect GetPriceScaleLabelRect(in RenderFrame frame, double price, FormattedText formattedText)
+	private Rect GetPriceScaleLabelRect(ChartRenderFrame frame, double price, FormattedText formattedText)
 	{
 		const double horizontalPadding = 4;
 		const double verticalPadding = 2;
-		double priceY = controller.PriceToViewY(price);
-		double labelWidth = Math.Min(model.RightMargin, formattedText.Width + horizontalPadding * 2);
+		double priceY = frame.Transform.PriceToViewY(price);
+		double labelWidth = Math.Min(frame.RightMargin, formattedText.Width + horizontalPadding * 2);
 		double labelHeight = formattedText.Height + verticalPadding * 2;
 		return new Rect(frame.ScaleX, priceY - labelHeight / 2, labelWidth, labelHeight);
 	}
 
-	private bool TryGetCurrentPriceLabelRect(in RenderFrame frame, out Rect labelRect)
+	private bool TryGetCurrentPriceLabelRect(ChartRenderFrame frame, out Rect labelRect)
 	{
-		var candles = model.Series.GetSnapshot();
-		if (candles.Count > 0 && IsPriceVisible(candles[candles.Count - 1].close))
+		var candles = frame.Candles;
+		if (candles.Count > 0 && IsPriceVisible(frame, candles[candles.Count - 1].close))
 		{
 			labelRect = GetPriceScaleLabelRect(frame, candles[candles.Count - 1].close);
 			return true;
@@ -378,26 +297,26 @@ public class ChartRenderer
 		return false;
 	}
 
-	private bool IsPriceVisible(double price) =>
-		double.IsFinite(price) && price >= model.Viewport.minPrice && price <= model.Viewport.maxPrice;
+	private bool IsPriceVisible(ChartRenderFrame frame, double price) =>
+		double.IsFinite(price) && price >= frame.Viewport.minPrice && price <= frame.Viewport.maxPrice;
 
 	/// <summary>
 	/// Crosshair: vertical follows mouse X with continuous time label;
 	/// horizontal (main pane only) follows mouse Y with price label.
 	/// </summary>
-	private void DrawCrosshair(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawCrosshair(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (!CrosshairVisible || !model.IsInitialized)
+		if (!frame.CrosshairVisible || !frame.IsInitialized)
 			return;
 
 		if (frame.ChartWidth <= 0)
 			return;
 
-		Point mouse = CrosshairViewPosition;
+		Point mouse = frame.CrosshairViewPosition;
 		if (mouse.X < frame.Left || mouse.X > frame.ScaleX)
 			return;
 
-		ChartCoordinates chartCoords = controller.ViewToChart(new Coordinates(mouse.X, mouse.Y));
+		ChartCoordinates chartCoords = frame.Transform.ViewToChart(new Coordinates(mouse.X, mouse.Y));
 		double verticalX = mouse.X;
 		double mainBottom = frame.Top + frame.MainPaneHeight;
 		double indicatorBottom = frame.IndicatorPaneTop + frame.IndicatorPaneHeight;
@@ -415,7 +334,7 @@ public class ChartRenderer
 				new Point(verticalX, indicatorBottom));
 		}
 
-		bool showPriceCrosshair = CrosshairPane == ChartPane.Main
+		bool showPriceCrosshair = frame.CrosshairPane == ChartPane.Main
 			&& mouse.Y >= frame.Top
 			&& mouse.Y <= frame.Top + frame.MainPaneHeight;
 
@@ -428,8 +347,8 @@ public class ChartRenderer
 
 			double price = chartCoords.price;
 			if (double.IsFinite(price)
-				&& price >= model.Viewport.minPrice
-				&& price <= model.Viewport.maxPrice)
+				&& price >= frame.Viewport.minPrice
+				&& price <= frame.Viewport.maxPrice)
 			{
 				DrawPriceScaleLabel(drawingContext, frame, price, CrosshairLabelBrush);
 			}
@@ -441,11 +360,11 @@ public class ChartRenderer
 	/// <summary>Draws a time label on the bottom time scale centered on vertical crosshair</summary>
 	private void DrawTimeScaleLabel(
 		DrawingContext drawingContext,
-		in RenderFrame frame,
+		ChartRenderFrame frame,
 		double centerX,
 		DateTime time)
 	{
-		string timeText = controller.FormatCrosshairTimeLabel(time);
+		string timeText = frame.Axes.FormatCrosshairTimeLabel(time);
 		FormattedText formattedText = CreateLabelText(timeText, Brushes.White, 10);
 
 		const double horizontalPadding = 4;
@@ -455,13 +374,13 @@ public class ChartRenderer
 
 		double labelLeft = centerX - labelWidth / 2;
 		double minLeft = frame.Left;
-		double maxLeft = frame.ScaleX + model.RightMargin - labelWidth;
+		double maxLeft = frame.ScaleX + frame.RightMargin - labelWidth;
 		if (maxLeft < minLeft)
 			maxLeft = minLeft;
 		labelLeft = Math.Clamp(labelLeft, minLeft, maxLeft);
 
 		double labelTop = frame.TimeScaleY + 2;
-		double maxTop = frame.TimeScaleY + model.BottomMargin - labelHeight;
+		double maxTop = frame.TimeScaleY + frame.BottomMargin - labelHeight;
 		if (maxTop < frame.TimeScaleY)
 			maxTop = frame.TimeScaleY;
 		labelTop = Math.Clamp(labelTop, frame.TimeScaleY, maxTop);
@@ -474,9 +393,9 @@ public class ChartRenderer
 	}
 
 	/// <summary>Отрисовка шкалы времени (горизонтальная ось внизу indicator pane - shared)</summary>
-	private void DrawTimeScale(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawTimeScale(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (model.Viewport.minTime >= model.Viewport.maxTime || frame.TimeInterval <= TimeSpan.Zero)
+		if (frame.Viewport.minTime >= frame.Viewport.maxTime || frame.TimeInterval <= TimeSpan.Zero)
 			return;
 
 		double scaleY = frame.TimeScaleY;
@@ -487,31 +406,29 @@ public class ChartRenderer
 			new Point(frame.Left, scaleY),
 			new Point(frame.ScaleX, scaleY));
 
-		DateTime currentTime = frame.FirstTimeTick;
-		while (currentTime <= model.Viewport.maxTime)
+		foreach (var tick in frame.Axes.TimeTicks)
 		{
-			double x = controller.TimeToViewX(currentTime);
+			var currentTime = tick.Value;
+			double x = frame.Transform.TimeToViewX(currentTime);
 			if (x >= frame.Left && x <= frame.ScaleX)
 			{
 				drawingContext.DrawLine(TickPen,
 					new Point(x, scaleY),
 					new Point(x, scaleY + tickHeight));
 
-				string timeText = controller.FormatTimeLabel(currentTime, frame.TimeInterval);
+				string timeText = tick.Label;
 				FormattedText formattedText = CreateLabelText(timeText, Brushes.Black, 10);
 				drawingContext.DrawText(
 					formattedText,
 					new Point(x - formattedText.Width / 2, scaleY + tickHeight + textOffset));
 			}
-
-			currentTime = currentTime.Add(frame.TimeInterval);
 		}
 	}
 
 	/// <summary>Отрисовка шкалы цены (вертикальная ось справа main pane)</summary>
-	private void DrawPriceScale(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawPriceScale(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (model.Viewport.minPrice >= model.Viewport.maxPrice || frame.PriceInterval <= 0)
+		if (frame.Viewport.minPrice >= frame.Viewport.maxPrice || frame.PriceInterval <= 0)
 			return;
 
 		const double tickWidth = 5;
@@ -523,31 +440,29 @@ public class ChartRenderer
 			new Point(scaleX, frame.Top),
 			new Point(scaleX, mainBottom));
 
-		double currentPrice = frame.FirstPriceTick;
-		while (currentPrice <= model.Viewport.maxPrice)
+		foreach (var tick in frame.Axes.PriceTicks)
 		{
-			double y = controller.PriceToViewY(currentPrice);
+			var currentPrice = tick.Value;
+			double y = frame.Transform.PriceToViewY(currentPrice);
 			if (y >= frame.Top && y <= mainBottom)
 			{
 				drawingContext.DrawLine(TickPen,
 					new Point(scaleX, y),
 					new Point(scaleX + tickWidth, y));
 
-				string priceText = controller.FormatPriceLabel(currentPrice, frame.PriceInterval);
+				string priceText = tick.Label;
 				FormattedText formattedText = CreateLabelText(priceText, Brushes.Black, 10);
 				drawingContext.DrawText(
 					formattedText,
 					new Point(scaleX + tickWidth + textOffset, y - formattedText.Height / 2));
 			}
-
-			currentPrice += frame.PriceInterval;
 		}
 	}
 
 	/// <summary>Отрисовка шкалы индикатора (вертикальная ось справа indicator pane)</summary>
-	private void DrawIndicatorScale(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawIndicatorScale(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (frame.FirstIndicatorTick > frame.IndicatorMaxValue || frame.IndicatorValueInterval <= 0)
+		if (frame.Axes.IndicatorTicks.Count == 0 || frame.IndicatorValueInterval <= 0)
 			return;
 
 		const double tickWidth = 5;
@@ -559,133 +474,117 @@ public class ChartRenderer
 			new Point(scaleX, frame.IndicatorPaneTop),
 			new Point(scaleX, indicatorBottom));
 
-		double currentValue = frame.FirstIndicatorTick;
-		while (currentValue <= frame.IndicatorMaxValue)
+		foreach (var tick in frame.Axes.IndicatorTicks)
 		{
-			double y = controller.IndicatorValueToViewY(currentValue);
+			var currentValue = tick.Value;
+			double y = frame.Transform.IndicatorValueToViewY(currentValue);
 			if (y >= frame.IndicatorPaneTop && y <= indicatorBottom)
 			{
 				drawingContext.DrawLine(TickPen,
 					new Point(scaleX, y),
 					new Point(scaleX + tickWidth, y));
 
-				FormattedText formattedText = CreateLabelText(FormatIndicatorValue(currentValue), Brushes.Black, 9);
+				FormattedText formattedText = CreateLabelText(tick.Label, Brushes.Black, 9);
 				drawingContext.DrawText(
 					formattedText,
 					new Point(scaleX + tickWidth + textOffset, y - formattedText.Height / 2));
 			}
-
-			currentValue += frame.IndicatorValueInterval;
 		}
 	}
 
-	private static string FormatIndicatorValue(double value)
-	{
-		if (Math.Abs(value) >= 100) return value.ToString("F0");
-		if (Math.Abs(value) >= 10) return value.ToString("F1");
-		return value.ToString("F2");
-	}
-
 	/// <summary>Отрисовка сетки для main pane (candlestick chart)</summary>
-	private void DrawMainPaneGrid(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawMainPaneGrid(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (model.Viewport.minPrice >= model.Viewport.maxPrice || model.Viewport.minTime >= model.Viewport.maxTime)
+		if (frame.Viewport.minPrice >= frame.Viewport.maxPrice || frame.Viewport.minTime >= frame.Viewport.maxTime)
 			return;
 
 		double mainBottom = frame.Top + frame.MainPaneHeight;
 
 		if (frame.PriceInterval > 0)
 		{
-			double currentPrice = frame.FirstPriceTick;
-			while (currentPrice <= model.Viewport.maxPrice)
+			foreach (var tick in frame.Axes.PriceTicks)
 			{
-				double y = controller.PriceToViewY(currentPrice);
+				var currentPrice = tick.Value;
+				double y = frame.Transform.PriceToViewY(currentPrice);
 				if (y >= frame.Top && y <= mainBottom)
 				{
 					drawingContext.DrawLine(GridPen,
 						new Point(frame.Left, y),
 						new Point(frame.ScaleX, y));
 				}
-				currentPrice += frame.PriceInterval;
 			}
 		}
 
 		if (frame.TimeInterval > TimeSpan.Zero)
 		{
-			DateTime currentTime = frame.FirstTimeTick;
-			while (currentTime <= model.Viewport.maxTime)
+			foreach (var tick in frame.Axes.TimeTicks)
 			{
-				double x = controller.TimeToViewX(currentTime);
+				var currentTime = tick.Value;
+				double x = frame.Transform.TimeToViewX(currentTime);
 				if (x >= frame.Left && x <= frame.ScaleX)
 				{
 					drawingContext.DrawLine(GridPen,
 						new Point(x, frame.Top),
 						new Point(x, mainBottom));
 				}
-				currentTime = currentTime.Add(frame.TimeInterval);
 			}
 		}
 	}
 
 	/// <summary>Отрисовка сетки для indicator pane</summary>
-	private void DrawIndicatorPaneGrid(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawIndicatorPaneGrid(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (model.Viewport.minTime >= model.Viewport.maxTime)
+		if (frame.Viewport.minTime >= frame.Viewport.maxTime)
 			return;
 
 		double indicatorBottom = frame.IndicatorPaneTop + frame.IndicatorPaneHeight;
 
 		if (frame.TimeInterval > TimeSpan.Zero)
 		{
-			DateTime currentTime = frame.FirstTimeTick;
-			while (currentTime <= model.Viewport.maxTime)
+			foreach (var tick in frame.Axes.TimeTicks)
 			{
-				double x = controller.TimeToViewX(currentTime);
+				var currentTime = tick.Value;
+				double x = frame.Transform.TimeToViewX(currentTime);
 				if (x >= frame.Left && x <= frame.ScaleX)
 				{
 					drawingContext.DrawLine(GridPen,
 						new Point(x, frame.IndicatorPaneTop),
 						new Point(x, indicatorBottom));
 				}
-				currentTime = currentTime.Add(frame.TimeInterval);
 			}
 		}
 
 		if (frame.IndicatorValueInterval > 0)
 		{
-			double currentValue = frame.FirstIndicatorTick;
-			while (currentValue <= frame.IndicatorMaxValue)
+			foreach (var tick in frame.Axes.IndicatorTicks)
 			{
-				double y = controller.IndicatorValueToViewY(currentValue);
+				var currentValue = tick.Value;
+				double y = frame.Transform.IndicatorValueToViewY(currentValue);
 				if (y >= frame.IndicatorPaneTop && y <= indicatorBottom)
 				{
 					drawingContext.DrawLine(GridPen,
 						new Point(frame.Left, y),
 						new Point(frame.ScaleX, y));
 				}
-				currentValue += frame.IndicatorValueInterval;
 			}
 		}
 	}
 
-	private void DrawTechnicalAnalysisTools(DrawingContext drawingContext, in RenderFrame frame)
+	private void DrawTechnicalAnalysisTools(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (model.TechnicalAnalysisManager == null)
+		if (frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0 || !frame.IsInitialized)
 			return;
 
-		if (frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0 || !model.IsInitialized)
-			return;
-
-		ViewportClippingCoords currentViewport = model.Viewport;
+		ViewportClippingCoords currentViewport = frame.Viewport;
 		var clipGeometry = new RectangleGeometry(frame.MainPaneRect);
 		drawingContext.PushClip(clipGeometry);
 
 		try
 		{
-			foreach (var tool in model.TechnicalAnalysisManager.GetTools())
+			foreach (var tool in frame.Tools)
 			{
 				if (tool.IsVisible)
-					tool.Draw(drawingContext, controller.ChartToView, currentViewport);
+					tool.Draw(drawingContext, frame.Transform.ChartToView, currentViewport);
 			}
 		}
 		finally
@@ -694,60 +593,52 @@ public class ChartRenderer
 		}
 	}
 
-	/// <summary>
-	/// Устанавливает флаг принудительной перерисовки всех инструментов технического анализа
-	/// </summary>
-	public void RequestRedrawAllTechnicalTools()
-	{
-		RedrawAllTechnicalTools = true;
-	}
-
 	/// <summary>Отрисовка превью создаваемого инструмента</summary>
-	private void DrawToolCreationPreview(DrawingContext drawingContext)
+	private void DrawToolCreationPreview(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
-		if (!TechnicalAnalysisTool.IsCreatingTool || !CurrentMouseChartCoords.HasValue)
+		if (!frame.IsCreatingTool || !frame.CurrentMouseChartCoords.HasValue)
 			return;
 
-		var currentPoint = CurrentMouseChartCoords.Value;
+		var currentPoint = frame.CurrentMouseChartCoords.Value;
 
-		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendLine &&
-			TechnicalAnalysisTool.CreationStep == 1 &&
-			TechnicalAnalysisTool.CreationPoints[0].HasValue)
+		if (frame.ActiveToolType == TechnicalAnalysisToolType.TrendLine &&
+			frame.CreationStep == 1 &&
+			frame.CreationPoints[0].HasValue)
 		{
-			DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint,
+			DrawLinePreview(drawingContext, frame, frame.CreationPoints[0]!.Value, currentPoint,
 				Color.FromArgb(128, 0, 120, 255));
 		}
 
-		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.TrendChannel)
+		if (frame.ActiveToolType == TechnicalAnalysisToolType.TrendChannel)
 		{
-			if (TechnicalAnalysisTool.CreationStep == 1 &&
-				TechnicalAnalysisTool.CreationPoints[0].HasValue)
+			if (frame.CreationStep == 1 &&
+				frame.CreationPoints[0].HasValue)
 			{
-				DrawLinePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint,
+				DrawLinePreview(drawingContext, frame, frame.CreationPoints[0]!.Value, currentPoint,
 					Color.FromArgb(128, 0, 180, 0));
 			}
 
-			if (TechnicalAnalysisTool.CreationStep == 2 &&
-				TechnicalAnalysisTool.CreatingToolInstance is TrendChannel previewChannel)
+			if (frame.CreationStep == 2 &&
+				frame.CreatingToolInstance is TrendChannel previewChannel)
 			{
 				double previewOffset = currentPoint.price - previewChannel.StartPrice;
-				previewChannel.DrawPreviewParallelLine(drawingContext, controller.ChartToView, previewOffset);
+				previewChannel.DrawPreviewParallelLine(drawingContext, frame.Transform.ChartToView, previewOffset);
 			}
 		}
 
-		if (TechnicalAnalysisTool.CreatingToolType == TechnicalAnalysisToolType.Rectangle &&
-			TechnicalAnalysisTool.CreationStep == 1 &&
-			TechnicalAnalysisTool.CreationPoints[0].HasValue)
+		if (frame.ActiveToolType == TechnicalAnalysisToolType.Rectangle &&
+			frame.CreationStep == 1 &&
+			frame.CreationPoints[0].HasValue)
 		{
-			DrawRectanglePreview(drawingContext, TechnicalAnalysisTool.CreationPoints[0].Value, currentPoint,
+			DrawRectanglePreview(drawingContext, frame, frame.CreationPoints[0]!.Value, currentPoint,
 				Color.FromArgb(128, 255, 165, 0));
 		}
 	}
 
-	private void DrawLinePreview(DrawingContext drawingContext, ChartCoordinates start, ChartCoordinates end, Color color)
+	private void DrawLinePreview(DrawingContext drawingContext, ChartRenderFrame frame, ChartCoordinates start, ChartCoordinates end, Color color)
 	{
-		var startView = controller.ChartToView(start);
-		var endView = controller.ChartToView(end);
+		var startView = frame.Transform.ChartToView(start);
+		var endView = frame.Transform.ChartToView(end);
 
 		if (double.IsNaN(startView.x) || double.IsNaN(startView.y) ||
 			double.IsNaN(endView.x) || double.IsNaN(endView.y))
@@ -759,10 +650,10 @@ public class ChartRenderer
 			new Point(endView.x, endView.y));
 	}
 
-	private void DrawRectanglePreview(DrawingContext drawingContext, ChartCoordinates corner1, ChartCoordinates corner2, Color color)
+	private void DrawRectanglePreview(DrawingContext drawingContext, ChartRenderFrame frame, ChartCoordinates corner1, ChartCoordinates corner2, Color color)
 	{
-		var c1View = controller.ChartToView(corner1);
-		var c2View = controller.ChartToView(corner2);
+		var c1View = frame.Transform.ChartToView(corner1);
+		var c2View = frame.Transform.ChartToView(corner2);
 
 		if (double.IsNaN(c1View.x) || double.IsNaN(c1View.y) ||
 			double.IsNaN(c2View.x) || double.IsNaN(c2View.y))
@@ -821,75 +712,4 @@ public class ChartRenderer
 		return brush;
 	}
 
-	/// <summary>Кэш layout и шагов шкал на один кадр отрисовки</summary>
-	private readonly struct RenderFrame
-	{
-		public readonly double Left;
-		public readonly double Top;
-		public readonly double ChartWidth;
-		public readonly double MainPaneHeight;
-		public readonly double IndicatorPaneTop;
-		public readonly double IndicatorPaneHeight;
-		public readonly double DividerY;
-		public readonly double DividerHeight;
-		public readonly double ScaleX;
-		public readonly double TimeScaleY;
-		public readonly double CandleWidthPixels;
-		public readonly double PriceInterval;
-		public readonly TimeSpan TimeInterval;
-		public readonly double FirstPriceTick;
-		public readonly DateTime FirstTimeTick;
-		public readonly double IndicatorValueInterval;
-		public readonly double FirstIndicatorTick;
-		public readonly double IndicatorMaxValue;
-		public readonly Rect MainPaneRect;
-		public readonly Rect DividerRect;
-		public readonly Rect IndicatorPaneRect;
-
-		public RenderFrame(
-			double left,
-			double top,
-			double chartWidth,
-			double mainPaneHeight,
-			double indicatorPaneTop,
-			double indicatorPaneHeight,
-			double dividerY,
-			double dividerHeight,
-			double scaleX,
-			double timeScaleY,
-			double candleWidthPixels,
-			double priceInterval,
-			TimeSpan timeInterval,
-			double firstPriceTick,
-			DateTime firstTimeTick,
-			double indicatorValueInterval,
-			double firstIndicatorTick,
-			double indicatorMaxValue,
-			Rect mainPaneRect,
-			Rect dividerRect,
-			Rect indicatorPaneRect)
-		{
-			Left = left;
-			Top = top;
-			ChartWidth = chartWidth;
-			MainPaneHeight = mainPaneHeight;
-			IndicatorPaneTop = indicatorPaneTop;
-			IndicatorPaneHeight = indicatorPaneHeight;
-			DividerY = dividerY;
-			DividerHeight = dividerHeight;
-			ScaleX = scaleX;
-			TimeScaleY = timeScaleY;
-			CandleWidthPixels = candleWidthPixels;
-			PriceInterval = priceInterval;
-			TimeInterval = timeInterval;
-			FirstPriceTick = firstPriceTick;
-			FirstTimeTick = firstTimeTick;
-			IndicatorValueInterval = indicatorValueInterval;
-			FirstIndicatorTick = firstIndicatorTick;
-			IndicatorMaxValue = indicatorMaxValue;
-			MainPaneRect = mainPaneRect;
-			DividerRect = dividerRect;
-			IndicatorPaneRect = indicatorPaneRect;
-		}
-	}
 }

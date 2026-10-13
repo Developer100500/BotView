@@ -66,12 +66,8 @@ public class RSIIndicator : Indicator
 	public void Calculate(OHLCV[] candles, Func<int, DateTime> getTime)
 		=> CalculateCore(candles.Length, i => candles[i], getTime);
 
-	public void Calculate(CandleSeriesSnapshot snapshot, ChartController controller)
-		=> CalculateCore(snapshot.Count, i => snapshot[i], i =>
-		{
-			var candle = snapshot[i];
-			return candle.timestamp > 0 ? candle.GetDateTime() : controller.GetCandleTime(i);
-		});
+	public void Calculate(CandleSeriesSnapshot snapshot, Func<int, DateTime> getTime)
+		=> CalculateCore(snapshot.Count, i => snapshot[i], getTime);
 
 	private void CalculateCore(int count, Func<int, OHLCV> getCandle, Func<int, DateTime> getTime)
 	{
@@ -115,15 +111,6 @@ public class RSIIndicator : Indicator
 		}
 	}
 
-	/// <summary>Calculates RSI from CandlestickData structure</summary>
-	public void Calculate(CandlestickData data, ChartController controller)
-	{
-		if (data.candles == null || data.candles.Length == 0)
-			return;
-
-		Calculate(data.candles, (index) => controller.GetCandleTime(index));
-	}
-
 	/// <summary>Draws the RSI line</summary>
 	public override void Draw(IndicatorDrawContext context)
 	{
@@ -133,8 +120,8 @@ public class RSIIndicator : Indicator
 		Pen linePen = new Pen(Color, Thickness);
 		linePen.Freeze();
 
-		DateTime minTime = context.Model.Viewport.minTime;
-		DateTime maxTime = context.Model.Viewport.maxTime;
+		DateTime minTime = context.Frame.Viewport.minTime;
+		DateTime maxTime = context.Frame.Viewport.maxTime;
 
 		Point? lastPoint = null;
 
@@ -149,7 +136,7 @@ public class RSIIndicator : Indicator
 				continue;
 			}
 
-			Coordinates viewCoords = context.Controller.IndicatorToView(point.Time, point.Value);
+			Coordinates viewCoords = context.Transform.IndicatorToView(point.Time, point.Value);
 
 			if (!context.IsValidCoordinate(viewCoords))
 			{
@@ -184,23 +171,23 @@ public class RSIIndicator : Indicator
 	/// <summary>Draws a colored zone between two levels</summary>
 	private void DrawZone(IndicatorDrawContext context, double minLevel, double maxLevel, System.Windows.Media.Color zoneColor)
 	{
-		Coordinates topLeft = context.Controller.IndicatorToView(context.Model.Viewport.minTime, maxLevel);
-		Coordinates bottomRight = context.Controller.IndicatorToView(context.Model.Viewport.maxTime, minLevel);
+		Coordinates topLeft = context.Transform.IndicatorToView(context.Frame.Viewport.minTime, maxLevel);
+		Coordinates bottomRight = context.Transform.IndicatorToView(context.Frame.Viewport.maxTime, minLevel);
 
 		if (!context.IsValidCoordinate(topLeft) || !context.IsValidCoordinate(bottomRight))
 			return;
 
 		// Clamp to indicator pane bounds
-		double top = Math.Max(topLeft.y, context.Model.IndicatorPaneTop);
-		double bottom = Math.Min(bottomRight.y, context.Model.IndicatorPaneTop + context.Model.IndicatorPaneHeight);
+		double top = Math.Max(topLeft.y, context.Frame.IndicatorPaneTop);
+		double bottom = Math.Min(bottomRight.y, context.Frame.IndicatorPaneTop + context.Frame.IndicatorPaneHeight);
 
 		if (bottom <= top)
 			return;
 
 		Rect zoneRect = new Rect(
-			context.Model.LeftMargin,
+			context.Frame.LeftMargin,
 			top,
-			context.Model.ChartWidth,
+			context.Frame.ChartWidth,
 			bottom - top
 		);
 

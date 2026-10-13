@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -232,15 +232,15 @@ namespace BotView
         private void OnDrawingToolRequested(TechnicalAnalysisToolType toolType)
         {
             chartView.CloseToolContextMenu();
-            TechnicalAnalysisTool.StartCreating(toolType);
-            chartView.Cursor = Cursors.Cross;
+            chartView.BeginToolCreation(toolType);
         }
 
         private async void OnSymbolChanged(string symbol)
         {
-            chartView.CloseToolContextMenu();
-            var taManager = chartView.GetTechnicalAnalysisManager();
-            await taManager.SetSymbolAsync(symbol);
+            if (Dispatcher.CheckAccess())
+                await chartView.SetSymbolAsync(symbol);
+            else
+                await Dispatcher.InvokeAsync(() => chartView.SetSymbolAsync(symbol)).Task.Unwrap();
         }
 
         private void OnShowMetricsRequested(string summary)
@@ -301,7 +301,7 @@ namespace BotView
 
                 if (chartView != null)
                 {
-                    chartView.GetTechnicalAnalysisManager().SaveTools();
+                    chartView.SaveTools();
                 }
 
                 _viewModel.Dispose();

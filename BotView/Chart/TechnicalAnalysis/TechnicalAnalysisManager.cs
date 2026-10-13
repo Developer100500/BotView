@@ -15,7 +15,14 @@ namespace BotView.Chart.TechnicalAnalysis;
 public class TechnicalAnalysisManager
 {
 	private readonly List<TechnicalAnalysisTool> tools = new List<TechnicalAnalysisTool>();
-	private const string DataFolder = "data";
+	private readonly string dataFolder;
+	private readonly IReadOnlyList<TechnicalAnalysisTool> toolsView;
+
+	public TechnicalAnalysisManager(string dataFolder = "data")
+	{
+		this.dataFolder = dataFolder;
+		toolsView = tools.AsReadOnly();
+	}
 
 	/// <summary>Текущий символ торговой пары (например, BTC/USDT)</summary>
 	public string? CurrentSymbol { get; private set; }
@@ -30,11 +37,11 @@ public class TechnicalAnalysisManager
 	}
 
 	/// <summary>Генерирует путь к файлу для указанного символа</summary>
-	private static string GetFilePath(string symbol)
+	private string GetFilePath(string symbol)
 	{
 		// Заменяем "/" на "_" в имени символа для создания валидного имени файла
 		string safeFileName = symbol.Replace("/", "_") + ".json";
-		return Path.Combine(DataFolder, safeFileName);
+		return Path.Combine(dataFolder, safeFileName);
 	}
 
 	/// <summary>Синхронно сохраняет все инструменты в JSON-файл для текущего символа</summary>
@@ -100,7 +107,7 @@ public class TechnicalAnalysisManager
 			string filePath = GetFilePath(CurrentSymbol);
 			var jsonService = new JsonService(filePath);
 
-			var toolsArray = await jsonService.LoadArrayAsync().ConfigureAwait(false);
+			var toolsArray = await jsonService.LoadArrayAsync();
 			if (toolsArray == null)
 			{
 				Debug.WriteLine($"No tools file found for {CurrentSymbol}");
@@ -150,7 +157,7 @@ public class TechnicalAnalysisManager
 		// Сохраняем инструменты для текущего символа (если есть)
 		if (!string.IsNullOrEmpty(CurrentSymbol))
 		{
-			await SaveToolsAsync().ConfigureAwait(false);
+			await SaveToolsAsync();
 		}
 
 		// Очищаем текущие инструменты
@@ -160,7 +167,7 @@ public class TechnicalAnalysisManager
 		CurrentSymbol = symbol;
 
 		// Загружаем инструменты для нового символа
-		await LoadToolsAsync().ConfigureAwait(false);
+		await LoadToolsAsync();
 	}
 
 	/// <summary>
@@ -180,7 +187,7 @@ public class TechnicalAnalysisManager
 	/// </summary>
 	public IReadOnlyList<TechnicalAnalysisTool> GetTools()
 	{
-		return tools;
+		return toolsView;
 	}
 
 	/// <summary>

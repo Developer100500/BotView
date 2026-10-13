@@ -9,30 +9,33 @@ using BotView.Configuration;
 namespace BotView.Chart;
 
 /// <summary>
-/// Модель состояния графика - содержит все данные и состояние компонента
+/// Модель состояния графика - содержит данные и состояние одного экземпляра компонента
 /// </summary>
-public class ChartModel
+public class ChartState
 {
+	public ChartInteractionState Interaction { get; } = new();
+	public bool ShowCandleOutlines { get; internal set; } = true;
+	public bool IsSwitchingSymbol { get; internal set; }
 	// === DATA ===
-	public ICandleSeriesReader Series { get; set; }
-	public string Timeframe { get; set; } = string.Empty;
-	//public int PollInterval { get; set; } = 250; // milliseconds
+	public ICandleSeriesReader Series { get; internal set; }
+	public string Timeframe { get; internal set; } = string.Empty;
+	//public int PollInterval { get; internal set; } = 250; // milliseconds
 
 	// === CAMERA STATE ===
-	public Coordinates CameraPosition { get; set; } = new Coordinates(0, 0);
-	public TimeSpan TimeRangeInViewport { get; set; } = TimeSpan.FromDays(30);
-	public double PriceRangeInViewport { get; set; } = 1000;
-	public DateTime WorldOriginTime { get; set; }
-	public double WorldOriginPrice { get; set; }
-	public bool IsInitialized { get; set; } = false;
+	public Coordinates CameraPosition { get; internal set; } = new Coordinates(0, 0);
+	public TimeSpan TimeRangeInViewport { get; internal set; } = TimeSpan.FromDays(30);
+	public double PriceRangeInViewport { get; internal set; } = 1000;
+	public DateTime WorldOriginTime { get; internal set; }
+	public double WorldOriginPrice { get; internal set; }
+	public bool IsInitialized { get; internal set; } = false;
 
 	// === VIEWPORT ===
-	public ViewportClippingCoords Viewport { get; set; }
+	public ViewportClippingCoords Viewport { get; internal set; }
 
 	// === DIMENSIONS AND MARGINS ===
-	public double ChartWidth { get; set; } = 0;
+	public double ChartWidth { get; internal set; } = 0;
 	/// <summary>Total height of both panes combined (excluding margins)</summary>
-	public double ChartHeight { get; set; } = 0;
+	public double ChartHeight { get; internal set; } = 0;
 
 	// Margins are constants
 	public double LeftMargin { get; } = 10;
@@ -42,7 +45,7 @@ public class ChartModel
 
 	// === INDICATOR PANE STATE ===
 	/// <summary>Ratio of indicator pane height to total chart height (0.0 to 1.0)</summary>
-	public double IndicatorPaneHeightRatio { get; set; } = 0.25;
+	public double IndicatorPaneHeightRatio { get; internal set; } = 0.25;
 
 	/// <summary>Height of the divider between panes in pixels</summary>
 	public double DividerHeight { get; } = 2;
@@ -70,65 +73,45 @@ public class ChartModel
 	public double IndicatorPaneTop => DividerY + DividerHeight;
 
 	/// <summary>Viewport for indicator pane Y-axis (min/max values)</summary>
-	public IndicatorViewport IndicatorViewport { get; set; } = new IndicatorViewport(0, 100);
+	public IndicatorViewport IndicatorViewport { get; internal set; } = new IndicatorViewport(0, 100);
 
 	/// <summary>Range of indicator values visible in viewport</summary>
-	public double IndicatorRangeInViewport { get; set; } = 100;
+	public double IndicatorRangeInViewport { get; internal set; } = 100;
 
 	/// <summary>Camera Y position for indicator pane (in indicator value units)</summary>
-	public double IndicatorCameraY { get; set; } = 50;
+	public double IndicatorCameraY { get; internal set; } = 50;
 
 	/// <summary>Collection of indicators to display</summary>
-	public List<Indicator> Indicators { get; } = new List<Indicator>();
+	internal List<Indicator> MutableIndicators { get; } = new();
+	public IReadOnlyList<Indicator> Indicators { get; }
+	public double? DataMinPrice { get; internal set; }
+	public double? DataMaxPrice { get; internal set; }
 
 	// === TECHNICAL ANALYSIS TOOLS ===
 	public TechnicalAnalysisManager TechnicalAnalysisManager { get; }
 
 	/// <summary>
-	/// Конструктор ChartModel с инициализацией значений по умолчанию
+	/// Конструктор ChartState с инициализацией значений по умолчанию
 	/// </summary>
-	public ChartModel()
+	public ChartState(TechnicalAnalysisManager? technicalAnalysisManager = null)
 	{
-		TechnicalAnalysisManager = new TechnicalAnalysisManager();
-
-		// Инициализация тестовых данных
+		TechnicalAnalysisManager = technicalAnalysisManager ?? new TechnicalAnalysisManager();
+		Indicators = MutableIndicators.AsReadOnly();
+		Series = new CandleSeries();
 		Timeframe = MarketCatalog.DefaultTimeframeId;
-		DateTime baseTime = DateTime.Now;
-		OHLCV[] candles = [
-			new OHLCV(new DateTimeOffset(baseTime.AddDays(-1)).ToUnixTimeMilliseconds(), 100, 114, 93, 105, 1000),
-			new OHLCV(new DateTimeOffset(baseTime).ToUnixTimeMilliseconds(), 105, 111, 100, 106, 800)
-		];
-		var initialSeries = new CandleSeries();
-		initialSeries.LoadInitial(candles);
-		Series = initialSeries;
-
-		// Инициализируем мировую систему координат
-		WorldOriginTime = baseTime;
-		WorldOriginPrice = 100; // базовая цена для отсчета
-
-		Viewport = new ViewportClippingCoords(
-			minPrice: 0,
-			maxPrice: 120,
-			minTime: baseTime.AddDays(-3),
-			maxTime: baseTime
-		);
+		WorldOriginTime = DateTime.UnixEpoch;
+		Viewport = new(-500, 500, WorldOriginTime.AddDays(-15), WorldOriginTime.AddDays(15));
 	}
 
 	/// <summary>
-	/// Вычисляет диапазон цен из данных свечей и обновляет viewport
+	/// Вычисляет диапазон данных независимо от видимой области
 	/// </summary>
-	public void UpdateDataRange()
+	internal void UpdateDataRange()
 	{
 		var snapshot = Series.GetSnapshot();
 		if (snapshot.Count == 0)
 		{
-			Viewport = new ViewportClippingCoords(
-				Viewport.minPrice,
-				Viewport.maxPrice,
-				Viewport.minTime,
-				Viewport.maxTime
-			);
-			// Если нет данных, оставляем текущие значения цен
+			DataMinPrice = DataMaxPrice = null;
 			return;
 		}
 
@@ -148,13 +131,7 @@ public class ChartModel
 		minPrice -= padding;
 		maxPrice += padding;
 
-		// Обновляем viewport с новыми ценами, сохраняя временные границы
-		Viewport = new ViewportClippingCoords(
-			minPrice,
-			maxPrice,
-			Viewport.minTime,
-			Viewport.maxTime
-		);
+		DataMinPrice = minPrice;
+		DataMaxPrice = maxPrice;
 	}
 }
-

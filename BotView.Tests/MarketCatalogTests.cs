@@ -40,7 +40,7 @@ public sealed class MarketCatalogTests
     public void TimeframeDurationsAndDemoCountsUseTheSameRegistry()
     {
         var exchangeService = new ExchangeService();
-        var controller = new ChartController(new ChartModel());
+        var controller = new ChartController(new ChartState());
         var dataProvider = new DataProvider();
 
         Assert.Equal(MarketCatalog.TimeframeIds, exchangeService.GetSupportedTimeframes());

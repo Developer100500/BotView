@@ -1,7 +1,13 @@
 using System;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using BotView.ViewModels;
+using BotView.Chart.TechnicalAnalysis;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using BotView.Chart.IndicatorPane;
 using BotView.Services;
 using BotView.Models;
@@ -19,28 +25,58 @@ public enum ChartPane
 }
 
 /// <summary>
-/// Контроллер графика - содержит всю логику управления камерой, конвертации координат и обработки мыши
+/// Управляет состоянием и командами графика; геометрию и шкалы делегирует отдельным компонентам.
 /// </summary>
-public class ChartController
+public class ChartController : INotifyPropertyChanged
 {
-	private readonly ChartModel model;
+	private readonly ChartState state;
 
-	// === MOUSE INTERACTION STATE ===
-	private bool isDragging = false;
-	private bool isScaleZooming = false;
-	private bool isDraggingDivider = false;
-	private ScaleZoomMode scaleZoomMode = ScaleZoomMode.None;
-	private ChartPane activePane = ChartPane.None;
-	private Point lastMousePosition;
-
-	/// <summary> Режимы масштабирования через шкалы </summary>
-	private enum ScaleZoomMode
+	private ChartInteractionState interaction => state.Interaction;
+	private readonly SemaphoreSlim symbolSwitch = new(1, 1);
+	private int pendingSymbolSwitches;
+	public ChartState State => state;
+	public ChartRenderFrame PrepareRenderFrame() => new(state, Transform, Axes,
+		state.Series.GetSnapshot(), cachedTimeframeSpan);
+	public TechnicalAnalysisTool? SelectedTool => interaction.SelectedTool;
+	public TechnicalAnalysisToolType ActiveToolType => interaction.ActiveToolType;
+	public Coordinates CameraPosition => state.CameraPosition;
+	public ViewportClippingCoords Viewport => state.Viewport;
+	public bool IsReady => state.IsInitialized && state.ChartWidth > 0 && state.MainPaneHeight > 0 && state.Series.GetSnapshot().Count > 0;
+	public IReadOnlyList<Indicator> Indicators => state.Indicators;
+	public bool IsSwitchingSymbol => state.IsSwitchingSymbol;
+	public bool ShowCandleOutlines
 	{
-		None,
-		TimeScale,        // Масштабирование по времени (горизонтальная ось)
-		PriceScale,       // Масштабирование по цене (вертикальная ось) - main pane
-		IndicatorScale    // Масштабирование по значению индикатора (вертикальная ось) - indicator pane
+		get => state.ShowCandleOutlines;
+		set
+		{
+			if (state.ShowCandleOutlines == value) return;
+			state.ShowCandleOutlines = value;
+			OnPropertyChanged();
+			RequestRender();
+		}
 	}
+	public double IndicatorPaneHeightRatio
+	{
+		get => state.IndicatorPaneHeightRatio;
+		set
+		{
+			if (!double.IsFinite(value)) return;
+			value = Math.Clamp(value, state.MinIndicatorPaneRatio, state.MaxIndicatorPaneRatio);
+			if (state.IndicatorPaneHeightRatio == value) return;
+			state.IndicatorPaneHeightRatio = value;
+			UpdateViewportFromCamera();
+		}
+	}
+	public ICommand FitToDataCommand { get; }
+	public ICommand ResetPriceScaleCommand { get; }
+	public ICommand ResetTimeScaleCommand { get; }
+	public ICommand SnapLastToRightCommand { get; }
+	public ICommand BeginToolCreationCommand { get; }
+	public ICommand CancelInteractionCommand { get; }
+	public ICommand DeleteSelectedToolCommand { get; }
+	public event PropertyChangedEventHandler? PropertyChanged;
+	public event Action? RenderRequested;
+	public event Action<InteractionResult>? ViewActionRequested;
 
 	/// <summary> Событие изменения viewport (для уведомления о необходимости перерисовки) </summary>
 	public event Action? ViewportChanged;
@@ -48,249 +84,81 @@ public class ChartController
 	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
 	public event Action? LeftEdgeApproached;
 
-	// === RENDER / TRANSFORM CACHE (обновляется при изменении layout/camera/zoom) ===
-	private double cachedPixelsPerSecond;
-	private double cachedPixelsPerPriceUnit;
-	private double cachedPixelsPerIndicatorUnit;
-	private double cachedViewCenterX;
-	private double cachedViewCenterY;
-	private double cachedIndicatorViewCenterY;
-	private double cachedCameraX;
-	private double cachedCameraY;
-	private double cachedIndicatorCameraY;
-	private double cachedCandleWidthPixels = 2;
-	private string cachedTimeframeKey = string.Empty;
-	private TimeSpan cachedTimeframeSpan = TimeSpan.FromDays(1);
-	private double cachedPriceInterval = 1;
-	private TimeSpan cachedTimeInterval = TimeSpan.FromDays(1);
-	private double cachedIndicatorValueInterval = 1;
+	public ChartTransform Transform { get; private set; } = null!;
+	public AxisLayout Axes { get; private set; } = null!;
+	private TimeSpan cachedTimeframeSpan;
+	public double CandleWidthPixels => Transform.CandleWidthPixels;
+	public double PriceInterval => Axes.PriceInterval;
+	public TimeSpan TimeInterval => Axes.TimeInterval;
+	public double IndicatorValueInterval => Axes.IndicatorValueInterval;
 
-	/// <summary>Ширина свечи в пикселях (из кэша последнего RefreshRenderCaches)</summary>
-	public double CandleWidthPixels => cachedCandleWidthPixels;
-
-	/// <summary>Оптимальный шаг цены (из кэша)</summary>
-	public double PriceInterval => cachedPriceInterval;
-
-	/// <summary>Оптимальный шаг времени (из кэша)</summary>
-	public TimeSpan TimeInterval => cachedTimeInterval;
-
-	/// <summary>Оптимальный шаг шкалы индикатора (из кэша)</summary>
-	public double IndicatorValueInterval => cachedIndicatorValueInterval;
-
-
-	public ChartController(ChartModel model)
+	public ChartController(ChartState? state = null)
 	{
-		this.model = model ?? throw new ArgumentNullException(nameof(model));
+		this.state = state ?? new ChartState();
+		FitToDataCommand = new RelayCommand(_ => FitToData(), _ => IsReady);
+		ResetPriceScaleCommand = new RelayCommand(_ => ResetPriceScaleToCurrentPrice(), _ => IsReady);
+		ResetTimeScaleCommand = new RelayCommand(_ => ResetTimeScaleToTimeframe(), _ => IsReady);
+		SnapLastToRightCommand = new RelayCommand(_ => SnapLastCandleToRightEdge(), _ => IsReady);
+		BeginToolCreationCommand = new RelayCommand(parameter =>
+		{
+			if (parameter is TechnicalAnalysisToolType type) BeginToolCreation(type);
+		}, parameter => IsReady && !IsSwitchingSymbol && parameter is TechnicalAnalysisToolType type && IsSupportedTool(type));
+		CancelInteractionCommand = new RelayCommand(RequestCancellation);
+		DeleteSelectedToolCommand = new RelayCommand(_ => DeleteSelectedTool(), _ => SelectedTool != null);
+		RefreshRenderCaches();
 	}
 
-	/// <summary>
-	/// Пересчитывает коэффициенты преобразования, ширину свечи и шаги шкал.
-	/// Вызывать при изменении размера, камеры, zoom или в начале Render.
-	/// </summary>
 	public void RefreshRenderCaches()
 	{
-		if (cachedTimeframeKey != model.Timeframe)
-		{
-			cachedTimeframeKey = model.Timeframe;
-			cachedTimeframeSpan = ParseTimeframe(model.Timeframe);
-		}
-
-		double timeRangeSeconds = model.TimeRangeInViewport.TotalSeconds;
-		double mainPaneHeight = model.MainPaneHeight;
-		double indicatorPaneHeight = model.IndicatorPaneHeight;
-
-		cachedPixelsPerSecond = timeRangeSeconds > 0 ? model.ChartWidth / timeRangeSeconds : 0;
-		cachedPixelsPerPriceUnit = model.PriceRangeInViewport > 0
-			? mainPaneHeight / model.PriceRangeInViewport
-			: 0;
-		cachedPixelsPerIndicatorUnit = model.IndicatorRangeInViewport > 0
-			? indicatorPaneHeight / model.IndicatorRangeInViewport
-			: 0;
-
-		cachedViewCenterX = model.LeftMargin + model.ChartWidth / 2;
-		cachedViewCenterY = model.TopMargin + mainPaneHeight / 2;
-		cachedIndicatorViewCenterY = model.IndicatorPaneTop + indicatorPaneHeight / 2;
-		cachedCameraX = model.CameraPosition.x;
-		cachedCameraY = model.CameraPosition.y;
-		cachedIndicatorCameraY = model.IndicatorCameraY;
-
-		cachedCandleWidthPixels = Math.Clamp(
-			cachedTimeframeSpan.TotalSeconds * cachedPixelsPerSecond * 0.6,
-			2,
-			50);
-
-		cachedPriceInterval = CalculateOptimalPriceInterval();
-		cachedTimeInterval = CalculateOptimalTimeInterval();
-		cachedIndicatorValueInterval = CalculateOptimalIndicatorInterval();
+		cachedTimeframeSpan = ParseTimeframe(state.Timeframe);
+		Transform = new ChartTransform(state.CameraPosition, state.TimeRangeInViewport,
+			state.PriceRangeInViewport, state.WorldOriginTime, state.WorldOriginPrice,
+			state.LeftMargin, state.TopMargin, state.ChartWidth, state.MainPaneHeight,
+			state.IndicatorPaneTop, state.IndicatorPaneHeight, state.IndicatorCameraY,
+			state.IndicatorRangeInViewport, cachedTimeframeSpan);
+		Axes = new AxisLayout(state.Viewport, state.IndicatorViewport, state.MainPaneHeight, cachedTimeframeSpan);
 	}
 
 #region === COORDINATE CONVERSION METHODS ===
-
-	/// <summary>
-	/// Конвертация из Chart координат (время/цена) в World координаты
-	/// Возвращает экземпляр Coordinates для World Coordinates
-	/// </summary>
-	public Coordinates ChartToWorld(ChartCoordinates chartCoords)
-	{
-		// Время конвертируем в секунды от базовой точки
-		double timeOffsetSeconds = (chartCoords.time - model.WorldOriginTime).TotalSeconds;
-			
-		// Цену конвертируем относительно базовой цены
-		double priceOffset = chartCoords.price - model.WorldOriginPrice;
-
-		return new Coordinates(timeOffsetSeconds, priceOffset);
-	}
-
-	/// <summary>
-	/// Конвертация из World координат в Chart координаты (время/цена)
-	/// </summary>
-	public ChartCoordinates WorldToChart(Coordinates worldCoords)
-	{
-		// Конвертируем секунды обратно во время
-		DateTime time = model.WorldOriginTime.AddSeconds(worldCoords.x);
-			
-		// Конвертируем смещение цены обратно в абсолютную цену
-		double price = model.WorldOriginPrice + worldCoords.y;
-
-		return new ChartCoordinates(time, price);
-	}
-
-	/// <summary>
-	/// Конвертация из World координат в View координаты (пиксели на экране) для main pane
-	/// Принимает экземпляр Coordinates для World Coordinates
-	/// Возвращает экземпляр Coordinates для View Coordinates
-	/// </summary>
-	public Coordinates WorldToView(Coordinates worldCoords)
-	{
-		double relativeX = worldCoords.x - cachedCameraX;
-		double relativeY = worldCoords.y - cachedCameraY;
-		double screenX = cachedViewCenterX + (relativeX * cachedPixelsPerSecond);
-		double screenY = cachedViewCenterY - (relativeY * cachedPixelsPerPriceUnit); // Flip Y
-		return new Coordinates(screenX, screenY);
-	}
-
-	/// <summary>
-	/// Конвертация из View координат (пиксели) в World координаты для main pane
-	/// Полезно для обработки мыши
-	/// Принимает экземпляр Coordinates для View Coordinates
-	/// Возвращает экземпляр Coordinates для World Coordinates
-	/// </summary>
-	public Coordinates ViewToWorld(Coordinates viewCoords)
-	{
-		double relativeScreenX = viewCoords.x - cachedViewCenterX;
-		double relativeScreenY = -(viewCoords.y - cachedViewCenterY); // Flip Y
-
-		double worldX = cachedPixelsPerSecond > 0
-			? cachedCameraX + (relativeScreenX / cachedPixelsPerSecond)
-			: cachedCameraX;
-		double worldY = cachedPixelsPerPriceUnit > 0
-			? cachedCameraY + (relativeScreenY / cachedPixelsPerPriceUnit)
-			: cachedCameraY;
-
-		return new Coordinates(worldX, worldY);
-	}
-
-	/// <summary>
-	/// Прямая конвертация из Chart координат в View координаты
-	/// Возвращает экземпляр Coordinates для View Coordinates
-	/// </summary>
-	internal Coordinates ChartToView(ChartCoordinates chartCoords)
-	{
-		double worldX = (chartCoords.time - model.WorldOriginTime).TotalSeconds;
-		double worldY = chartCoords.price - model.WorldOriginPrice;
-		double screenX = cachedViewCenterX + ((worldX - cachedCameraX) * cachedPixelsPerSecond);
-		double screenY = cachedViewCenterY - ((worldY - cachedCameraY) * cachedPixelsPerPriceUnit);
-		return new Coordinates(screenX, screenY);
-	}
-
-	/// <summary>X в View для времени (общий для OHLC одной свечи)</summary>
-	internal double TimeToViewX(DateTime time)
-	{
-		double worldX = (time - model.WorldOriginTime).TotalSeconds;
-		return cachedViewCenterX + ((worldX - cachedCameraX) * cachedPixelsPerSecond);
-	}
-
-	/// <summary>Y в View для цены</summary>
-	internal double PriceToViewY(double price)
-	{
-		double worldY = price - model.WorldOriginPrice;
-		return cachedViewCenterY - ((worldY - cachedCameraY) * cachedPixelsPerPriceUnit);
-	}
-
-	/// <summary>
-	/// Прямая конвертация из View координат в Chart координаты
-	/// Принимает экземпляр Coordinates для View Coordinates
-	/// </summary>
-	public ChartCoordinates ViewToChart(Coordinates viewCoords)
-	{
-		Coordinates worldCoords = ViewToWorld(viewCoords);
-		return WorldToChart(worldCoords);
-	}
-
-	// === INDICATOR PANE COORDINATE METHODS ===
-
-	/// <summary>Converts indicator value and time to View coordinates in the indicator pane</summary>
-	public Coordinates IndicatorToView(DateTime time, double indicatorValue)
-	{
-		double timeOffsetSeconds = (time - model.WorldOriginTime).TotalSeconds;
-		double screenX = cachedViewCenterX + ((timeOffsetSeconds - cachedCameraX) * cachedPixelsPerSecond);
-		double relativeY = indicatorValue - cachedIndicatorCameraY;
-		double screenY = cachedIndicatorViewCenterY - (relativeY * cachedPixelsPerIndicatorUnit);
-		return new Coordinates(screenX, screenY);
-	}
-
-	/// <summary>Y в View для значения индикатора</summary>
-	internal double IndicatorValueToViewY(double indicatorValue)
-	{
-		double relativeY = indicatorValue - cachedIndicatorCameraY;
-		return cachedIndicatorViewCenterY - (relativeY * cachedPixelsPerIndicatorUnit);
-	}
-
-	/// <summary>Converts View coordinates in the indicator pane to time and indicator value</summary>
-	public (DateTime time, double value) ViewToIndicator(Coordinates viewCoords)
-	{
-		double relativeScreenX = viewCoords.x - cachedViewCenterX;
-		double worldX = cachedPixelsPerSecond > 0
-			? cachedCameraX + (relativeScreenX / cachedPixelsPerSecond)
-			: cachedCameraX;
-		DateTime time = model.WorldOriginTime.AddSeconds(worldX);
-
-		double relativeScreenY = -(viewCoords.y - cachedIndicatorViewCenterY);
-		double value = cachedPixelsPerIndicatorUnit > 0
-			? cachedIndicatorCameraY + (relativeScreenY / cachedPixelsPerIndicatorUnit)
-			: cachedIndicatorCameraY;
-
-		return (time, value);
-	}
-
+	public Coordinates ChartToWorld(ChartCoordinates point) => Transform.ChartToWorld(point);
+	public ChartCoordinates WorldToChart(Coordinates point) => Transform.WorldToChart(point);
+	public Coordinates WorldToView(Coordinates point) => Transform.WorldToView(point);
+	public Coordinates ViewToWorld(Coordinates point) => Transform.ViewToWorld(point);
+	internal Coordinates ChartToView(ChartCoordinates point) => Transform.ChartToView(point);
+	internal double TimeToViewX(DateTime time) => Transform.TimeToViewX(time);
+	internal double PriceToViewY(double price) => Transform.PriceToViewY(price);
+	public ChartCoordinates ViewToChart(Coordinates point) => Transform.ViewToChart(point);
+	public Coordinates IndicatorToView(DateTime time, double value) => Transform.IndicatorToView(time, value);
+	internal double IndicatorValueToViewY(double value) => Transform.IndicatorValueToViewY(value);
+	public (DateTime time, double value) ViewToIndicator(Coordinates point) => Transform.ViewToIndicator(point);
 	/// <summary>Updates the indicator viewport based on indicator camera position</summary>
-	public void UpdateIndicatorViewport()
+	private void RebuildIndicatorViewport()
 	{
-		double minValue = model.IndicatorCameraY - model.IndicatorRangeInViewport / 2;
-		double maxValue = model.IndicatorCameraY + model.IndicatorRangeInViewport / 2;
-		model.IndicatorViewport = new IndicatorViewport(minValue, maxValue);
+		double minValue = state.IndicatorCameraY - state.IndicatorRangeInViewport / 2;
+		double maxValue = state.IndicatorCameraY + state.IndicatorRangeInViewport / 2;
+		state.IndicatorViewport = new IndicatorViewport(minValue, maxValue);
 	}
 
 	/// <summary>Detects which pane a point is in</summary>
 	public ChartPane DetectPane(Point point)
 	{
 		// Check if in divider area
-		if (point.Y >= model.DividerY && point.Y <= model.DividerY + model.DividerHeight &&
-			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
+		if (point.Y >= state.DividerY && point.Y <= state.DividerY + state.DividerHeight &&
+			point.X >= state.LeftMargin && point.X <= state.LeftMargin + state.ChartWidth)
 		{
 			return ChartPane.Divider;
 		}
 
 		// Check if in main pane
-		if (point.Y >= model.TopMargin && point.Y < model.DividerY &&
-			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
+		if (point.Y >= state.TopMargin && point.Y < state.DividerY &&
+			point.X >= state.LeftMargin && point.X <= state.LeftMargin + state.ChartWidth)
 		{
 			return ChartPane.Main;
 		}
 
 		// Check if in indicator pane
-		if (point.Y > model.IndicatorPaneTop && point.Y <= model.IndicatorPaneTop + model.IndicatorPaneHeight &&
-			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
+		if (point.Y > state.IndicatorPaneTop && point.Y <= state.IndicatorPaneTop + state.IndicatorPaneHeight &&
+			point.X >= state.LeftMargin && point.X <= state.LeftMargin + state.ChartWidth)
 		{
 			return ChartPane.Indicator;
 		}
@@ -303,19 +171,19 @@ public class ChartController
 	{
 		// Вычисляем границы viewport в chart координатах
 		Coordinates topLeft = new Coordinates(
-			model.CameraPosition.x - model.TimeRangeInViewport.TotalSeconds / 2,
-			model.CameraPosition.y + model.PriceRangeInViewport / 2
+			state.CameraPosition.x - state.TimeRangeInViewport.TotalSeconds / 2,
+			state.CameraPosition.y + state.PriceRangeInViewport / 2
 		);
 			
 		Coordinates bottomRight = new Coordinates(
-			model.CameraPosition.x + model.TimeRangeInViewport.TotalSeconds / 2,
-			model.CameraPosition.y - model.PriceRangeInViewport / 2
+			state.CameraPosition.x + state.TimeRangeInViewport.TotalSeconds / 2,
+			state.CameraPosition.y - state.PriceRangeInViewport / 2
 		);
 
-		ChartCoordinates topLeftChart = WorldToChart(topLeft);
-		ChartCoordinates bottomRightChart = WorldToChart(bottomRight);
+		ChartCoordinates topLeftChart = new(state.WorldOriginTime.AddSeconds(topLeft.x), state.WorldOriginPrice + topLeft.y);
+		ChartCoordinates bottomRightChart = new(state.WorldOriginTime.AddSeconds(bottomRight.x), state.WorldOriginPrice + bottomRight.y);
 
-		model.Viewport = new ViewportClippingCoords(
+		state.Viewport = new ViewportClippingCoords(
 			bottomRightChart.price,  // minPrice
 			topLeftChart.price,      // maxPrice
 			topLeftChart.time,       // minTime
@@ -323,25 +191,25 @@ public class ChartController
 		);
 
 		// Also update indicator viewport
-		UpdateIndicatorViewport();
+		RebuildIndicatorViewport();
 
 		RefreshRenderCaches();
 
 		// Помечаем все инструменты технического анализа для перерисовки при изменении viewport
-		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
+		state.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
 
-		var candles = model.Series.GetSnapshot();
+		var candles = state.Series.GetSnapshot();
 		if (candles.Count > 0)
 		{
 			var threshold = cachedTimeframeSpan * 20;
-			if (model.Viewport.minTime - candles[0].GetDateTime() < threshold)
+			if (state.Viewport.minTime - candles[0].GetDateTime() < threshold)
 			{
 				LeftEdgeApproached?.Invoke();
 			}
 		}
 
 		// Уведомляем об изменении viewport
-		ViewportChanged?.Invoke();
+		NotifyGeometryChanged();
 	}
 
 #endregion
@@ -350,18 +218,17 @@ public class ChartController
 	/// <summary> Инициализация камеры (вызывается один раз при старте) </summary>
 	public void InitializeCamera()
 	{
-		if (model.Series.GetSnapshot().Count == 0)
-			return;
-		model.UpdateDataRange();
-
-		ResetTimeScaleToTimeframe();
-
-		var candles = model.Series.GetSnapshot();
-		var lastCandle = candles[candles.Count - 1];
-		var centerTime = lastCandle.GetDateTime().Subtract(TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2));
-		model.CameraPosition = ChartToWorld(new ChartCoordinates(centerTime, lastCandle.close));
-
-		ResetPriceScaleToCurrentPrice();
+		var candles = state.Series.GetSnapshot();
+		if (candles.Count == 0 || state.ChartWidth <= 0 || state.MainPaneHeight <= 0) return;
+		state.TimeRangeInViewport = ParseTimeframe(state.Timeframe) * 100;
+		var last = candles[candles.Count - 1];
+		state.WorldOriginTime = candles[0].GetDateTime();
+		state.WorldOriginPrice = last.close;
+		var center = last.GetDateTime().Subtract(TimeSpan.FromTicks(state.TimeRangeInViewport.Ticks / 2));
+		state.CameraPosition = new Coordinates((center - state.WorldOriginTime).TotalSeconds, 0);
+		state.PriceRangeInViewport = Math.Clamp(Math.Abs(last.close) * 0.20, 1e-8, 1000000);
+		state.IsInitialized = true;
+		UpdateViewportFromCamera();
 	}
 
 	/// <summary>
@@ -371,9 +238,9 @@ public class ChartController
 	/// <param name="deltaWorldY">Изменение по Y в мировых координатах (единицы цены)</param>
 	public void Pan(double deltaWorldX, double deltaWorldY)
 	{
-		model.CameraPosition = new Coordinates(
-			model.CameraPosition.x + deltaWorldX,
-			model.CameraPosition.y + deltaWorldY
+		state.CameraPosition = new Coordinates(
+			state.CameraPosition.x + deltaWorldX,
+			state.CameraPosition.y + deltaWorldY
 		);
 			
 		UpdateViewportFromCamera();
@@ -387,11 +254,11 @@ public class ChartController
 	/// <param name="deltaScreenY">Изменение по Y экрана (пиксели)</param>
 	public void PanByPixels(double deltaScreenX, double deltaScreenY)
 	{
-		double deltaWorldX = cachedPixelsPerSecond > 0
-			? -deltaScreenX / cachedPixelsPerSecond
+		double deltaWorldX = Transform.PixelsPerSecond > 0
+			? -deltaScreenX / Transform.PixelsPerSecond
 			: 0;
-		double deltaWorldY = cachedPixelsPerPriceUnit > 0
-			? deltaScreenY / cachedPixelsPerPriceUnit
+		double deltaWorldY = Transform.PixelsPerPriceUnit > 0
+			? deltaScreenY / Transform.PixelsPerPriceUnit
 			: 0;
 
 		Pan(deltaWorldX, deltaWorldY);
@@ -406,33 +273,19 @@ public class ChartController
 	/// <param name="worldFocusY">Мировая Y координата для фокуса масштабирования (опционально)</param>
 	public void Zoom(double zoomFactorX, double zoomFactorY, double? worldFocusX = null, double? worldFocusY = null)
 	{
-		// Используем позицию камеры как точку фокуса по умолчанию
-		double focusX = worldFocusX ?? model.CameraPosition.x;
-		double focusY = worldFocusY ?? model.CameraPosition.y;
-
-		// Вычисляем смещение от камеры до точки фокуса
-		double offsetX = focusX - model.CameraPosition.x;
-		double offsetY = focusY - model.CameraPosition.y;
-
-		// Применяем масштабирование
-		model.TimeRangeInViewport = TimeSpan.FromTicks((long)(model.TimeRangeInViewport.Ticks * zoomFactorX));
-		model.PriceRangeInViewport *= zoomFactorY;
-
-		// Ограничиваем уровни масштабирования разумными значениями
-		if (model.TimeRangeInViewport.TotalSeconds < 60) // минимум 1 минута
-			model.TimeRangeInViewport = TimeSpan.FromMinutes(1);
-		if (model.TimeRangeInViewport.TotalDays > 3650) // максимум 10 лет
-			model.TimeRangeInViewport = TimeSpan.FromDays(3650);
-
-		// Нижний предел достаточно мал для низких цен (например 0.0552 × 10% = 0.00552)
-		model.PriceRangeInViewport = Math.Clamp(model.PriceRangeInViewport, 1e-8, 1000000);
-
-		// Корректируем позицию камеры чтобы точка фокуса осталась в той же экранной позиции
-		model.CameraPosition = new Coordinates(
-			focusX - offsetX * zoomFactorX,
-			focusY - offsetY * zoomFactorY
-		);
-
+		if (!double.IsFinite(zoomFactorX) || !double.IsFinite(zoomFactorY) || zoomFactorX <= 0 || zoomFactorY <= 0) return;
+		double focusX = worldFocusX ?? state.CameraPosition.x;
+		double focusY = worldFocusY ?? state.CameraPosition.y;
+		double oldTime = state.TimeRangeInViewport.TotalSeconds;
+		double oldPrice = state.PriceRangeInViewport;
+		double seconds = Math.Clamp(oldTime * zoomFactorX, 60, TimeSpan.FromDays(3650).TotalSeconds);
+		state.TimeRangeInViewport = TimeSpan.FromSeconds(seconds);
+		state.PriceRangeInViewport = Math.Clamp(oldPrice * zoomFactorY, 1e-8, 1000000);
+		double appliedX = state.TimeRangeInViewport.TotalSeconds / oldTime;
+		double appliedY = state.PriceRangeInViewport / oldPrice;
+		state.CameraPosition = new Coordinates(
+			focusX - (focusX - state.CameraPosition.x) * appliedX,
+			focusY - (focusY - state.CameraPosition.y) * appliedY);
 		UpdateViewportFromCamera();
 	}
 
@@ -464,8 +317,8 @@ public class ChartController
 	public void ZoomAxis(double timeZoomFactor, double priceZoomFactor)
 	{
 		// Используем центр main pane как точку фокуса
-		double centerScreenX = model.LeftMargin + model.ChartWidth / 2;
-		double centerScreenY = model.TopMargin + model.MainPaneHeight / 2;
+		double centerScreenX = state.LeftMargin + state.ChartWidth / 2;
+		double centerScreenY = state.TopMargin + state.MainPaneHeight / 2;
 			
 		Coordinates centerView = new Coordinates(centerScreenX, centerScreenY);
 		Coordinates centerWorld = ViewToWorld(centerView);
@@ -480,16 +333,16 @@ public class ChartController
 	/// </summary>
 	/// <param name="mousePos">Позиция мыши</param>
 	/// <returns>Информация о том, нужно ли захватить мышь</returns>
-	public MouseInteractionResult HandleMouseLeftButtonDown(Point mousePos)
+	private InteractionResult BeginNavigation(Point mousePos)
 	{
-		lastMousePosition = mousePos;
-		activePane = DetectPane(mousePos);
+		interaction.LastMousePosition = mousePos;
+		interaction.ActivePane = DetectPane(mousePos);
 
 		// Check if clicking on divider
-		if (activePane == ChartPane.Divider)
+		if (interaction.ActivePane == ChartPane.Divider)
 		{
-			isDraggingDivider = true;
-			return new MouseInteractionResult { ShouldCaptureMouse = true, Cursor = Cursors.SizeNS };
+			interaction.IsDraggingDivider = true;
+			return new InteractionResult(true, Cursors.SizeNS, MouseCaptureAction.Capture);
 		}
 			
 		// Проверяем, кликнул ли пользователь в области шкал
@@ -498,29 +351,29 @@ public class ChartController
 		if (detectedMode != ScaleZoomMode.None)
 		{
 			// Начинаем масштабирование через шкалы
-			isScaleZooming = true;
-			scaleZoomMode = detectedMode;
+			interaction.IsScaleZooming = true;
+			interaction.ScaleZoomMode = detectedMode;
 			Cursor cursor = detectedMode == ScaleZoomMode.TimeScale ? Cursors.SizeWE : Cursors.SizeNS;
-			return new MouseInteractionResult { ShouldCaptureMouse = true, Cursor = cursor };
+			return new InteractionResult(true, cursor, MouseCaptureAction.Capture);
 		}
 		else
 		{
 			// Обычное перетаскивание графика
-			isDragging = true;
-			return new MouseInteractionResult { ShouldCaptureMouse = true, Cursor = Cursors.Arrow };
+			interaction.IsDragging = true;
+			return new InteractionResult(true, Cursors.Arrow, MouseCaptureAction.Capture);
 		}
 	}
 
 	/// <summary>
 	/// Обработка отпускания левой кнопки мыши
 	/// </summary>
-	public void HandleMouseLeftButtonUp()
+	private void EndNavigation()
 	{
-		isDragging = false;
-		isScaleZooming = false;
-		isDraggingDivider = false;
-		scaleZoomMode = ScaleZoomMode.None;
-		activePane = ChartPane.None;
+		interaction.IsDragging = false;
+		interaction.IsScaleZooming = false;
+		interaction.IsDraggingDivider = false;
+		interaction.ScaleZoomMode = ScaleZoomMode.None;
+		interaction.ActivePane = ChartPane.None;
 	}
 
 	/// <summary>
@@ -528,35 +381,35 @@ public class ChartController
 	/// </summary>
 	/// <param name="currentPosition">Текущая позиция мыши</param>
 	/// <returns>Курсор для установки</returns>
-	public Cursor? HandleMouseMove(Point currentPosition)
+	private Cursor? MoveNavigation(Point currentPosition)
 	{
-		if (isDraggingDivider)
+		if (interaction.IsDraggingDivider)
 		{
 			// Handle divider dragging to resize panes
 			HandleDividerDrag(currentPosition.Y);
-			lastMousePosition = currentPosition;
+			interaction.LastMousePosition = currentPosition;
 			return Cursors.SizeNS;
 		}
-		else if (isScaleZooming)
+		else if (interaction.IsScaleZooming)
 		{
 			// Масштабирование через шкалы
-			double deltaX = currentPosition.X - lastMousePosition.X;
-			double deltaY = currentPosition.Y - lastMousePosition.Y;
+			double deltaX = currentPosition.X - interaction.LastMousePosition.X;
+			double deltaY = currentPosition.Y - interaction.LastMousePosition.Y;
 				
 			HandleScaleZoom(deltaX, deltaY);
 				
-			lastMousePosition = currentPosition;
-			return scaleZoomMode == ScaleZoomMode.TimeScale ? Cursors.SizeWE : Cursors.SizeNS;
+			interaction.LastMousePosition = currentPosition;
+			return interaction.ScaleZoomMode == ScaleZoomMode.TimeScale ? Cursors.SizeWE : Cursors.SizeNS;
 		}
-		else if (isDragging)
+		else if (interaction.IsDragging)
 		{
 			// Обычное перетаскивание графика
-			double deltaX = currentPosition.X - lastMousePosition.X;
-			double deltaY = currentPosition.Y - lastMousePosition.Y;
+			double deltaX = currentPosition.X - interaction.LastMousePosition.X;
+			double deltaY = currentPosition.Y - interaction.LastMousePosition.Y;
 				
 			PanByPixels(deltaX, deltaY);
 				
-			lastMousePosition = currentPosition;
+			interaction.LastMousePosition = currentPosition;
 			return Cursors.Arrow;
 		}
 		else
@@ -583,24 +436,9 @@ public class ChartController
 	/// <summary>Handles divider dragging to resize panes</summary>
 	private void HandleDividerDrag(double newY)
 	{
-		// Calculate available height for panes (excluding margins and divider)
-		double totalAvailableHeight = model.ChartHeight - model.DividerHeight;
-		
-		// Calculate new main pane height based on mouse position
-		double newMainPaneHeight = newY - model.TopMargin;
-		
-		// Calculate the new ratio
-		double newRatio = 1.0 - (newMainPaneHeight / totalAvailableHeight);
-		
-		// Clamp to valid range
-		newRatio = Math.Clamp(newRatio, model.MinIndicatorPaneRatio, model.MaxIndicatorPaneRatio);
-		
-		model.IndicatorPaneHeightRatio = newRatio;
-
-		RefreshRenderCaches();
-		
-		// Trigger viewport update and redraw
-		ViewportChanged?.Invoke();
+		double available = state.ChartHeight - state.DividerHeight;
+		if (available <= 0) return;
+		IndicatorPaneHeightRatio = 1 - (newY - state.TopMargin) / available;
 	}
 
 	/// <summary>
@@ -610,6 +448,7 @@ public class ChartController
 	/// <param name="delta">Изменение колесика</param>
 	public void HandleMouseWheel(Point mousePosition, int delta)
 	{
+		if (!IsReady || delta == 0) return;
 		// Масштабирование к позиции курсора
 		double zoomFactor = delta > 0 ? 0.9 : 1.1; // Zoom in/out
 		ZoomAtScreenPoint(mousePosition.X, mousePosition.Y, zoomFactor);
@@ -625,24 +464,24 @@ public class ChartController
 		const double tolerance = 15; // Погрешность в пикселях
 
 		// Проверяем область шкалы времени (внизу под indicator pane)
-		double timeScaleY = model.IndicatorPaneTop + model.IndicatorPaneHeight;
-		if (point.Y >= timeScaleY - tolerance && point.Y <= timeScaleY + model.BottomMargin &&
-			point.X >= model.LeftMargin && point.X <= model.LeftMargin + model.ChartWidth)
+		double timeScaleY = state.IndicatorPaneTop + state.IndicatorPaneHeight;
+		if (point.Y >= timeScaleY - tolerance && point.Y <= timeScaleY + state.BottomMargin &&
+			point.X >= state.LeftMargin && point.X <= state.LeftMargin + state.ChartWidth)
 		{
 			return ScaleZoomMode.TimeScale;
 		}
 
 		// Проверяем область шкалы цены main pane (справа от main pane)
-		double priceScaleX = model.LeftMargin + model.ChartWidth;
-		if (point.X >= priceScaleX - tolerance && point.X <= priceScaleX + model.RightMargin &&
-			point.Y >= model.TopMargin && point.Y < model.DividerY)
+		double priceScaleX = state.LeftMargin + state.ChartWidth;
+		if (point.X >= priceScaleX - tolerance && point.X <= priceScaleX + state.RightMargin &&
+			point.Y >= state.TopMargin && point.Y < state.DividerY)
 		{
 			return ScaleZoomMode.PriceScale;
 		}
 
 		// Проверяем область шкалы индикатора (справа от indicator pane)
-		if (point.X >= priceScaleX - tolerance && point.X <= priceScaleX + model.RightMargin &&
-			point.Y > model.IndicatorPaneTop && point.Y <= model.IndicatorPaneTop + model.IndicatorPaneHeight)
+		if (point.X >= priceScaleX - tolerance && point.X <= priceScaleX + state.RightMargin &&
+			point.Y > state.IndicatorPaneTop && point.Y <= state.IndicatorPaneTop + state.IndicatorPaneHeight)
 		{
 			return ScaleZoomMode.IndicatorScale;
 		}
@@ -659,7 +498,7 @@ public class ChartController
 	{
 		const double sensitivity = 0.01; // Чувствительность масштабирования
 
-		switch (scaleZoomMode)
+		switch (interaction.ScaleZoomMode)
 		{
 			case ScaleZoomMode.TimeScale:
 				// Масштабирование по времени (влево-вправо)
@@ -696,11 +535,9 @@ public class ChartController
 	/// <summary>Zooms the indicator pane Y-axis independently</summary>
 	public void ZoomIndicatorAxis(double zoomFactor)
 	{
-		model.IndicatorRangeInViewport *= zoomFactor;
-		model.IndicatorRangeInViewport = Math.Clamp(model.IndicatorRangeInViewport, 1, 10000);
-		
-		UpdateIndicatorViewport();
-		ViewportChanged?.Invoke();
+		if (!double.IsFinite(zoomFactor) || zoomFactor <= 0) return;
+		state.IndicatorRangeInViewport = Math.Clamp(state.IndicatorRangeInViewport * zoomFactor, 1, 10000);
+		UpdateViewportFromCamera();
 	}
 
 	// === PUBLIC API METHODS ===
@@ -715,43 +552,34 @@ public class ChartController
 
 	public void SetSeries(ICandleSeriesReader series, string timeframe)
 	{
-		model.Series = series;
-		model.Timeframe = timeframe;
-
-		// Пересчитываем диапазон данных
-		model.UpdateDataRange();
-
-		// Помечаем все инструменты для перерисовки при смене данных (таймфрейм или торговая пара)
-		model.TechnicalAnalysisManager.MarkAllToolsForRedrawing();
-
-		// Если камера еще не инициализирована, инициализируем её
-		if (!model.IsInitialized && model.ChartWidth > 0 && model.ChartHeight > 0 &&
-			model.Series.GetSnapshot().Count > 0)
-		{
+		state.Series = series ?? throw new ArgumentNullException(nameof(series));
+		state.Timeframe = timeframe;
+		state.UpdateDataRange();
+		if (series.GetSnapshot().Count == 0) state.IsInitialized = false;
+		RecalculateIndicators(false);
+		if (!state.IsInitialized && series.GetSnapshot().Count > 0 && state.ChartWidth > 0 && state.MainPaneHeight > 0)
 			InitializeCamera();
-			model.IsInitialized = true;
-		}
-		else
-		{
-			RefreshRenderCaches();
-		}
+		else UpdateViewportFromCamera();
 	}
 
 	/// <summary>Re-evaluates the viewport after history was added to the shared series.</summary>
 	public void OnHistoryExtended()
 	{
-		model.UpdateDataRange();
+		state.UpdateDataRange();
+		RecalculateIndicators(false);
 		UpdateViewportFromCamera();
 	}
 
 	/// <summary>Requests a redraw after the shared live candle changes.</summary>
-	public void OnLiveCandleUpdated() => ViewportChanged?.Invoke();
+	public void OnLiveCandleUpdated() => RequestRender();
 
 	/// <summary>Refreshes the data range after the shared series closes a candle.</summary>
 	public void OnCandleClosed()
 	{
-		model.UpdateDataRange();
-		ViewportChanged?.Invoke();
+		state.UpdateDataRange();
+		RecalculateIndicators(false);
+		RefreshRenderCaches();
+		RequestRender();
 	}
 
 	/// <summary>
@@ -759,10 +587,10 @@ public class ChartController
 	/// </summary>
 	public void CenterOnTime(DateTime time)
 	{
-		ChartCoordinates chartCoords = new ChartCoordinates(time, (model.Viewport.maxPrice + model.Viewport.minPrice) / 2);
+		ChartCoordinates chartCoords = new ChartCoordinates(time, (state.Viewport.maxPrice + state.Viewport.minPrice) / 2);
 		Coordinates worldCoords = ChartToWorld(chartCoords);
 			
-		model.CameraPosition = new Coordinates(worldCoords.x, model.CameraPosition.y);
+		state.CameraPosition = new Coordinates(worldCoords.x, state.CameraPosition.y);
 		UpdateViewportFromCamera();
 	}
 
@@ -774,7 +602,7 @@ public class ChartController
 		ChartCoordinates chartCoords = new ChartCoordinates(DateTime.Now, price);
 		Coordinates worldCoords = ChartToWorld(chartCoords);
 			
-		model.CameraPosition = new Coordinates(model.CameraPosition.x, worldCoords.y);
+		state.CameraPosition = new Coordinates(state.CameraPosition.x, worldCoords.y);
 		UpdateViewportFromCamera();
 	}
 
@@ -783,28 +611,28 @@ public class ChartController
 	/// </summary>
 	public void FitToData()
 	{
-		var candles = model.Series.GetSnapshot();
+		var candles = state.Series.GetSnapshot();
 		if (candles.Count == 0)
 			return;
 
 		TimeSpan dataTimeRange = candles[candles.Count - 1].GetDateTime() - candles[0].GetDateTime();
-		model.TimeRangeInViewport = TimeSpan.FromTicks((long)(dataTimeRange.Ticks * 1.2)); // 20% padding
+		state.TimeRangeInViewport = TimeSpan.FromTicks(Math.Max(TimeSpan.FromMinutes(1).Ticks, (long)(dataTimeRange.Ticks * 1.2))); // 20% padding
 
 		DateTime lastCandleTime = candles[candles.Count - 1].GetDateTime();
-		TimeSpan halfRange = TimeSpan.FromTicks(model.TimeRangeInViewport.Ticks / 2);
+		TimeSpan halfRange = TimeSpan.FromTicks(state.TimeRangeInViewport.Ticks / 2);
 		DateTime centerTime = lastCandleTime.Subtract(halfRange);
 		double centerPrice = candles[candles.Count - 1].close;
 
 		ChartCoordinates centerChart = new ChartCoordinates(centerTime, centerPrice);
-		model.CameraPosition = ChartToWorld(centerChart);
+		state.CameraPosition = ChartToWorld(centerChart);
 
 		ResetPriceScaleToCurrentPrice();
 	}
 
-	/// <summary> Сбрасывает вертикальный масштаб: ±5% от текущей цены на всю высоту экрана </summary>
+	/// <summary> Сбрасывает вертикальный масштаб: ±10% от текущей цены на всю высоту экрана </summary>
 	public void ResetPriceScaleToCurrentPrice()
 	{
-		var candles = model.Series.GetSnapshot();
+		var candles = state.Series.GetSnapshot();
 		if (candles.Count == 0)
 			return;
 
@@ -812,11 +640,11 @@ public class ChartController
 		if (!double.IsFinite(currentPrice) || Math.Abs(currentPrice) < double.Epsilon)
 			return;
 
-		// Полный видимый диапазон = 10% цены: 5% вниз и 5% вверх от текущей цены
-		model.PriceRangeInViewport = Math.Abs(currentPrice) * 0.20;
+		// Полный видимый диапазон = 20% цены: 10% вниз и 10% вверх от текущей цены
+		state.PriceRangeInViewport = Math.Clamp(Math.Abs(currentPrice) * 0.20, 1e-8, 1000000);
 
 		Coordinates priceWorld = ChartToWorld(new ChartCoordinates(DateTime.Now, currentPrice));
-		model.CameraPosition = new Coordinates(model.CameraPosition.x, priceWorld.y);
+		state.CameraPosition = new Coordinates(state.CameraPosition.x, priceWorld.y);
 
 		UpdateViewportFromCamera();
 	}
@@ -826,11 +654,11 @@ public class ChartController
 	{
 		const int targetVisibleCandles = 100;
 
-		TimeSpan candleDuration = ParseTimeframe(model.Timeframe);
+		TimeSpan candleDuration = ParseTimeframe(state.Timeframe);
 		if (candleDuration <= TimeSpan.Zero)
 			return;
 
-		model.TimeRangeInViewport = TimeSpan.FromTicks(candleDuration.Ticks * targetVisibleCandles);
+		state.TimeRangeInViewport = TimeSpan.FromTicks(candleDuration.Ticks * targetVisibleCandles);
 		UpdateViewportFromCamera();
 	}
 
@@ -839,7 +667,7 @@ public class ChartController
 	/// </summary>
 	public ViewportClippingCoords GetCurrentViewport()
 	{
-		return model.Viewport;
+		return state.Viewport;
 	}
 
 	/// <summary>
@@ -847,7 +675,7 @@ public class ChartController
 	/// </summary>
 	public ChartCoordinates GetCameraPosition()
 	{
-		return WorldToChart(model.CameraPosition);
+		return WorldToChart(state.CameraPosition);
 	}
 
 	/// <summary>
@@ -855,18 +683,18 @@ public class ChartController
 	/// </summary>
 	public void SnapLastCandleToRightEdge()
 	{
-		var candles = model.Series.GetSnapshot();
+		var candles = state.Series.GetSnapshot();
 		if (candles.Count == 0)
 			return;
 
 		int lastIndex = candles.Count - 1;
-		DateTime lastCandleTime = GetCandleTime(lastIndex);
+		DateTime lastCandleTime = CandleTime.Get(candles, lastIndex, cachedTimeframeSpan);
 
-		double pixelsPerSecond = model.ChartWidth / model.TimeRangeInViewport.TotalSeconds;
+		double pixelsPerSecond = state.ChartWidth / state.TimeRangeInViewport.TotalSeconds;
 		if (pixelsPerSecond <= 0)
 			return;
 
-		double halfViewportSeconds = model.TimeRangeInViewport.TotalSeconds / 2.0;
+		double halfViewportSeconds = state.TimeRangeInViewport.TotalSeconds / 2.0;
 		double candleHalfWidthSeconds = (GetCandleWidthPixels() / 2.0) / pixelsPerSecond;
 
 		// Смещаем центр камеры так, чтобы правая грань тела свечи касалась правой границы области графика.
@@ -875,7 +703,7 @@ public class ChartController
 		var lastCandle = candles[lastIndex];
 		Coordinates lastCandleWorld = ChartToWorld(new ChartCoordinates(lastCandleTime, lastCandle.close));
 
-		model.CameraPosition = new Coordinates(
+		state.CameraPosition = new Coordinates(
 			lastCandleWorld.x - targetOffsetSeconds,
 			lastCandleWorld.y
 		);
@@ -889,30 +717,8 @@ public class ChartController
 	/// Получает время свечи на основе индекса и timeframe
 	/// Uses timestamp from OHLCV data when available, falls back to calculation for backward compatibility
 	/// </summary>
-	public DateTime GetCandleTime(int candleIndex)
-	{
-		// Check if we have valid candles data and the index is within bounds
-		var candlesticks = model.Series.GetSnapshot();
-		if (candleIndex >= 0 && candleIndex < candlesticks.Count)
-		{
-			// Use timestamp from OHLCV data if it's not the default value (0)
-			if (candlesticks[candleIndex].timestamp > 0)
-			{
-				return candlesticks[candleIndex].GetDateTime();
-			}
-		}
-
-			
-		// Fallback to calculation based on timeframe for backward compatibility
-		if (cachedTimeframeKey != model.Timeframe)
-		{
-			cachedTimeframeKey = model.Timeframe;
-			cachedTimeframeSpan = ParseTimeframe(model.Timeframe);
-		}
-		return candlesticks.Count > 0
-			? candlesticks[0].GetDateTime().Add(TimeSpan.FromTicks(cachedTimeframeSpan.Ticks * candleIndex))
-			: DateTime.UtcNow;
-	}
+	public DateTime GetCandleTime(int candleIndex) =>
+		CandleTime.Get(state.Series.GetSnapshot(), candleIndex, ParseTimeframe(state.Timeframe));
 
 	/// <summary>
 	/// Парсит строку timeframe в TimeSpan
@@ -929,175 +735,491 @@ public class ChartController
 	/// </summary>
 	public double GetCandleWidthPixels()
 	{
-		return cachedCandleWidthPixels;
+		return Transform.CandleWidthPixels;
 	}
 
-	/// <summary>Вычисляет оптимальный интервал для меток шкалы индикатора</summary>
-	public double CalculateOptimalIndicatorInterval()
+	public double CalculateOptimalIndicatorInterval() => Axes.IndicatorValueInterval;
+	public TimeSpan CalculateOptimalTimeInterval() => Axes.TimeInterval;
+	public double CalculateOptimalPriceInterval() => Axes.PriceInterval;
+	public DateTime RoundDownToInterval(DateTime time, TimeSpan interval) => Axes.RoundDownToInterval(time, interval);
+	public string FormatTimeLabel(DateTime time, TimeSpan interval) => Axes.FormatTimeLabel(time, interval);
+	public string FormatPriceLabel(double price, double? interval = null) => Axes.FormatPriceLabel(price, interval);
+	public double GetMinimumDisplayedPriceStep() => Axes.GetMinimumDisplayedPriceStep();
+	public string FormatCrosshairTimeLabel(DateTime time) => Axes.FormatCrosshairTimeLabel(time);
+
+	private void HandleTrendLineCreation(ChartCoordinates chartCoords)
 	{
-		var viewport = model.IndicatorViewport;
-		double valueRange = viewport.MaxValue - viewport.MinValue;
-		if (valueRange <= 0 || !double.IsFinite(valueRange))
-			return 1;
-
-		double rawInterval = valueRange / 5; // Target ~5 ticks
-		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(rawInterval, 0.001))));
-		double normalizedInterval = rawInterval / magnitude;
-		if (normalizedInterval <= 1) return magnitude;
-		if (normalizedInterval <= 2) return 2 * magnitude;
-		if (normalizedInterval <= 5) return 5 * magnitude;
-		return 10 * magnitude;
-	}
-
-	/// <summary>
-	/// Вычисляет оптимальный интервал для меток времени
-	/// </summary>
-	public TimeSpan CalculateOptimalTimeInterval()
-	{
-		TimeSpan viewportRange = model.Viewport.maxTime - model.Viewport.minTime;
-		double totalSeconds = viewportRange.TotalSeconds;
-
-		// Целевое количество меток на экране (примерно 5-10)
-		int targetTickCount = 10;
-		double secondsPerTick = totalSeconds / targetTickCount;
-
-		// Выбираем подходящий интервал
-		if (secondsPerTick <= 60) // Меньше минуты
-			return TimeSpan.FromSeconds(Math.Max(1, Math.Round(secondsPerTick / 10) * 10));
-		else if (secondsPerTick <= 3600) // Меньше часа
-			return TimeSpan.FromMinutes(Math.Max(1, Math.Round(secondsPerTick / 60 / 5) * 5));
-		else if (secondsPerTick <= 86400) // Меньше дня
-			return TimeSpan.FromHours(Math.Max(1, Math.Round(secondsPerTick / 3600)));
-		else if (secondsPerTick <= 604800) // Меньше недели
-			return TimeSpan.FromDays(Math.Max(1, Math.Round(secondsPerTick / 86400)));
-		else // Больше недели
-			return TimeSpan.FromDays(Math.Max(7, Math.Round(secondsPerTick / 86400 / 7) * 7));
-	}
-
-	/// <summary>
-	/// Вычисляет оптимальный интервал для меток цены
-	/// </summary>
-	public double CalculateOptimalPriceInterval()
-	{
-		double priceRange = model.Viewport.maxPrice - model.Viewport.minPrice;
-		if (priceRange <= 0 || !double.IsFinite(priceRange))
-			return 1;
-
-		int targetTickCount = GetTargetPriceSectionCount();
-		double rawInterval = priceRange / targetTickCount;
-
-		return RoundUpToNicePriceStep(rawInterval);
-	}
-
-	/// <summary> Возвращает целевое число ценовых секций по высоте main pane </summary>
-	private int GetTargetPriceSectionCount()
-	{
-		const double pixelsPerSection = 55;
-		const int minSections = 4;
-		const int maxSections = 10;
-
-		if (model.MainPaneHeight <= 0)
-			return maxSections;
-
-		int sections = (int)Math.Round(model.MainPaneHeight / pixelsPerSection);
-		return Math.Clamp(sections, minSections, maxSections);
-	}
-
-	/// <summary> Округляет шаг цены вверх до ряда 1 / 2 / 2.5 / 5 / 10 × 10ⁿ </summary>
-	private static double RoundUpToNicePriceStep(double rawStep)
-	{
-		if (rawStep <= 0 || !double.IsFinite(rawStep))
-			return 1;
-
-		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(rawStep)));
-		double normalized = rawStep / magnitude;
-
-		double niceNormalized = normalized switch
+		if (interaction.CreationStep == 0)
 		{
-			<= 1.0 => 1.0,
-			<= 2.0 => 2.0,
-			<= 2.5 => 2.5,
-			<= 5.0 => 5.0,
-			_ => 10.0
+			// Первый клик: сохраняем первую точку
+			interaction.CreationPoints[0] = chartCoords;
+			interaction.CreationStep = 1;
+			NotifyInteractionChanged();
+		}
+		else if (interaction.CreationStep == 1 && interaction.CreationPoints[0].HasValue)
+		{
+			// Второй клик: создаём линию
+			var firstPoint = interaction.CreationPoints[0]!.Value;
+			var newTool = new TrendLine(
+				startTime: firstPoint.time,
+				startPrice: firstPoint.price,
+				endTime: chartCoords.time,
+				endPrice: chartCoords.price,
+				color: Brushes.Blue,
+				thickness: 2.0,
+				style: LineStyle.Solid
+			);
+
+			state.TechnicalAnalysisManager.AddTool(newTool, TechnicalAnalysisToolType.TrendLine);
+			StopCreating();
+			NotifyInteractionChanged();
+		}
+	}
+
+	/// <summary>Обработка создания трендового канала (три клика)</summary>
+	private void HandleTrendChannelCreation(ChartCoordinates chartCoords)
+	{
+		if (interaction.CreationStep == 0)
+		{
+			// Первый клик: сохраняем первую точку
+			interaction.CreationPoints[0] = chartCoords;
+			interaction.CreationStep = 1;
+
+			NotifyInteractionChanged();
+		}
+		else if (interaction.CreationStep == 1 && interaction.CreationPoints[0].HasValue)
+		{
+			// Второй клик: создаём первую линию канала и переходим к шагу 2
+			var firstPoint = interaction.CreationPoints[0]!.Value;
+			
+			// Создаём временный канал с нулевым offset для превью
+			var channel = new TrendChannel(
+				startTime: firstPoint.time,
+				startPrice: firstPoint.price,
+				endTime: chartCoords.time,
+				endPrice: chartCoords.price,
+				parallelOffset: 0,
+				color: Brushes.Green,
+				thickness: 2.0,
+				style: LineStyle.Solid
+			);
+
+			interaction.CreationPoints[1] = chartCoords;
+			interaction.CreatingToolInstance = channel;
+			interaction.CreationStep = 2;
+			NotifyInteractionChanged();
+		}
+		else if (interaction.CreationStep == 2 && 
+				 interaction.CreatingToolInstance is TrendChannel channel)
+		{
+			// Третий клик: устанавливаем offset параллельной линии и завершаем создание
+			double parallelOffset = chartCoords.price - channel.StartPrice;
+			channel.ParallelOffset = parallelOffset;
+
+			state.TechnicalAnalysisManager.AddTool(channel, TechnicalAnalysisToolType.TrendChannel);
+			StopCreating();
+			NotifyInteractionChanged();
+		}
+	}
+
+	/// <summary>Обработка создания прямоугольника (два клика)</summary>
+	private void HandleRectangleCreation(ChartCoordinates chartCoords)
+	{
+		if (interaction.CreationStep == 0)
+		{
+			// Первый клик: сохраняем первый угол
+			interaction.CreationPoints[0] = chartCoords;
+			interaction.CreationStep = 1;
+			NotifyInteractionChanged();
+		}
+		else if (interaction.CreationStep == 1 && interaction.CreationPoints[0].HasValue)
+		{
+			// Второй клик: создаём прямоугольник по диагонали
+			var firstPoint = interaction.CreationPoints[0]!.Value;
+			var newTool = new TechnicalAnalysis.Rectangle(
+				startTime: firstPoint.time,
+				startPrice: firstPoint.price,
+				endTime: chartCoords.time,
+				endPrice: chartCoords.price,
+				color: Brushes.Orange,
+				thickness: 2.0,
+				style: LineStyle.Solid
+			);
+
+			state.TechnicalAnalysisManager.AddTool(newTool, TechnicalAnalysisToolType.Rectangle);
+			StopCreating();
+			NotifyInteractionChanged();
+		}
+	}
+
+
+	private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+		PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+	private void RequestRender() => RenderRequested?.Invoke();
+
+	private void RefreshCommandAvailability()
+	{
+		foreach (var command in new[] { FitToDataCommand, ResetPriceScaleCommand,
+			ResetTimeScaleCommand, SnapLastToRightCommand, BeginToolCreationCommand,
+			CancelInteractionCommand, DeleteSelectedToolCommand })
+			((RelayCommand)command).RaiseCanExecuteChanged();
+	}
+
+	private void NotifyGeometryChanged()
+	{
+		OnPropertyChanged(nameof(CameraPosition));
+		OnPropertyChanged(nameof(Viewport));
+		OnPropertyChanged(nameof(IndicatorPaneHeightRatio));
+		OnPropertyChanged(nameof(IsReady));
+		RefreshCommandAvailability();
+		ViewportChanged?.Invoke();
+		RequestRender();
+	}
+
+	private void NotifyInteractionChanged()
+	{
+		OnPropertyChanged(nameof(SelectedTool));
+		OnPropertyChanged(nameof(ActiveToolType));
+		RefreshCommandAvailability();
+		RequestRender();
+	}
+
+	public void SetViewSize(double width, double height)
+	{
+		width = double.IsFinite(width) ? Math.Max(0, width - state.LeftMargin - state.RightMargin) : 0;
+		height = double.IsFinite(height) ? Math.Max(0, height - state.TopMargin - state.BottomMargin) : 0;
+		if (state.ChartWidth == width && state.ChartHeight == height) return;
+		state.ChartWidth = width;
+		state.ChartHeight = height;
+		if (!state.IsInitialized && state.Series.GetSnapshot().Count > 0 && width > 0 && state.MainPaneHeight > 0)
+			InitializeCamera();
+		else UpdateViewportFromCamera();
+	}
+
+	public void UpdateIndicatorViewport() => UpdateViewportFromCamera();
+
+	private static bool IsSupportedTool(TechnicalAnalysisToolType type) => type is
+		TechnicalAnalysisToolType.HorizontalLine or TechnicalAnalysisToolType.HorizontalRay or
+		TechnicalAnalysisToolType.TrendLine or TechnicalAnalysisToolType.TrendChannel or
+		TechnicalAnalysisToolType.Rectangle;
+
+	public void BeginToolCreation(TechnicalAnalysisToolType type)
+	{
+		if (!IsReady || IsSwitchingSymbol || !IsSupportedTool(type)) return;
+		CancelInteraction();
+		SetSelectedTool(null);
+		interaction.ActiveToolType = type;
+		NotifyInteractionChanged();
+		ViewActionRequested?.Invoke(new(true, Cursors.Cross, MouseCaptureAction.Release,
+			true, ContextMenuAction.Close));
+	}
+
+	private void StopCreating()
+	{
+		interaction.ActiveToolType = TechnicalAnalysisToolType.None;
+		interaction.CreationStep = 0;
+		Array.Clear(interaction.CreationPoints);
+		interaction.CreatingToolInstance = null;
+		interaction.CurrentMouseChartCoords = null;
+	}
+
+	private void SetSelectedTool(TechnicalAnalysisTool? tool)
+	{
+		if (ReferenceEquals(SelectedTool, tool)) return;
+		SelectedTool?.SetEditMode(false);
+		interaction.SelectedTool = tool;
+		interaction.EditingControlPointIndex = -1;
+		tool?.SetEditMode(true);
+		NotifyInteractionChanged();
+	}
+
+	public InteractionResult CancelInteraction()
+	{
+		HandleCaptureLost();
+		interaction.CrosshairVisible = false;
+		interaction.CrosshairPane = ChartPane.None;
+		StopCreating();
+		SetSelectedTool(null);
+		NotifyInteractionChanged();
+		return new(true, Cursors.Arrow, MouseCaptureAction.Release, Menu: ContextMenuAction.Close);
+	}
+
+	private void RequestCancellation()
+	{
+		var result = CancelInteraction();
+		ViewActionRequested?.Invoke(result);
+	}
+
+	public void HandleCaptureLost()
+	{
+		EndNavigation();
+		interaction.PendingTool = null;
+		interaction.IsDraggingToolBody = false;
+		interaction.EditingControlPointIndex = -1;
+		RequestRender();
+	}
+
+	public InteractionResult HandlePointerDown(Point point)
+	{
+		if (!IsReady || IsSwitchingSymbol) return new();
+		var coordinates = new Coordinates(point.X, point.Y);
+		if (interaction.IsCreatingTool)
+		{
+			CreateToolAt(ViewToChart(coordinates));
+			return new(true, interaction.IsCreatingTool ? Cursors.Cross : Cursors.Arrow);
+		}
+		if (SelectedTool is { IsBeingEdited: true } editing)
+		{
+			int index = editing.GetControlPointIndex(coordinates, Transform.ChartToView);
+			if (index >= 0)
+			{
+				interaction.EditingControlPointIndex = index;
+				return new(true, editing.GetControlPointCursor(index), MouseCaptureAction.Capture, true);
+			}
+		}
+		var tool = state.TechnicalAnalysisManager.GetToolAtPoint(coordinates, Transform.ChartToView, state.Viewport);
+		if (tool != null)
+		{
+			if (SelectedTool != tool) SetSelectedTool(null);
+			interaction.PendingTool = tool;
+			interaction.PendingStartView = point;
+			interaction.PendingLastChart = ViewToChart(coordinates);
+			interaction.IsDraggingToolBody = false;
+			return new(true, tool.GetEditCursor(), MouseCaptureAction.Capture, true);
+		}
+		SetSelectedTool(null);
+		var navigation = BeginNavigation(point);
+		return new(true, navigation.Cursor, navigation.Capture, true);
+	}
+
+	public InteractionResult HandlePointerUp()
+	{
+		if (interaction.PendingTool is { } tool && !interaction.IsDraggingToolBody)
+			SetSelectedTool(tool);
+		HandleCaptureLost();
+		return new(true, Cursors.Arrow, MouseCaptureAction.Release);
+	}
+
+	public InteractionResult HandlePointerMove(Point point, bool leftButtonPressed)
+	{
+		var pane = DetectPane(point);
+		interaction.CrosshairVisible = pane != ChartPane.None;
+		interaction.CrosshairViewPosition = point;
+		interaction.CrosshairPane = pane;
+		var coordinates = new Coordinates(point.X, point.Y);
+		if (IsSwitchingSymbol)
+		{
+			RequestRender();
+			return new(Cursor: Cursors.Arrow);
+		}
+		if (interaction.IsCreatingTool)
+		{
+			interaction.CurrentMouseChartCoords = ViewToChart(coordinates);
+			RequestRender();
+			return new(true, Cursors.Cross);
+		}
+		if (interaction.PendingTool is { } pending && leftButtonPressed)
+		{
+			var delta = point - interaction.PendingStartView;
+			if (delta.LengthSquared >= 16) interaction.IsDraggingToolBody = true;
+			if (interaction.IsDraggingToolBody)
+			{
+				var current = ViewToChart(coordinates);
+				pending.Translate(current.time - interaction.PendingLastChart.time,
+					current.price - interaction.PendingLastChart.price);
+				interaction.PendingLastChart = current;
+			}
+			RequestRender();
+			return new(true, pending.GetEditCursor());
+		}
+		if (SelectedTool is { } editing && interaction.EditingControlPointIndex >= 0 && leftButtonPressed)
+		{
+			editing.UpdateControlPoint(interaction.EditingControlPointIndex, ViewToChart(coordinates));
+			RequestRender();
+			return new(true, editing.GetControlPointCursor(interaction.EditingControlPointIndex));
+		}
+		if (!leftButtonPressed && (interaction.IsDragging || interaction.IsScaleZooming ||
+			interaction.IsDraggingDivider || interaction.PendingTool != null || interaction.EditingControlPointIndex >= 0))
+			HandleCaptureLost();
+		Cursor? cursor = null;
+		if (!leftButtonPressed)
+		{
+			if (SelectedTool is { } selected)
+			{
+				int index = selected.GetControlPointIndex(coordinates, Transform.ChartToView);
+				if (index >= 0) cursor = selected.GetControlPointCursor(index);
+			}
+			cursor ??= state.TechnicalAnalysisManager.GetToolAtPoint(coordinates,
+				Transform.ChartToView, state.Viewport)?.GetHoverCursor();
+		}
+		cursor ??= MoveNavigation(point);
+		RequestRender();
+		return new(Cursor: cursor);
+	}
+
+	public void HandlePointerLeave(bool isCaptured)
+	{
+		if (isCaptured) return;
+		interaction.CrosshairVisible = false;
+		interaction.CrosshairPane = ChartPane.None;
+		RequestRender();
+	}
+
+	public InteractionResult HandleContextMenu(Point point, bool leftButtonPressed)
+	{
+		if (IsSwitchingSymbol || interaction.IsCreatingTool || leftButtonPressed) return new();
+		var tool = state.TechnicalAnalysisManager.GetToolAtPoint(new(point.X, point.Y),
+			Transform.ChartToView, state.Viewport);
+		if (tool is not IStrokeStyleTool) return new();
+		SetSelectedTool(tool);
+		return new(true, RequestFocus: true, Menu: ContextMenuAction.Open,
+			MenuTool: tool, MenuPosition: point);
+	}
+
+	public InteractionResult HandleKey(Key key, ModifierKeys modifiers)
+	{
+		if (key == Key.Escape) return CancelInteraction();
+		if (key == Key.Delete && SelectedTool != null)
+		{
+			DeleteSelectedTool();
+			return new(true, Menu: ContextMenuAction.Close);
+		}
+		if (key is Key.Up or Key.Down && modifiers == ModifierKeys.None &&
+			SelectedTool is HorizontalLine or HorizontalRay)
+		{
+			double step = Axes.GetMinimumDisplayedPriceStep();
+			SelectedTool.Translate(TimeSpan.Zero, key == Key.Up ? step : -step);
+			SelectedTool.NeedsRedrawing = true;
+			RequestRender();
+			return new(true);
+		}
+		return new();
+	}
+
+	private void CreateToolAt(ChartCoordinates point)
+	{
+		switch (ActiveToolType)
+		{
+			case TechnicalAnalysisToolType.TrendLine: HandleTrendLineCreation(point); return;
+			case TechnicalAnalysisToolType.TrendChannel: HandleTrendChannelCreation(point); return;
+			case TechnicalAnalysisToolType.Rectangle: HandleRectangleCreation(point); return;
+		}
+		TechnicalAnalysisTool? tool = ActiveToolType switch
+		{
+			TechnicalAnalysisToolType.HorizontalLine => new HorizontalLine(point.price, System.Windows.Media.Brushes.Red),
+			TechnicalAnalysisToolType.HorizontalRay => new HorizontalRay(point.time, point.price, System.Windows.Media.Brushes.OrangeRed),
+			_ => null
 		};
-
-		return niceNormalized * magnitude;
+		if (tool != null) state.TechnicalAnalysisManager.AddTool(tool, ActiveToolType);
+		StopCreating();
+		NotifyInteractionChanged();
 	}
 
-	/// <summary> Определяет число знаков после запятой по шагу цены </summary>
-	private static int GetDecimalPlacesForPriceStep(double priceInterval)
+	public void DeleteSelectedTool()
 	{
-		if (priceInterval <= 0 || !double.IsFinite(priceInterval))
-			return 4;
-
-		double magnitude = Math.Pow(10, Math.Floor(Math.Log10(priceInterval)));
-		double normalized = priceInterval / magnitude;
-		int baseDecimals = (int)Math.Max(0, -Math.Floor(Math.Log10(magnitude)));
-
-		if (Math.Abs(normalized - 2.5) < 0.01)
-			return baseDecimals + 1;
-
-		return baseDecimals;
+		if (SelectedTool is not { } tool) return;
+		HandleCaptureLost();
+		state.TechnicalAnalysisManager.RemoveTool(tool);
+		SetSelectedTool(null);
+		SaveTools();
+		ViewActionRequested?.Invoke(new(true, Cursors.Arrow, MouseCaptureAction.Release,
+			Menu: ContextMenuAction.Close));
 	}
 
-	/// <summary>
-	/// Округляет время вниз до ближайшего интервала
-	/// </summary>
-	public DateTime RoundDownToInterval(DateTime time, TimeSpan interval)
+	public bool ApplyToolStyle(TechnicalAnalysisTool tool, Action<IStrokeStyleTool> change)
 	{
-		long ticks = time.Ticks;
-		long intervalTicks = interval.Ticks;
-		long roundedTicks = (ticks / intervalTicks) * intervalTicks;
-		return new DateTime(roundedTicks);
+		if (IsSwitchingSymbol || tool is not IStrokeStyleTool style || !state.TechnicalAnalysisManager.GetTools().Contains(tool)) return false;
+		change(style);
+		tool.NeedsRedrawing = true;
+		RequestRender();
+		SaveTools();
+		return true;
 	}
 
-	/// <summary>
-	/// Форматирует подпись времени в зависимости от интервала
-	/// </summary>
-	public string FormatTimeLabel(DateTime time, TimeSpan interval)
+	public async Task SetSymbolAsync(string symbol)
 	{
-		if (interval.TotalSeconds < 60)
-			return time.ToString("HH:mm:ss");
-		else if (interval.TotalMinutes < 60)
-			return time.ToString("HH:mm");
-		else if (interval.TotalHours < 24)
-			return time.ToString("HH:mm");
-		else if (interval.TotalDays < 7)
-			return time.ToString("dd.MM");
-		else
-			return time.ToString("dd.MM.yy");
+		pendingSymbolSwitches++;
+		state.IsSwitchingSymbol = true;
+		OnPropertyChanged(nameof(IsSwitchingSymbol));
+		RefreshCommandAvailability();
+		RequestCancellation();
+		await symbolSwitch.WaitAsync();
+		try
+		{
+			// A gesture may have started while this switch waited behind another load.
+			RequestCancellation();
+			await state.TechnicalAnalysisManager.SetSymbolAsync(symbol);
+			RequestCancellation();
+			NotifyInteractionChanged();
+		}
+		finally
+		{
+			symbolSwitch.Release();
+			state.IsSwitchingSymbol = --pendingSymbolSwitches > 0;
+			OnPropertyChanged(nameof(IsSwitchingSymbol));
+			RefreshCommandAvailability();
+		}
 	}
 
-	/// <summary> Форматирует подпись цены с учётом шага шкалы </summary>
-	public string FormatPriceLabel(double price, double? priceInterval = null)
+	public void SaveTools() => state.TechnicalAnalysisManager.SaveTools();
+
+	public void AddIndicator(Indicator indicator)
 	{
-		double interval = priceInterval ?? CalculateOptimalPriceInterval();
-		int decimals = GetDecimalPlacesForPriceStep(interval);
-		return price.ToString($"F{decimals}");
+		state.MutableIndicators.Add(indicator);
+		AutoFitIndicatorViewport();
+		OnPropertyChanged(nameof(Indicators));
 	}
 
-	/// <summary>Минимальное изменение цены, различимое в подписи текущей ценовой шкалы.</summary>
-	public double GetMinimumDisplayedPriceStep()
+	public void RemoveIndicator(string id)
 	{
-		int decimals = GetDecimalPlacesForPriceStep(PriceInterval);
-		return Math.Pow(10, -decimals);
+		state.MutableIndicators.RemoveAll(indicator => indicator.Id == id);
+		AutoFitIndicatorViewport();
+		OnPropertyChanged(nameof(Indicators));
 	}
 
-	/// <summary>
-	/// Formats crosshair time label: always date; time included when timeframe is shorter than 1 day.
-	/// </summary>
-	public string FormatCrosshairTimeLabel(DateTime time)
+	public void ClearIndicators()
 	{
-		TimeSpan tf = ParseTimeframe(model.Timeframe);
-		if (tf < TimeSpan.FromDays(1))
-			return time.ToString("dd.MM.yyyy HH:mm");
-		return time.ToString("dd.MM.yyyy");
+		state.MutableIndicators.Clear();
+		OnPropertyChanged(nameof(Indicators));
+		RequestRender();
 	}
-}
 
-/// <summary>Результат обработки мыши для передачи информации обратно в View</summary>
-public class MouseInteractionResult
-{
-	public bool ShouldCaptureMouse { get; set; }
-	public Cursor? Cursor { get; set; }
+	public List<Indicator> GetIndicators() => state.Indicators.ToList();
+
+	public void AutoFitIndicatorViewport()
+	{
+		// Preserve the current indicator scaling policy; RSI uses its explicit range.
+		if (!state.Indicators.Any(indicator => indicator.IsVisible && indicator.Points.Count > 0))
+		{
+			state.IndicatorCameraY = 50;
+			state.IndicatorRangeInViewport = 100;
+		}
+		UpdateViewportFromCamera();
+	}
+
+	public RSIIndicator AddRSI(int period = 14)
+	{
+		state.MutableIndicators.RemoveAll(indicator => indicator.Id == "rsi");
+		var rsi = new RSIIndicator(period);
+		var snapshot = state.Series.GetSnapshot();
+		rsi.Calculate(snapshot, i => CandleTime.Get(snapshot, i, ParseTimeframe(state.Timeframe)));
+		state.MutableIndicators.Add(rsi);
+		state.IndicatorCameraY = 50;
+		state.IndicatorRangeInViewport = 110;
+		UpdateViewportFromCamera();
+		OnPropertyChanged(nameof(Indicators));
+		return rsi;
+	}
+
+	public void RecalculateIndicators(bool invalidateVisual = true)
+	{
+		var snapshot = state.Series.GetSnapshot();
+		var timeframe = ParseTimeframe(state.Timeframe);
+		foreach (var rsi in state.Indicators.OfType<RSIIndicator>())
+			rsi.Calculate(snapshot, i => CandleTime.Get(snapshot, i, timeframe));
+		RebuildIndicatorViewport();
+		if (invalidateVisual) UpdateViewportFromCamera();
+	}
+
 }

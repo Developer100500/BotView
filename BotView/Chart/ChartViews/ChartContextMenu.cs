@@ -24,7 +24,7 @@ internal sealed class ChartContextMenu
 	};
 
 	private readonly ChartView owner;
-	private readonly TechnicalAnalysisManager manager;
+	private readonly ChartController controller;
 	private readonly Popup popup;
 	private readonly Canvas canvas;
 	private readonly TextBox hexEditor;
@@ -39,10 +39,10 @@ internal sealed class ChartContextMenu
 
 	public bool IsOpen => popup.IsOpen;
 
-	public ChartContextMenu(ChartView owner, TechnicalAnalysisManager manager)
+	public ChartContextMenu(ChartView owner, ChartController controller)
 	{
 		this.owner = owner;
-		this.manager = manager;
+		this.controller = controller;
 		canvas = new Canvas();
 		popup = new Popup
 		{
@@ -255,15 +255,16 @@ internal sealed class ChartContextMenu
 
 	private void Apply(Action<IStrokeStyleTool> change)
 	{
-		if (target == null || outline == null || !manager.GetTools().Contains(target))
+		if (target == null || outline == null || !controller.State.TechnicalAnalysisManager.GetTools().Contains(target))
 		{
 			CloseMenu();
 			return;
 		}
-		change(outline);
-		target.NeedsRedrawing = true;
-		owner.InvalidateVisual();
-		manager.SaveTools();
+		if (!controller.ApplyToolStyle(target, change))
+		{
+			CloseMenu();
+			return;
+		}
 		Rebuild();
 	}
 

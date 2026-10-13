@@ -38,14 +38,13 @@ public struct IndicatorPoint
 public class IndicatorDrawContext
 {
 	public DrawingContext DrawingContext { get; }
-	public ChartModel Model { get; }
-	public ChartController Controller { get; }
+	public ChartRenderFrame Frame { get; }
+	public ChartTransform Transform => Frame.Transform;
 
-	public IndicatorDrawContext(DrawingContext drawingContext, ChartModel model, ChartController controller)
+	public IndicatorDrawContext(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
 		DrawingContext = drawingContext;
-		Model = model;
-		Controller = controller;
+		Frame = frame;
 	}
 
 	/// <summary>Check if coordinate is valid (not NaN or Infinity)</summary>
@@ -106,8 +105,8 @@ public abstract class Indicator
 
 		foreach (double level in ReferenceLines)
 		{
-			Coordinates startView = context.Controller.IndicatorToView(context.Model.Viewport.minTime, level);
-			Coordinates endView = context.Controller.IndicatorToView(context.Model.Viewport.maxTime, level);
+			Coordinates startView = context.Transform.IndicatorToView(context.Frame.Viewport.minTime, level);
+			Coordinates endView = context.Transform.IndicatorToView(context.Frame.Viewport.maxTime, level);
 
 			if (context.IsValidCoordinate(startView) && context.IsValidCoordinate(endView))
 			{

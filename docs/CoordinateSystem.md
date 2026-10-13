@@ -73,6 +73,11 @@ struct ViewportClippingCoords
 
 ## Методы конвертации координат
 
+Все преобразования выполняет `ChartTransform`. Controller пересоздаёт его при
+изменении камеры, размеров или масштаба; обработка ввода и кадр используют
+согласованные коэффициенты, не зависящие от предыдущей отрисовки. Подробнее:
+[Architecture.md](Architecture.md).
+
 ### Основные конвертации
 - `ChartToWorld()`: Chart → World
 - `WorldToChart()`: World → Chart
@@ -108,7 +113,7 @@ ChartCoordinates mouseChart = ViewToChart(mouseView);
 - `CenterOnPrice(price)`: Центрирование на цене
 - `FitToData()`: Подгонка под все данные
 - `ResetTimeScaleToTimeframe()`: Сброс X-масштаба: ~80 свечей текущего таймфрейма
-- `ResetPriceScaleToCurrentPrice()`: Сброс Y-масштаба: ±5% от текущей цены
+- `ResetPriceScaleToCurrentPrice()`: Сброс Y-масштаба: ±10% от текущей цены
 
 ### Автомасштаб цены
 
@@ -124,7 +129,7 @@ ChartCoordinates mouseChart = ViewToChart(mouseView);
 
 Расчёт Y-диапазона:
 - Текущая цена = последняя `close`
-- `priceRangeInViewport = abs(price) × 10%` (5% вниз + 5% вверх)
+- `priceRangeInViewport = abs(price) × 20%` (10% вниз + 10% вверх)
 - Камера по Y на текущей цене
 
 Горизонтальное позиционирование, live-обновления и подгрузка истории не пересчитывают масштабы.
