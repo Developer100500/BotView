@@ -25,12 +25,13 @@ public class ChartRenderer
 	private static readonly Pen BearishBodyPen = CreateFrozenPen(Brushes.Red, 1);
 	private static readonly Pen CurrentPriceDashPen = CreateFrozenDashedPen(Brushes.LightGray, 1, DashStyles.Dot);
 	private static readonly Pen CrosshairPen = CreateFrozenDashedPen(Brushes.LightGray, 1, DashStyles.Dash);
+	private static readonly Pen ComparisonPen = CreateFrozenPen(Brushes.MediumPurple, 2.5);
 	private static readonly Pen GridPen = CreateFrozenDashedPen(Brushes.LightGray, 0.5, new DashStyle(new double[] { 2, 4 }, 0));
 	private static readonly Brush DividerBrush = CreateFrozenBrush(Color.FromRgb(180, 180, 180));
 	private static readonly Brush IndicatorBgBrush = CreateFrozenBrush(Color.FromRgb(250, 250, 252));
 	private static readonly Brush CrosshairLabelBrush = CreateFrozenBrush(Color.FromRgb(96, 96, 96));
 
-	/// <summary>Главный метод отрисовки графика</summary>
+	/// <summary>Draws the captured frame into drawingContext, including comparison and measurement overlays.</summary>
 	public void Render(DrawingContext drawingContext, ChartRenderFrame frame)
 	{
 		var candles = frame.Candles;
@@ -40,6 +41,7 @@ public class ChartRenderer
 		DrawMainPaneGrid(drawingContext, frame);
 		DrawPriceScale(drawingContext, frame);
 		DrawCandlesticks(drawingContext, frame, candles);
+		DrawComparison(drawingContext, frame);
 		DrawTechnicalAnalysisTools(drawingContext, frame);
 		DrawToolCreationPreview(drawingContext, frame);
 		DrawHorizontalToolPriceLabels(drawingContext, frame);
@@ -57,6 +59,168 @@ public class ChartRenderer
 		else indicatorRenderer = null;
 		DrawTimeScale(drawingContext, frame);
 		DrawCrosshair(drawingContext, frame);
+		DrawMeasurement(drawingContext, frame, candles);
+	}
+
+	/// <summary>Draws the captured ruler into context; frame supplies geometry and candles supplies actual bar counts.</summary>
+	private void DrawMeasurement(DrawingContext context, ChartRenderFrame frame, CandleSeriesSnapshot candles)
+	{
+		if (!frame.IsInitialized || frame.ChartWidth <= 0 || frame.MainPaneHeight <= 0 ||
+			frame.MeasurementStart is not { } start || frame.MeasurementEnd is not { } end) return;
+		var a = frame.Transform.ChartToView(start);
+		var b = frame.Transform.ChartToView(end);
+		if (!double.IsFinite(a.x) || !double.IsFinite(a.y) || !double.IsFinite(b.x) || !double.IsFinite(b.y)) return;
+		var result = MeasurementMath.Calculate(start, end, candles);
+		Color color = result.IsFalling ? Color.FromRgb(242, 54, 69) : Color.FromRgb(41, 98, 255);
+		var brush = CreateFrozenBrush(color);
+		var fill = CreateFrozenBrush(Color.FromArgb(45, color.R, color.G, color.B));
+		var pen = CreateFrozenPen(brush, 1);
+		var rectangle = new Rect(new Point(Math.Min(a.x, b.x), Math.Min(a.y, b.y)),
+			new Point(Math.Max(a.x, b.x), Math.Max(a.y, b.y)));
+		if (!rectangle.IntersectsWith(frame.MainPaneRect)) return;
+		context.PushClip(new RectangleGeometry(frame.MainPaneRect));
+		try
+		{
+			context.DrawRectangle(fill, null, rectangle);
+			double middleX = (a.x + b.x) / 2, middleY = (a.y + b.y) / 2;
+			DrawMeasurementArrow(context, pen, new Point(a.x, middleY), new Point(b.x, middleY));
+			DrawMeasurementArrow(context, pen, new Point(middleX, a.y), new Point(middleX, b.y));
+			var priceText = CreateLabelText(result.PriceText, Brushes.White, 12);
+			var timeText = CreateLabelText(result.TimeText, Brushes.White, 12);
+			Rect card = GetMeasurementCardRect(rectangle, frame.MainPaneRect,
+				new Size(Math.Max(priceText.Width, timeText.Width) + 16, priceText.Height + timeText.Height + 14), result.IsFalling);
+			context.DrawRoundedRectangle(brush, null, card, 3, 3);
+			context.DrawText(priceText, new Point(card.X + (card.Width - priceText.Width) / 2, card.Y + 5));
+			context.DrawText(timeText, new Point(card.X + (card.Width - timeText.Width) / 2, card.Y + 9 + priceText.Height));
+		}
+		finally { context.Pop(); }
+
+		// The scale has its own clip so offscreen anchors cannot paint over other panes.
+		context.PushClip(new RectangleGeometry(new Rect(frame.ScaleX, frame.MainPaneRect.Top,
+			frame.RightMargin, frame.MainPaneHeight)));
+		try
+		{
+			double top = Math.Max(rectangle.Top, frame.MainPaneRect.Top);
+			double bottom = Math.Min(rectangle.Bottom, frame.MainPaneRect.Bottom);
+			context.DrawRectangle(fill, null, new Rect(frame.ScaleX, top, frame.RightMargin, Math.Max(0, bottom - top)));
+			DrawMeasurementPriceLabel(context, frame, start.price, brush);
+			if (start.price != end.price) DrawMeasurementPriceLabel(context, frame, end.price, brush);
+		}
+		finally { context.Pop(); }
+	}
+
+	/// <summary>Draws an absolute price label into context with brush using the captured frame geometry.</summary>
+	private void DrawMeasurementPriceLabel(DrawingContext context, ChartRenderFrame frame, double price, Brush brush)
+	{
+		if (!IsPriceVisible(frame, price)) return;
+		// Measurements always report primary prices, including in comparison mode.
+		var text = CreateLabelText(price.ToString("G10", System.Globalization.CultureInfo.CurrentCulture), Brushes.White, 10);
+		var bounds = GetPriceScaleLabelRect(frame, price, text);
+		context.DrawRectangle(brush, null, bounds);
+		context.DrawText(text, new Point(bounds.X + 4, bounds.Y + (bounds.Height - text.Height) / 2));
+	}
+
+	/// <summary>Fits a card of size inside pane near measurement, placing it below falling measurements and above rising ones.</summary>
+	internal static Rect GetMeasurementCardRect(Rect measurement, Rect pane, Size size, bool falling)
+	{
+		double width = Math.Min(size.Width, pane.Width), height = Math.Min(size.Height, pane.Height);
+		double x = Math.Clamp(measurement.X + (measurement.Width - width) / 2, pane.Left, pane.Right - width);
+		double y = Math.Clamp(falling ? measurement.Bottom + 8 : measurement.Top - height - 8, pane.Top, pane.Bottom - height);
+		return new Rect(x, y, width, height);
+	}
+
+	/// <summary>Draws an arrow from start to end into context using pen for its shaft and head.</summary>
+	private static void DrawMeasurementArrow(DrawingContext context, Pen pen, Point start, Point end)
+	{
+		context.DrawLine(pen, start, end);
+		Vector direction = end - start;
+		if (direction.Length < 1) return;
+		double length = Math.Min(5, direction.Length / 2);
+		direction.Normalize();
+		Vector perpendicular = new(-direction.Y, direction.X);
+		context.DrawLine(pen, end, end - direction * length + perpendicular * length);
+		context.DrawLine(pen, end, end - direction * length - perpendicular * length);
+	}
+
+	/// <summary>Draws the normalized comparison and legend into context using only candles and geometry captured in frame.</summary>
+	private void DrawComparison(DrawingContext context, ChartRenderFrame frame)
+	{
+		if (frame.ComparisonCandles is not { } snapshot || frame.ComparisonAnchor is not { } anchor)
+			return;
+		long end = ComparisonSeriesMath.ToUnixMilliseconds(frame.Viewport.maxTime);
+		TimeSpan timeframe = frame.Timeframe;
+		var points = new List<Point>();
+		long previousTimestamp = 0;
+		double lastVisibleClose = double.NaN;
+		context.PushClip(new RectangleGeometry(frame.MainPaneRect));
+		try
+		{
+			foreach (var (_, candle) in snapshot.Enumerate(anchor.Timestamp, end))
+			{
+				double projected = ComparisonSeriesMath.ToPrimaryPrice(candle.close, anchor);
+				if (!double.IsFinite(projected) || projected <= 0)
+				{
+					DrawSmoothSegment(context, points);
+					points.Clear();
+					previousTimestamp = 0;
+					continue;
+				}
+				if (previousTimestamp != 0 &&
+					!ComparisonSeriesMath.IsContinuous(previousTimestamp, candle.timestamp, timeframe))
+				{
+					DrawSmoothSegment(context, points);
+					points.Clear();
+				}
+				var time = candle.GetDateTime();
+				points.Add(new Point(frame.Transform.TimeToViewX(time), frame.Transform.PriceToViewY(projected)));
+				previousTimestamp = candle.timestamp;
+				lastVisibleClose = candle.close;
+			}
+			DrawSmoothSegment(context, points);
+		}
+		finally { context.Pop(); }
+
+		string value = double.IsFinite(lastVisibleClose)
+			? $"  {ComparisonSeriesMath.ToPercent(lastVisibleClose, anchor.ComparisonClose):+0.##;-0.##;0}%"
+			: string.Empty;
+		var legend = CreateLabelText($"Compare · {frame.ComparisonSymbol}{value}", Brushes.MediumPurple, 11);
+		context.DrawText(legend, new Point(frame.Left + 8, frame.Top + 5));
+		if (snapshot.Count > 0 && snapshot[snapshot.Count - 1].timestamp >= anchor.Timestamp &&
+			snapshot[snapshot.Count - 1].timestamp <= end)
+		{
+			double last = ComparisonSeriesMath.ToPrimaryPrice(snapshot[snapshot.Count - 1].close, anchor);
+			if (double.IsFinite(last) && last >= frame.Viewport.minPrice && last <= frame.Viewport.maxPrice)
+				DrawPriceScaleLabel(context, frame, last, Brushes.MediumPurple);
+		}
+	}
+
+	/// <summary>Draws the ordered view-coordinate points into context with smooth tangents that preserve turning points.</summary>
+	private static void DrawSmoothSegment(DrawingContext context, List<Point> points)
+	{
+		if (points.Count < 2) return;
+		var geometry = new StreamGeometry();
+		using (var path = geometry.Open())
+		{
+			path.BeginFigure(points[0], false, false);
+			for (int i = 0; i < points.Count - 1; i++)
+			{
+				var a = points[i];
+				var b = points[i + 1];
+				double dx = b.X - a.X;
+				if (dx <= 0) continue;
+				// Zero tangents at turning points; otherwise average neighboring slopes.
+				double slope = (b.Y - a.Y) / dx;
+				double before = i > 0 ? (a.Y - points[i - 1].Y) / (a.X - points[i - 1].X) : slope;
+				double after = i + 2 < points.Count
+					? (points[i + 2].Y - b.Y) / (points[i + 2].X - b.X) : slope;
+				double startTangent = before * slope <= 0 ? 0 : Math.Sign(slope) * Math.Min(Math.Abs((before + slope) / 2), Math.Abs(slope) * 3);
+				double endTangent = after * slope <= 0 ? 0 : Math.Sign(slope) * Math.Min(Math.Abs((slope + after) / 2), Math.Abs(slope) * 3);
+				path.BezierTo(new Point(a.X + dx / 3, a.Y + startTangent * dx / 3),
+					new Point(b.X - dx / 3, b.Y - endTangent * dx / 3), b, true, false);
+			}
+		}
+		geometry.Freeze();
+		context.DrawGeometry(null, ComparisonPen, geometry);
 	}
 
 	private void DrawMainPaneArea(DrawingContext drawingContext, ChartRenderFrame frame)

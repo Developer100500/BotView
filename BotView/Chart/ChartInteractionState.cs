@@ -6,6 +6,7 @@ namespace BotView.Chart;
 /// <summary>Input and overlay state owned by one chart, never shared statically.</summary>
 public sealed class ChartInteractionState
 {
+	internal ChartMeasurement Measurement { get; } = new();
 	public TechnicalAnalysisTool? SelectedTool { get; internal set; }
 	public TechnicalAnalysisToolType ActiveToolType { get; internal set; }
 	public int CreationStep { get; internal set; }
@@ -16,7 +17,7 @@ public sealed class ChartInteractionState
 	public ChartPane CrosshairPane { get; internal set; }
 	public ChartCoordinates? CurrentMouseChartCoords { get; internal set; }
 	internal ChartCoordinates?[] CreationPoints { get; } = new ChartCoordinates?[3];
-	internal bool IsCreatingTool => ActiveToolType != TechnicalAnalysisToolType.None;
+	internal bool IsCreatingTool => ActiveToolType is not (TechnicalAnalysisToolType.None or TechnicalAnalysisToolType.Measure);
 	internal bool IsDragging { get; set; }
 	internal bool IsScaleZooming { get; set; }
 	internal bool IsDraggingDivider { get; set; }

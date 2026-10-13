@@ -9,6 +9,12 @@ namespace BotView.Chart;
 public sealed class ChartRenderFrame
 {
 	public CandleSeriesSnapshot Candles { get; }
+	internal CandleSeriesSnapshot? ComparisonCandles { get; }
+	internal ComparisonSeriesMath.Anchor? ComparisonAnchor { get; }
+	internal string? ComparisonSymbol { get; }
+	internal ChartCoordinates? MeasurementStart { get; }
+	internal ChartCoordinates? MeasurementEnd { get; }
+	internal TimeSpan Timeframe => timeframe;
 	public ChartTransform Transform { get; }
 	public AxisLayout Axes { get; }
 	public ViewportClippingCoords Viewport { get; }
@@ -44,17 +50,23 @@ public sealed class ChartRenderFrame
 	public ChartPane CrosshairPane { get; }
 	public TechnicalAnalysisTool? SelectedTool { get; }
 	public TechnicalAnalysisToolType ActiveToolType { get; }
-	public bool IsCreatingTool => ActiveToolType != TechnicalAnalysisToolType.None;
+	public bool IsCreatingTool => ActiveToolType is not (TechnicalAnalysisToolType.None or TechnicalAnalysisToolType.Measure);
 	public int CreationStep { get; }
 	public IReadOnlyList<ChartCoordinates?> CreationPoints { get; }
 	public TechnicalAnalysisTool? CreatingToolInstance { get; }
 	public ChartCoordinates? CurrentMouseChartCoords { get; }
 	private readonly TimeSpan timeframe;
 
+	/// <summary>Captures state overlays, transform, axes and candle snapshots; timeframe supplies candle duration and comparisonCandles supplies the optional secondary series.</summary>
 	internal ChartRenderFrame(ChartState state, ChartTransform transform, AxisLayout axes,
-		CandleSeriesSnapshot candles, TimeSpan timeframe)
+		CandleSeriesSnapshot candles, TimeSpan timeframe, CandleSeriesSnapshot? comparisonCandles = null)
 	{
 		Candles = candles;
+		ComparisonCandles = comparisonCandles;
+		ComparisonAnchor = state.ComparisonAnchor;
+		ComparisonSymbol = state.ComparisonSymbol;
+		MeasurementStart = state.Interaction.Measurement.Start;
+		MeasurementEnd = state.Interaction.Measurement.End;
 		Transform = transform;
 		Axes = axes;
 		this.timeframe = timeframe;

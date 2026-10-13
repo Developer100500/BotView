@@ -18,6 +18,12 @@ public class ChartState
 	public bool IsSwitchingSymbol { get; internal set; }
 	// === DATA ===
 	public ICandleSeriesReader Series { get; internal set; }
+	internal ICandleSeriesReader? ComparisonSeries { get; set; }
+	internal string? ComparisonSymbol { get; set; }
+	internal ComparisonSeriesMath.Anchor? ComparisonAnchor { get; set; }
+	internal bool ComparisonAutoFit { get; set; }
+	internal double SavedPriceRange { get; set; }
+	internal double SavedCameraY { get; set; }
 	public string Timeframe { get; internal set; } = string.Empty;
 	//public int PollInterval { get; internal set; } = 250; // milliseconds
 
@@ -39,7 +45,7 @@ public class ChartState
 
 	// Margins are constants
 	public double LeftMargin { get; } = 10;
-	public double RightMargin { get; } = 60;  // Увеличено для шкалы цены
+	public double RightMargin { get; } = 80;  // Увеличено для шкалы цены
 	public double TopMargin { get; } = 20;
 	public double BottomMargin { get; } = 30; // Увеличено для шкалы времени
 

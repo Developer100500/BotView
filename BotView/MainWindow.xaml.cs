@@ -65,12 +65,42 @@ namespace BotView
             };
 
             chartView.LeftEdgeApproached += OnLeftEdgeApproached;
+            chartView.VisibleTimeRangeChanged += _viewModel.RequestComparisonHistory;
             chartView.AddIndicator(new Chart.IndicatorPane.RSIIndicator());
             Loaded += MainWindow_Loaded;
         }
 
+        /// <summary>Connects view model updates to the chart through the UI dispatcher and rejects stale series versions.</summary>
         private void SubscribeViewModelEvents()
         {
+            _viewModel.ComparisonSeriesReady += (series, symbol, version) =>
+            {
+                // Attaches the captured series only if this comparison version still owns the chart.
+                void Apply()
+                {
+                    if (version == _viewModel.CurrentComparisonVersion &&
+                        ReferenceEquals(series, _viewModel.CurrentComparisonSeries))
+                        chartView.SetComparison(series, symbol);
+                }
+                if (Dispatcher.CheckAccess()) Apply();
+                else Dispatcher.Invoke(Apply);
+            };
+            _viewModel.ComparisonSeriesCleared += version =>
+            {
+                // Clears the overlay only if the captured cancellation version is still current.
+                void Clear()
+                {
+                    if (version == _viewModel.CurrentComparisonVersion)
+                        chartView.ClearComparison();
+                }
+                if (Dispatcher.CheckAccess()) Clear();
+                else Dispatcher.Invoke(Clear);
+            };
+            _viewModel.ComparisonDataChanged += version => Dispatcher.InvokeAsync(() =>
+            {
+                if (version == _viewModel.CurrentComparisonVersion)
+                    chartView.OnComparisonChanged();
+            });
             _viewModel.ChartSeriesReady += OnChartSeriesReady;
             _viewModel.ChartSeriesCleared += (timeframe, version) =>
             {
@@ -114,6 +144,7 @@ namespace BotView
             };
             _viewModel.DrawingToolRequested += OnDrawingToolRequested;
             _viewModel.SnapLastToRightRequested += () => chartView.SnapLastCandleToRightEdge();
+            _viewModel.ResetVerticalScaleRequested += () => chartView.ResetPriceScaleToCurrentPrice();
             _viewModel.ShowMetricsRequested += OnShowMetricsRequested;
             _viewModel.ExportMetricsRequested += OnExportMetricsRequested;
             _viewModel.ErrorOccurred += OnErrorOccurred;
@@ -194,6 +225,35 @@ namespace BotView
             e.Handled = true;
             target.ContextMenu = menu;
             menu.IsOpen = true;
+        }
+
+        /// <summary>Opens comparison results on focus; sender identifies the input and e carries its focus event.</summary>
+        private void TxtComparisonSearch_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel.ComparisonSearchResults.Count > 0)
+                _viewModel.IsComparisonDropdownOpen = true;
+        }
+
+        /// <summary>Closes comparison results after focus leaves; sender identifies the input and e carries the event.</summary>
+        private void TxtComparisonSearch_LostFocus(object sender, RoutedEventArgs e)
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!txtComparisonSearch.IsKeyboardFocusWithin)
+                    _viewModel.IsComparisonDropdownOpen = false;
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>Selects the clicked comparison row from sender and consumes the pointer event e.</summary>
+        private void ComparisonResults_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ListBox listBox) return;
+            var item = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+            if (item?.DataContext is string symbol)
+            {
+                _viewModel.SelectComparisonResultCommand.Execute(symbol);
+                e.Handled = true;
+            }
         }
 
         private void OnChartSeriesReady(ICandleSeriesReader series, string timeframe, bool useLiveLayout, int version)

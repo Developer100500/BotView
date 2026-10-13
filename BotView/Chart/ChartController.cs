@@ -27,7 +27,7 @@ public enum ChartPane
 /// <summary>
 /// Управляет состоянием и командами графика; геометрию и шкалы делегирует отдельным компонентам.
 /// </summary>
-public class ChartController : INotifyPropertyChanged
+public partial class ChartController : INotifyPropertyChanged
 {
 	private readonly ChartState state;
 
@@ -35,8 +35,9 @@ public class ChartController : INotifyPropertyChanged
 	private readonly SemaphoreSlim symbolSwitch = new(1, 1);
 	private int pendingSymbolSwitches;
 	public ChartState State => state;
+	/// <summary>Captures one snapshot per displayed series and freezes geometry and overlay values for rendering.</summary>
 	public ChartRenderFrame PrepareRenderFrame() => new(state, Transform, Axes,
-		state.Series.GetSnapshot(), cachedTimeframeSpan);
+		state.Series.GetSnapshot(), cachedTimeframeSpan, state.ComparisonSeries?.GetSnapshot());
 	public TechnicalAnalysisTool? SelectedTool => interaction.SelectedTool;
 	public TechnicalAnalysisToolType ActiveToolType => interaction.ActiveToolType;
 	public Coordinates CameraPosition => state.CameraPosition;
@@ -86,6 +87,7 @@ public class ChartController : INotifyPropertyChanged
 
 	/// <summary> Срабатывает когда viewport приближается к левому краю данных. </summary>
 	public event Action? LeftEdgeApproached;
+	public event Action<DateTime>? VisibleTimeRangeChanged;
 
 	public ChartTransform Transform { get; private set; } = null!;
 	public AxisLayout Axes { get; private set; } = null!;
@@ -113,6 +115,7 @@ public class ChartController : INotifyPropertyChanged
 		RefreshRenderCaches();
 	}
 
+	/// <summary>Rebuilds immutable transforms and axis labels from the current camera and comparison anchor.</summary>
 	public void RefreshRenderCaches()
 	{
 		cachedTimeframeSpan = ParseTimeframe(state.Timeframe);
@@ -122,7 +125,8 @@ public class ChartController : INotifyPropertyChanged
 			state.IndicatorPaneTop, state.IndicatorPaneHeight, state.IndicatorCameraY,
 			state.IndicatorRangeInViewport, cachedTimeframeSpan);
 		Axes = new AxisLayout(state.Viewport, state.IndicatorViewport, state.MainPaneHeight,
-			cachedTimeframeSpan, IsIndicatorPaneVisible);
+			cachedTimeframeSpan, IsIndicatorPaneVisible,
+			state.ComparisonSeries != null, state.ComparisonAnchor?.PrimaryClose);
 	}
 
 #region === COORDINATE CONVERSION METHODS ===
@@ -197,6 +201,9 @@ public class ChartController : INotifyPropertyChanged
 			bottomRightChart.time    // maxTime
 		);
 
+		RefreshComparisonAnchor();
+		if (state.ComparisonAutoFit) FitComparisonVertically();
+
 		// Also update indicator viewport
 		RebuildIndicatorViewport();
 
@@ -217,6 +224,7 @@ public class ChartController : INotifyPropertyChanged
 
 		// Уведомляем об изменении viewport
 		NotifyGeometryChanged();
+		VisibleTimeRangeChanged?.Invoke(state.Viewport.minTime);
 	}
 
 #endregion
@@ -245,6 +253,7 @@ public class ChartController : INotifyPropertyChanged
 	/// <param name="deltaWorldY">Изменение по Y в мировых координатах (единицы цены)</param>
 	public void Pan(double deltaWorldX, double deltaWorldY)
 	{
+		if (state.ComparisonSeries != null && Math.Abs(deltaWorldY) > 0.000001) state.ComparisonAutoFit = false;
 		state.CameraPosition = new Coordinates(
 			state.CameraPosition.x + deltaWorldX,
 			state.CameraPosition.y + deltaWorldY
@@ -281,6 +290,7 @@ public class ChartController : INotifyPropertyChanged
 	public void Zoom(double zoomFactorX, double zoomFactorY, double? worldFocusX = null, double? worldFocusY = null)
 	{
 		if (!double.IsFinite(zoomFactorX) || !double.IsFinite(zoomFactorY) || zoomFactorX <= 0 || zoomFactorY <= 0) return;
+		if (state.ComparisonSeries != null && Math.Abs(zoomFactorY - 1) > 0.000001) state.ComparisonAutoFit = false;
 		double focusX = worldFocusX ?? state.CameraPosition.x;
 		double focusY = worldFocusY ?? state.CameraPosition.y;
 		double oldTime = state.TimeRangeInViewport.TotalSeconds;
@@ -558,9 +568,12 @@ public class ChartController : INotifyPropertyChanged
 		SetSeries(series, newData.timeframe);
 	}
 
+	/// <summary>Assigns the primary candle series and timeframe, clears the ruler and initializes geometry when needed.</summary>
 	public void SetSeries(ICandleSeriesReader series, string timeframe)
 	{
-		state.Series = series ?? throw new ArgumentNullException(nameof(series));
+		ArgumentNullException.ThrowIfNull(series);
+		ClearMeasurement();
+		state.Series = series;
 		state.Timeframe = timeframe;
 		state.UpdateDataRange();
 		if (series.GetSnapshot().Count == 0) state.IsInitialized = false;
@@ -579,13 +592,18 @@ public class ChartController : INotifyPropertyChanged
 	}
 
 	/// <summary>Requests a redraw after the shared live candle changes.</summary>
-	public void OnLiveCandleUpdated() => RequestRender();
+	public void OnLiveCandleUpdated()
+	{
+		if (state.ComparisonSeries != null) UpdateViewportFromCamera();
+		else RequestRender();
+	}
 
 	/// <summary>Refreshes the data range after the shared series closes a candle.</summary>
 	public void OnCandleClosed()
 	{
 		state.UpdateDataRange();
 		RecalculateIndicators(false);
+		if (state.ComparisonSeries != null) { UpdateViewportFromCamera(); return; }
 		RefreshRenderCaches();
 		RequestRender();
 	}
@@ -640,6 +658,12 @@ public class ChartController : INotifyPropertyChanged
 	/// <summary> Сбрасывает вертикальный масштаб: ±10% от текущей цены на всю высоту экрана </summary>
 	public void ResetPriceScaleToCurrentPrice()
 	{
+		if (state.ComparisonSeries != null)
+		{
+			state.ComparisonAutoFit = true;
+			UpdateViewportFromCamera();
+			return;
+		}
 		var candles = state.Series.GetSnapshot();
 		if (candles.Count == 0)
 			return;
@@ -913,14 +937,16 @@ public class ChartController : INotifyPropertyChanged
 	private static bool IsSupportedTool(TechnicalAnalysisToolType type) => type is
 		TechnicalAnalysisToolType.HorizontalLine or TechnicalAnalysisToolType.HorizontalRay or
 		TechnicalAnalysisToolType.TrendLine or TechnicalAnalysisToolType.TrendChannel or
-		TechnicalAnalysisToolType.Rectangle;
+		TechnicalAnalysisToolType.Rectangle or TechnicalAnalysisToolType.Measure;
 
+	/// <summary>Cancels previous interaction and activates type, including the transient ruler, on this chart.</summary>
 	public void BeginToolCreation(TechnicalAnalysisToolType type)
 	{
 		if (!IsReady || IsSwitchingSymbol || !IsSupportedTool(type)) return;
 		CancelInteraction();
 		SetSelectedTool(null);
 		interaction.ActiveToolType = type;
+		if (type == TechnicalAnalysisToolType.Measure) interaction.Measurement.Arm();
 		NotifyInteractionChanged();
 		ViewActionRequested?.Invoke(new(true, Cursors.Cross, MouseCaptureAction.Release,
 			true, ContextMenuAction.Close));
@@ -945,8 +971,10 @@ public class ChartController : INotifyPropertyChanged
 		NotifyInteractionChanged();
 	}
 
+	/// <summary>Clears drawing, selection, ruler and navigation state and returns the required view effects.</summary>
 	public InteractionResult CancelInteraction()
 	{
+		interaction.Measurement.Clear();
 		HandleCaptureLost();
 		interaction.CrosshairVisible = false;
 		interaction.CrosshairPane = ChartPane.None;
@@ -971,14 +999,16 @@ public class ChartController : INotifyPropertyChanged
 		RequestRender();
 	}
 
+	/// <summary>Routes point in view pixels to the ruler, drawing tools, selection or chart navigation.</summary>
 	public InteractionResult HandlePointerDown(Point point)
 	{
 		if (!IsReady || IsSwitchingSymbol) return new();
+		if (HandleMeasurementClick(point) is { Handled: true } measurement) return measurement;
 		var coordinates = new Coordinates(point.X, point.Y);
 		if (interaction.IsCreatingTool)
 		{
 			CreateToolAt(ViewToChart(coordinates));
-			return new(true, interaction.IsCreatingTool ? Cursors.Cross : Cursors.Arrow);
+			return new(true, (interaction.IsCreatingTool || interaction.Measurement.IsActive) ? Cursors.Cross : Cursors.Arrow);
 		}
 		if (SelectedTool is { IsBeingEdited: true } editing)
 		{
@@ -1004,14 +1034,17 @@ public class ChartController : INotifyPropertyChanged
 		return new(true, navigation.Cursor, navigation.Capture, true);
 	}
 
+	/// <summary>Finishes navigation or selection while preserving a pending ruler and its crosshair cursor.</summary>
 	public InteractionResult HandlePointerUp()
 	{
+		if (interaction.Measurement.IsActive) return new(true, Cursors.Cross);
 		if (interaction.PendingTool is { } tool && !interaction.IsDraggingToolBody)
 			SetSelectedTool(tool);
 		HandleCaptureLost();
 		return new(true, Cursors.Arrow, MouseCaptureAction.Release);
 	}
 
+	/// <summary>Updates overlays or gestures at point in view pixels; leftButtonPressed identifies an active drag.</summary>
 	public InteractionResult HandlePointerMove(Point point, bool leftButtonPressed)
 	{
 		var pane = DetectPane(point);
@@ -1024,6 +1057,7 @@ public class ChartController : INotifyPropertyChanged
 			RequestRender();
 			return new(Cursor: Cursors.Arrow);
 		}
+		if (HandleMeasurementMove(point) is { Handled: true } measurement) return measurement;
 		if (interaction.IsCreatingTool)
 		{
 			interaction.CurrentMouseChartCoords = ViewToChart(coordinates);
@@ -1077,9 +1111,10 @@ public class ChartController : INotifyPropertyChanged
 		RequestRender();
 	}
 
+	/// <summary>Opens a tool menu at point unless drawing, measuring or leftButtonPressed blocks the action.</summary>
 	public InteractionResult HandleContextMenu(Point point, bool leftButtonPressed)
 	{
-		if (IsSwitchingSymbol || interaction.IsCreatingTool || leftButtonPressed) return new();
+		if (IsSwitchingSymbol || interaction.IsCreatingTool || interaction.Measurement.IsActive || leftButtonPressed) return new();
 		var tool = state.TechnicalAnalysisManager.GetToolAtPoint(new(point.X, point.Y),
 			Transform.ChartToView, state.Viewport);
 		if (tool is not IStrokeStyleTool) return new();
@@ -1210,7 +1245,7 @@ public class ChartController : INotifyPropertyChanged
 		UpdateViewportFromCamera();
 		OnPropertyChanged(nameof(Indicators));
 		OnPropertyChanged(nameof(IsIndicatorPaneVisible));
-		ViewActionRequested?.Invoke(new(true, interaction.IsCreatingTool ? Cursors.Cross : Cursors.Arrow,
+		ViewActionRequested?.Invoke(new(true, (interaction.IsCreatingTool || interaction.Measurement.IsActive) ? Cursors.Cross : Cursors.Arrow,
 			MouseCaptureAction.Release, Menu: ContextMenuAction.Close));
 	}
 

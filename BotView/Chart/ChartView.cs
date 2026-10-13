@@ -34,6 +34,7 @@ public class ChartView : FrameworkElement
 	private Rect arrangedCloseButtonBounds = Rect.Empty;
 	public double LastRenderTimeMs { get; private set; }
 	public event Action? LeftEdgeApproached;
+	public event Action<DateTime>? VisibleTimeRangeChanged;
 
 	public ChartView()
 	{
@@ -56,6 +57,7 @@ public class ChartView : FrameworkElement
 			Controller.PropertyChanged -= OnControllerPropertyChanged;
 			Controller.ViewActionRequested -= Apply;
 			Controller.LeftEdgeApproached -= OnLeftEdgeApproached;
+			Controller.VisibleTimeRangeChanged -= OnVisibleTimeRangeChanged;
 			subscribed = false;
 		};
 	}
@@ -67,6 +69,7 @@ public class ChartView : FrameworkElement
 		Controller.PropertyChanged += OnControllerPropertyChanged;
 		Controller.ViewActionRequested += Apply;
 		Controller.LeftEdgeApproached += OnLeftEdgeApproached;
+		Controller.VisibleTimeRangeChanged += OnVisibleTimeRangeChanged;
 		subscribed = true;
 	}
 
@@ -76,6 +79,8 @@ public class ChartView : FrameworkElement
 			InvalidateArrange();
 		InvalidateVisual();
 	}
+	/// <summary>Forwards the visible left edge; time is the viewport start used for comparison history.</summary>
+	private void OnVisibleTimeRangeChanged(DateTime time) => VisibleTimeRangeChanged?.Invoke(time);
 	private void OnLeftEdgeApproached() => LeftEdgeApproached?.Invoke();
 	private void OnControllerPropertyChanged(object? sender, PropertyChangedEventArgs args)
 	{
@@ -241,6 +246,12 @@ public class ChartView : FrameworkElement
 		args.Handled = result.Handled;
 	}
 
+	/// <summary>Sets the comparison overlay; series supplies candles and symbol is the legend text.</summary>
+	public void SetComparison(ICandleSeriesReader series, string symbol) => Controller.SetComparison(series, symbol);
+	/// <summary>Removes the comparison overlay and restores the price scale.</summary>
+	public void ClearComparison() => Controller.ClearComparison();
+	/// <summary>Refreshes the comparison after a live or history update.</summary>
+	public void OnComparisonChanged() => Controller.OnComparisonChanged();
 	public void CloseToolContextMenu() => toolContextMenu.CloseMenu();
 	public void BeginToolCreation(TechnicalAnalysisToolType type) => Controller.BeginToolCreation(type);
 	public Task SetSymbolAsync(string symbol) => Controller.SetSymbolAsync(symbol);

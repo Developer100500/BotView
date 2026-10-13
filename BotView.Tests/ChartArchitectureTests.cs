@@ -237,7 +237,8 @@ public sealed class ChartArchitectureTests
 			controller.HandlePointerUp();
 			var tool = Assert.IsType<HorizontalLine>(controller.SelectedTool);
 			Render(controller.PrepareRenderFrame()); // Populates the existing control-point geometry cache.
-			var center = new Point(410, controller.Transform.PriceToViewY(tool.Price));
+			var center = new Point(controller.State.LeftMargin + controller.State.ChartWidth / 2,
+				controller.Transform.PriceToViewY(tool.Price));
 			Assert.Equal(MouseCaptureAction.Capture, controller.HandlePointerDown(center).Capture);
 			Assert.Equal(0, controller.State.Interaction.EditingControlPointIndex);
 			controller.HandlePointerMove(new(center.X, center.Y + 20), true);

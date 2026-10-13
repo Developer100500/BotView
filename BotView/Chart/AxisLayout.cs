@@ -8,6 +8,8 @@ public sealed class AxisLayout
 	private readonly double mainPaneHeight;
 	private readonly TimeSpan timeframe;
 	private readonly bool indicatorPaneVisible;
+	private readonly bool comparisonEnabled;
+	private readonly double? comparisonBaseClose;
 	public double PriceInterval { get; }
 	public TimeSpan TimeInterval { get; }
 	public double IndicatorValueInterval { get; }
@@ -15,20 +17,24 @@ public sealed class AxisLayout
 	public IReadOnlyList<AxisTick<DateTime>> TimeTicks { get; }
 	public IReadOnlyList<AxisTick<double>> IndicatorTicks { get; }
 
+	/// <summary>Captures viewport and indicatorViewport scales using mainPaneHeight and timeframe; indicatorPaneVisible controls RSI ticks, comparisonEnabled and comparisonBaseClose enable percentage labels.</summary>
 	public AxisLayout(ViewportClippingCoords viewport,
 		BotView.Chart.IndicatorPane.IndicatorViewport indicatorViewport,
-		double mainPaneHeight, TimeSpan timeframe, bool indicatorPaneVisible = true)
+		double mainPaneHeight, TimeSpan timeframe, bool indicatorPaneVisible = true,
+		bool comparisonEnabled = false, double? comparisonBaseClose = null)
 	{
 		this.viewport = viewport;
 		this.indicatorViewport = indicatorViewport;
 		this.mainPaneHeight = mainPaneHeight;
 		this.timeframe = timeframe;
 		this.indicatorPaneVisible = indicatorPaneVisible;
+		this.comparisonEnabled = comparisonEnabled;
+		this.comparisonBaseClose = comparisonBaseClose;
 		PriceInterval = CalculateOptimalPriceInterval();
 		TimeInterval = CalculateOptimalTimeInterval();
 		IndicatorValueInterval = CalculateOptimalIndicatorInterval();
 		PriceTicks = NumericTicks(viewport.minPrice, viewport.maxPrice, PriceInterval,
-			value => FormatPriceLabel(value, PriceInterval));
+			value => FormatPriceLabel(value, PriceInterval), RoundPriceTickDown(viewport.minPrice, PriceInterval));
 		IndicatorTicks = indicatorPaneVisible
 			? NumericTicks(indicatorViewport.MinValue, indicatorViewport.MaxValue, IndicatorValueInterval, FormatIndicatorValue)
 			: Array.Empty<AxisTick<double>>();
@@ -46,13 +52,14 @@ public sealed class AxisLayout
 		TimeTicks = times.AsReadOnly();
 	}
 
+	/// <summary>Builds ticks between min and max with step; format supplies labels and firstTick optionally aligns the baseline.</summary>
 	private static IReadOnlyList<AxisTick<double>> NumericTicks(double min, double max,
-		double step, Func<double, string> format)
+		double step, Func<double, string> format, double? firstTick = null)
 	{
 		var result = new List<AxisTick<double>>();
 		if (double.IsFinite(min) && double.IsFinite(max) && max > min && step > 0)
 		{
-			var first = Math.Floor(min / step) * step;
+			var first = firstTick ?? Math.Floor(min / step) * step;
 			for (int i = 0; i < 1000; i++)
 			{
 				double value = first + i * step;
@@ -118,6 +125,8 @@ public sealed class AxisLayout
 			return 1;
 
 		int targetTickCount = GetTargetPriceSectionCount();
+		if (comparisonBaseClose is { } baseClose)
+			return RoundUpToNicePriceStep(priceRange / baseClose * 100 / targetTickCount) * baseClose / 100;
 		double rawInterval = priceRange / targetTickCount;
 
 		return RoundUpToNicePriceStep(rawInterval);
@@ -202,9 +211,18 @@ public sealed class AxisLayout
 			return time.ToString("dd.MM.yy");
 	}
 
-	/// <summary> Форматирует подпись цены с учётом шага шкалы </summary>
+	/// <summary>Formats price using priceInterval precision, or the captured interval, in absolute or percentage units.</summary>
 	public string FormatPriceLabel(double price, double? priceInterval = null)
 	{
+		if (comparisonEnabled)
+		{
+			if (comparisonBaseClose is not { } baseClose) return "—";
+			double percent = ComparisonSeriesMath.ToPercent(price, baseClose);
+			double percentStep = (priceInterval ?? PriceInterval) / baseClose * 100;
+			int places = GetDecimalPlacesForPriceStep(percentStep);
+			string fractional = places > 0 ? "." + new string('0', places) : string.Empty;
+			return percent.ToString($"+0{fractional};-0{fractional};0{fractional}") + "%";
+		}
 		double interval = priceInterval ?? CalculateOptimalPriceInterval();
 		int decimals = GetDecimalPlacesForPriceStep(interval);
 		return price.ToString($"F{decimals}");
@@ -213,8 +231,19 @@ public sealed class AxisLayout
 	/// <summary>Минимальное изменение цены, различимое в подписи текущей ценовой шкалы.</summary>
 	public double GetMinimumDisplayedPriceStep()
 	{
+		if (comparisonBaseClose is { } baseClose)
+			return baseClose * Math.Pow(10, -GetDecimalPlacesForPriceStep(PriceInterval / baseClose * 100)) / 100;
 		int decimals = GetDecimalPlacesForPriceStep(PriceInterval);
 		return Math.Pow(10, -decimals);
+	}
+
+	/// <summary>Rounds minPrice down to a tick of interval, aligning comparison ticks to zero percent.</summary>
+	public double RoundPriceTickDown(double minPrice, double interval)
+	{
+		if (comparisonBaseClose is not { } baseClose) return Math.Floor(minPrice / interval) * interval;
+		double percentStep = interval / baseClose * 100;
+		double percent = Math.Floor(ComparisonSeriesMath.ToPercent(minPrice, baseClose) / percentStep) * percentStep;
+		return baseClose * (1 + percent / 100);
 	}
 
 	/// <summary>

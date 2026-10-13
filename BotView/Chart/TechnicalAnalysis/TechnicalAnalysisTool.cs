@@ -15,6 +15,7 @@ public enum TechnicalAnalysisToolType
 	TrendLine,
 	TrendChannel,
 	Rectangle,
+	Measure,
 	// Добавить другие типы по мере необходимости
 }
 
