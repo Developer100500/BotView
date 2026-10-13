@@ -33,6 +33,10 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /** <summary>
+     Refreshes the quote for the futures symbol. This method should be called periodically to keep the quote up to date;
+     in the application, it is invoked approximately every minute via a timer in MainWindow.xaml.cs.
+     </summary> */
     public async Task RefreshAsync()
     {
         if (_disposed || Interlocked.Exchange(ref _refreshing, 1) != 0)

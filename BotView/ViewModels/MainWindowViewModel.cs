@@ -29,23 +29,42 @@ namespace BotView.ViewModels
         private string _selectedExchange = MarketCatalog.DefaultExchangeId;
         private string _selectedSymbol = "BTC/USDT";
         private string _selectedTimeframe = MarketCatalog.DefaultTimeframeId;
+        // The user's search input in the symbol/pair selector UI.
         private string _searchText = string.Empty;
+        // Message displayed during background/busy operations (e.g., loading data).
         private string _busyMessage = string.Empty;
+        // Last measured render duration for performance metrics, in milliseconds.
         private double _renderTime;
-        private bool _isBusy;
-        private bool _isReady;
-        private bool _isSearchDropdownOpen;
-        private bool _suppressSelectionReload;
-        private bool _suppressSearchUpdate;
+        // UI state flags.
+        private bool _isBusy;                   // App is loading or performing a blocking operation.
+        private bool _isReady;                  // Set to true after view model startup is finished.
+        private bool _isSearchDropdownOpen;     // Controls visibility of the search results dropdown.
+        private bool _suppressSelectionReload;  // Prevents automatic reload when changing related values.
+        private bool _suppressSearchUpdate;     // Prevents recursive search UI updates.
+
+        // --- Data subscription and loading state ---
+        // Active market data subscription for the selected trading pair (feed of candles/etc).
         private IMarketDataSubscription? _subscription;
+        // Cache key representing the current subscription (exchange/symbol/timeframe/batch size).
         private CandleCacheKey _currentKey;
-        private int _loadingOlder;
-        private int _loadOlderPending;
+        // Guards and tracks "load older data" requests to avoid concurrent/race conditions.
+        private int _loadingOlder;       // 0 or 1: indicates if older data is currently being loaded.
+        private int _loadOlderPending;   // 0 or 1: signals if another load was requested during an active load.
+
+        // --- Task cancellation and lifecycle control ---
+        // Used to signal cancellation for the currently running selection load task (switching symbol, etc.).
         private CancellationTokenSource? _selectionLoadCts;
+        // Used to signal cancellation for the currently running history/data load task.
         private CancellationTokenSource _historyLoadCts = new();
+
+        // --- Caching for fast switching and version tracking ---
+        // The exchange for which symbols are currently loaded in _allSymbols, for cache coherence.
         private string? _loadedSymbolsExchange;
+        // Version number for the active chart series; incremented to tell consumers data has changed.
         private int _seriesVersion;
+        // List of all trading pairs currently loaded for the selected exchange, for filtering/search/autocomplete.
         private List<string> _allSymbols = new();
+        // Set of user's favorite trading pairs (for marking favorites in UI).
         private HashSet<string> _favoriteSymbols = new(StringComparer.OrdinalIgnoreCase);
 
         public MainWindowViewModel(
@@ -322,12 +341,88 @@ namespace BotView.ViewModels
             LoadFavoriteTradingPairs();
         }
 
+        /// <summary>
+        /// Initializes the main window view model by ensuring the local database is initialized
+        /// and loads the user's favorite trading pairs into memory.
+        /// </summary>
         public async Task StartAsync()
         {
             _isReady = true;
             _ = MarketMovers.SetExchangeAsync(SelectedExchange);
             SymbolChanged?.Invoke(SelectedSymbol);
-            await StartSelectionLoadAsync();
+            //await StartSelectionLoadAsync();
+        }
+
+        /// <summary>
+        /// Restarts candle loading for the current selection:
+        /// <see cref="SelectedExchange"/>, <see cref="SelectedSymbol"/>, and <see cref="SelectedTimeframe"/>.
+        /// Called on startup and whenever any of those three values changes.
+        /// </summary>
+        private Task StartSelectionLoadAsync()
+        {
+            // Startup has not finished, or a nested change (for example a fallback symbol)
+            // is already covered by the load that is in progress.
+            if (!_isReady || _suppressSelectionReload)
+            {
+                return Task.CompletedTask;
+            }
+
+            // A newer selection replaces any in-flight load of the previous market.
+            var previous = _selectionLoadCts;
+            var current = new CancellationTokenSource();
+            _selectionLoadCts = current;
+            // Older-history paging belongs to the previous series; drop it with the selection.
+            var previousHistory = _historyLoadCts;
+            _historyLoadCts = new CancellationTokenSource();
+            previousHistory.Cancel();
+            previousHistory.Dispose();
+            previous?.Cancel();
+            // Chart callbacks compare this version so results from a cancelled selection are ignored.
+            var seriesVersion = Interlocked.Increment(ref _seriesVersion);
+            CurrentSeries = null;
+            _subscription?.Dispose();
+            _subscription = null;
+            ChartSeriesCleared?.Invoke(SelectedTimeframe, seriesVersion);
+            return LoadSelectionAsync(current);
+        }
+
+        private async Task LoadSelectionAsync(CancellationTokenSource source)
+        {
+            var ct = source.Token;
+            SetBusy(true, $"Загрузка {SelectedSymbol}...");
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                var exchange = SelectedExchange;
+                if (!string.Equals(_loadedSymbolsExchange, exchange, StringComparison.OrdinalIgnoreCase))
+                {
+                    await LoadExchangeSymbolsAsync(exchange, ct);
+                }
+
+                ct.ThrowIfCancellationRequested();
+                var key = new CandleCacheKey(
+                    SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize);
+                await SwitchSubscriptionAsync(key, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // A newer selection owns the UI state.
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to load selection: {ex}");
+                if (_isReady && ReferenceEquals(_selectionLoadCts, source))
+                    ErrorOccurred?.Invoke("Ошибка загрузки", $"Не удалось загрузить выбранный рынок.\n\n{ex.Message}");
+            }
+            finally
+            {
+                if (ReferenceEquals(_selectionLoadCts, source))
+                {
+                    _selectionLoadCts = null;
+                    SetBusy(false);
+                }
+                source.Dispose();
+            }
         }
 
         public async Task LoadOlderAsync()
@@ -386,26 +481,6 @@ namespace BotView.ViewModels
             }
         }
 
-        public void LogMetrics() => _metricsController.LogMetrics();
-
-        public void Dispose()
-        {
-            FuturesQuote?.Dispose();
-            MarketMovers.Dispose();
-            _isReady = false;
-            var selectionLoad = _selectionLoadCts;
-            _selectionLoadCts = null;
-            selectionLoad?.Cancel();
-            _historyLoadCts.Cancel();
-            _historyLoadCts.Dispose();
-            _metricsTimer.Dispose();
-            _subscription?.Dispose();
-            _subscription = null;
-            CurrentSeries = null;
-            Interlocked.Increment(ref _seriesVersion);
-            LogMetrics();
-        }
-
         private void LoadFavoriteTradingPairs()
         {
             try
@@ -430,68 +505,6 @@ namespace BotView.ViewModels
                 ErrorOccurred?.Invoke(
                     "Ошибка избранного",
                     $"Не удалось прочитать файл избранного.\n\n{ex.Message}");
-            }
-        }
-
-        private Task StartSelectionLoadAsync()
-        {
-            if (!_isReady || _suppressSelectionReload)
-            {
-                return Task.CompletedTask;
-            }
-
-            var previous = _selectionLoadCts;
-            var current = new CancellationTokenSource();
-            _selectionLoadCts = current;
-            var previousHistory = _historyLoadCts;
-            _historyLoadCts = new CancellationTokenSource();
-            previousHistory.Cancel();
-            previousHistory.Dispose();
-            previous?.Cancel();
-            var seriesVersion = Interlocked.Increment(ref _seriesVersion);
-            CurrentSeries = null;
-            _subscription?.Dispose();
-            _subscription = null;
-            ChartSeriesCleared?.Invoke(SelectedTimeframe, seriesVersion);
-            return LoadSelectionAsync(current);
-        }
-
-        private async Task LoadSelectionAsync(CancellationTokenSource source)
-        {
-            var ct = source.Token;
-            SetBusy(true, $"Загрузка {SelectedSymbol}...");
-            try
-            {
-                ct.ThrowIfCancellationRequested();
-                var exchange = SelectedExchange;
-                if (!string.Equals(_loadedSymbolsExchange, exchange, StringComparison.OrdinalIgnoreCase))
-                {
-                    await LoadExchangeSymbolsAsync(exchange, ct);
-                }
-
-                ct.ThrowIfCancellationRequested();
-                var key = new CandleCacheKey(
-                    SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize);
-                await SwitchSubscriptionAsync(key, ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                // A newer selection owns the UI state.
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to load selection: {ex}");
-                if (_isReady && ReferenceEquals(_selectionLoadCts, source))
-                    ErrorOccurred?.Invoke("Ошибка загрузки", $"Не удалось загрузить выбранный рынок.\n\n{ex.Message}");
-            }
-            finally
-            {
-                if (ReferenceEquals(_selectionLoadCts, source))
-                {
-                    _selectionLoadCts = null;
-                    SetBusy(false);
-                }
-                source.Dispose();
             }
         }
 
@@ -758,5 +771,25 @@ namespace BotView.ViewModels
 
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+        public void LogMetrics() => _metricsController.LogMetrics();
+
+        public void Dispose()
+        {
+            FuturesQuote?.Dispose();
+            MarketMovers.Dispose();
+            _isReady = false;
+            var selectionLoad = _selectionLoadCts;
+            _selectionLoadCts = null;
+            selectionLoad?.Cancel();
+            _historyLoadCts.Cancel();
+            _historyLoadCts.Dispose();
+            _metricsTimer.Dispose();
+            _subscription?.Dispose();
+            _subscription = null;
+            CurrentSeries = null;
+            Interlocked.Increment(ref _seriesVersion);
+            LogMetrics();
+        }
     }
 }
