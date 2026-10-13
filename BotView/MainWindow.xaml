@@ -420,10 +420,6 @@
                             Style="{StaticResource ToolbarButtonStyle}" Command="{Binding ShowMetricsCommand}"/>
                     <Button Name="btnExportMetrics" Content="Экспорт метрик"
                             Style="{StaticResource ToolbarButtonStyle}" Command="{Binding ExportMetricsCommand}"/>
-                    <Border Background="#0DFFFFFF" CornerRadius="6" Padding="9" Margin="0,12,0,0">
-                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="10" TextWrapping="Wrap"
-                                   Text="Мышь — панорамирование&#x0a;Колесо — масштаб"/>
-                    </Border>
                 </StackPanel>
                 </ScrollViewer>
             </Border>
