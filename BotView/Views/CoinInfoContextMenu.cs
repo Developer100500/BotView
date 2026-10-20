@@ -8,7 +8,7 @@ namespace BotView.Views;
 
 internal static class CoinInfoContextMenu
 {
-    public static ContextMenu? Create(FrameworkElement target, Action<string> openInfo)
+    public static ContextMenu? Create(FrameworkElement target, Action<string> openInfo, Action<string> openOrderBook)
     {
         var pair = target.DataContext switch
         {
@@ -30,6 +30,9 @@ internal static class CoinInfoContextMenu
         var info = new MenuItem { Header = "Info" };
         info.Click += (_, _) => openInfo(pair);
         menu.Items.Add(info);
+        var orderBook = new MenuItem { Header = "Стакан" };
+        orderBook.Click += (_, _) => openOrderBook(pair);
+        menu.Items.Add(orderBook);
         return menu;
     }
 }

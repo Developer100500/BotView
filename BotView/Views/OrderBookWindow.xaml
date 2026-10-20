@@ -1,0 +1,72 @@
+<Window x:Class="BotView.Views.OrderBookWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:BotView.Views"
+        Title="{Binding Title}" Width="420" Height="820" MinWidth="340" MinHeight="480"
+        Background="#0B1120" Foreground="#E5E7EB" FontFamily="Segoe UI"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Background" Value="#263449"/>
+            <Setter Property="Foreground" Value="#F3F4F6"/>
+            <Setter Property="BorderBrush" Value="#475569"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="6,5"/>
+            <Setter Property="Background" Value="#182235"/>
+            <Setter Property="Foreground" Value="#F3F4F6"/>
+            <Setter Property="BorderBrush" Value="#475569"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="{Binding Symbol}" FontSize="19" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding Exchange}" Foreground="#94A3B8"/>
+            </StackPanel>
+            <Button Grid.Column="1" Content="К рынку" Command="{Binding CenterCommand}" VerticalAlignment="Center"/>
+        </Grid>
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="65"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="{Binding SpreadText}"/>
+                <TextBlock Text="{Binding FollowText}" Foreground="#94A3B8" FontSize="10"/>
+            </StackPanel>
+            <TextBlock Grid.Column="1" Text="{Binding StepText}" VerticalAlignment="Center" Margin="4,0,8,0" FontSize="11"/>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding Multipliers}" SelectedItem="{Binding Multiplier}" VerticalContentAlignment="Center"
+                      ToolTip="Множитель биржевого шага цены">
+                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding StringFormat=×{0}}"/></DataTemplate></ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
+        <Grid Grid.Row="2" Background="#182235" Height="26">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="34*"/><ColumnDefinition Width="34*"/><ColumnDefinition Width="32*"/></Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding BaseHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+            <TextBlock Grid.Column="1" Text="Цена" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+            <TextBlock Grid.Column="2" Text="{Binding QuoteHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+        </Grid>
+        <local:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Колесо — прокрутка цен. Клик — выбор цены заявки. «—» — вне загруженной глубины; объем неизвестен."/>
+        <TextBlock Grid.Row="4" Text="{Binding StatusText}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap" MaxHeight="44" Margin="0,6"/>
+        <Grid Grid.Row="5">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <TextBlock Text="Цена заявки" Foreground="#94A3B8" FontSize="11"/>
+            <TextBlock Grid.Column="2" Text="Объем" Foreground="#94A3B8" FontSize="11"/>
+            <TextBox x:Name="PriceInput" Grid.Row="1" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
+            <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
+            <Button Grid.Row="2" Content="Buy" Command="{Binding BuyCommand}" Background="#22613B"/>
+            <Button Grid.Row="2" Grid.Column="2" Content="Sell" Command="{Binding SellCommand}" Background="#873C43"/>
+            <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding TradeStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="0,6,0,0" MaxHeight="48"/>
+        </Grid>
+    </Grid>
+</Window>

@@ -207,12 +207,18 @@ public sealed class CoinInfoTests
             {
                 var row = new ListBoxItem { DataContext = data };
                 string? openedPair = null;
-                var menu = CoinInfoContextMenu.Create(row, pair => openedPair = pair)!;
+                string? bookPair = null;
+                var menu = CoinInfoContextMenu.Create(row, pair => openedPair = pair, pair => bookPair = pair)!;
                 Assert.Same(row, menu.PlacementTarget);
-                var item = Assert.IsType<MenuItem>(Assert.Single(menu.Items.Cast<object>()));
+                Assert.Equal(2, menu.Items.Count);
+                var item = Assert.IsType<MenuItem>(menu.Items[0]);
                 Assert.Equal("Info", item.Header);
                 item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 Assert.Equal("ENA/USDT", openedPair);
+                var bookItem = Assert.IsType<MenuItem>(menu.Items[1]);
+                Assert.Equal("Стакан", bookItem.Header);
+                bookItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                Assert.Equal("ENA/USDT", bookPair);
             }
         });
     }

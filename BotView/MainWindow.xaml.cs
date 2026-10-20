@@ -18,6 +18,8 @@ namespace BotView
         private readonly System.Windows.Threading.DispatcherTimer _renderTimeUpdateTimer;
         private readonly System.Windows.Threading.DispatcherTimer _quoteUpdateTimer;
         private ContextMenu? _pairContextMenu;
+        private readonly Dictionary<(string Exchange, string Symbol), Views.OrderBookWindow> _orderBooks = new();
+        private readonly List<Task> _orderBookCleanup = new();
 
         public MainWindow()
         {
@@ -210,8 +212,9 @@ namespace BotView
             var menu = Views.CoinInfoContextMenu.Create(target, pair =>
             {
                 _viewModel.IsSearchDropdownOpen = false;
+                _viewModel.IsComparisonDropdownOpen = false;
                 new Views.CoinInfoWindow(pair, App.CoinInfoProvider) { Owner = this }.Show();
-            });
+            }, OpenOrderBook);
             if (menu is null) return;
             if (_pairContextMenu is not null) _pairContextMenu.IsOpen = false;
             _pairContextMenu = menu;
@@ -220,11 +223,35 @@ namespace BotView
                 if (ReferenceEquals(_pairContextMenu, menu)) _pairContextMenu = null;
                 if (!txtSymbolSearch.IsKeyboardFocusWithin && !lstSearchResults.IsKeyboardFocusWithin)
                     _viewModel.IsSearchDropdownOpen = false;
+                if (!txtComparisonSearch.IsKeyboardFocusWithin)
+                    _viewModel.IsComparisonDropdownOpen = false;
             };
             // Handle the preview event so right-clicking a row does not switch the chart.
             e.Handled = true;
             target.ContextMenu = menu;
             menu.IsOpen = true;
+        }
+
+        private void OpenOrderBook(string symbol)
+        {
+            _viewModel.IsSearchDropdownOpen = false;
+            _viewModel.IsComparisonDropdownOpen = false;
+            var key = (Exchange: _viewModel.SelectedExchange, Symbol: symbol);
+            if (_orderBooks.TryGetValue(key, out var existing))
+            {
+                if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
+                existing.Activate();
+                return;
+            }
+            var window = new Views.OrderBookWindow(key.Exchange, symbol, App.OrderBookService) { Owner = this };
+            _orderBooks.Add(key, window);
+            window.Closed += (_, _) =>
+            {
+                _orderBooks.Remove(key);
+                _orderBookCleanup.RemoveAll(t => t.IsCompletedSuccessfully);
+                _orderBookCleanup.Add(window.CleanupTask);
+            };
+            window.Show();
         }
 
         /// <summary>Opens comparison results on focus; sender identifies the input and e carries its focus event.</summary>
@@ -239,7 +266,7 @@ namespace BotView
         {
             Dispatcher.BeginInvoke(() =>
             {
-                if (!txtComparisonSearch.IsKeyboardFocusWithin)
+                if (!txtComparisonSearch.IsKeyboardFocusWithin && _pairContextMenu?.IsOpen != true)
                     _viewModel.IsComparisonDropdownOpen = false;
             }, System.Windows.Threading.DispatcherPriority.Background);
         }
@@ -356,6 +383,8 @@ namespace BotView
         {
             try
             {
+                foreach (var window in _orderBooks.Values.ToArray()) window.Close();
+                Task.WhenAll(_orderBookCleanup).GetAwaiter().GetResult();
                 _renderTimeUpdateTimer.Stop();
                 _quoteUpdateTimer.Stop();
 

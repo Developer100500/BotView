@@ -19,6 +19,7 @@ namespace BotView
         public static IMarketDataService MarketDataService { get; private set; } = null!;
         public static IQuoteProvider QuoteProvider { get; private set; } = null!;
         public static ICoinInfoProvider CoinInfoProvider { get; private set; } = null!;
+        public static IOrderBookService OrderBookService { get; } = new OrderBookService();
         private static readonly HttpClient QuoteHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
         private static readonly HttpClient CoinInfoHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         public static TimeSpan RealtimePollInterval { get; set; } = TimeSpan.FromSeconds(1);

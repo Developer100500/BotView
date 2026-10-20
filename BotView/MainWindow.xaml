@@ -342,6 +342,7 @@
                                     <ListBox.ItemContainerStyle>
                                         <Style TargetType="ListBoxItem">
                                             <Setter Property="Padding" Value="10,7"/>
+                                            <EventSetter Event="PreviewMouseRightButtonDown" Handler="Pair_PreviewMouseRightButtonDown"/>
                                         </Style>
                                     </ListBox.ItemContainerStyle>
                                 </ListBox>
