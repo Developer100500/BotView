@@ -4,8 +4,10 @@ namespace BotView.Services;
 
 public static class OrderBookLadder
 {
-    public static IReadOnlyList<OrderBookRow> Build(OrderBookSnapshot book, int multiplier, decimal center, int count)
+    public static IReadOnlyList<OrderBookRow> Build(OrderBookSnapshot book, int multiplier, decimal center, int count,
+        decimal? maxVolume = null, OrderBookVolumeCurrency volumeCurrency = OrderBookVolumeCurrency.Base)
     {
+        if (maxVolume is <= 0) throw new ArgumentOutOfRangeException(nameof(maxVolume));
         if (multiplier <= 0 || count <= 0 || book.Market.TickSize <= 0) return [];
         var step = book.Market.TickSize * multiplier;
         var bids = Group(book.Bids, step, false);
@@ -32,8 +34,12 @@ public static class OrderBookLadder
             rows.Add(new(price, amount, grouped.Cost, side, known,
                 side == OrderBookSide.Bid && price == bestBid || side == OrderBookSide.Ask && price == bestAsk, 0));
         }
-        var max = rows.Count > 0 ? rows.Max(r => r.Amount) : 0;
-        return rows.Select(r => r with { VolumeFraction = max > 0 ? (double)(r.Amount / max) : 0 }).ToArray();
+        decimal Volume(OrderBookRow row) => volumeCurrency == OrderBookVolumeCurrency.Quote ? row.Cost : row.Amount;
+        var max = maxVolume ?? (rows.Count > 0 ? rows.Max(Volume) : 0);
+        return rows.Select(r => r with
+        {
+            VolumeFraction = max <= 0 ? 0 : Volume(r) >= max ? 1 : (double)(Volume(r) / max)
+        }).ToArray();
     }
 
     private static Dictionary<decimal, (decimal Amount, decimal Cost)> Group(IReadOnlyList<OrderBookLevel> levels, decimal step, bool ask) =>

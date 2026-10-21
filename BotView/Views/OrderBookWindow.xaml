@@ -37,7 +37,8 @@
             </StackPanel>
             <Button Grid.Column="1" Content="К рынку" Command="{Binding CenterCommand}" VerticalAlignment="Center"/>
         </Grid>
-        <Grid Grid.Row="1" Margin="0,0,0,8">
+        <StackPanel Grid.Row="1">
+        <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="65"/></Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="{Binding SpreadText}"/>
@@ -49,6 +50,31 @@
                 <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding StringFormat=×{0}}"/></DataTemplate></ComboBox.ItemTemplate>
             </ComboBox>
         </Grid>
+        <Grid Margin="0,0,0,8">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="105"/></Grid.ColumnDefinitions>
+            <StackPanel Margin="0,0,8,0">
+                <TextBlock Text="{Binding MaxVolumeHeader}" FontSize="10" Margin="0,0,0,2"/>
+                <ComboBox x:Name="VolumeCurrencySelector" ItemsSource="{Binding VolumeCurrencyOptions}"
+                          SelectedValuePath="Currency" DisplayMemberPath="Label" SelectedValue="{Binding VolumeCurrency}"
+                          MinHeight="24" VerticalContentAlignment="Center" ToolTip="Валюта расчета полос объема и порога заполнения"/>
+            </StackPanel>
+            <TextBox x:Name="MaxVolumeInput" Grid.Column="1" Text="{Binding MaxVolumeText, UpdateSourceTrigger=PropertyChanged}"
+                     VerticalAlignment="Center" ToolTip="Объем в выбранной валюте для полной ширины полосы. Пустое поле — автоматический масштаб.">
+                <TextBox.Style>
+                    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasVolumeScaleError}" Value="True">
+                                <Setter Property="BorderBrush" Value="#F87171"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBox.Style>
+            </TextBox>
+            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding VolumeScaleHint}" FontSize="10" Foreground="#94A3B8"
+                       TextWrapping="Wrap" Margin="0,3,0,0"/>
+        </Grid>
+        </StackPanel>
         <Grid Grid.Row="2" Background="#182235" Height="26">
             <Grid.ColumnDefinitions><ColumnDefinition Width="34*"/><ColumnDefinition Width="34*"/><ColumnDefinition Width="32*"/></Grid.ColumnDefinitions>
             <TextBlock Text="{Binding BaseHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>

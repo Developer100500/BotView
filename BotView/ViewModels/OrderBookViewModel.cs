@@ -6,6 +6,8 @@ using BotView.Services;
 
 namespace BotView.ViewModels;
 
+public sealed record OrderBookVolumeOption(OrderBookVolumeCurrency Currency, string Label);
+
 public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
     private readonly IOrderBookService _service;
@@ -19,6 +21,9 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     private string _priceText = "";
     private string _amountText = "";
     private string _tradeStatus = "";
+    private readonly string[] _maxVolumeTexts = ["", ""];
+    private readonly decimal?[] _maxVolumes = new decimal?[2];
+    private OrderBookVolumeCurrency _volumeCurrency;
     private int _multiplier = 1;
     private decimal? _center;
     private bool _followMarket = true;
@@ -27,6 +32,11 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     {
         Exchange = exchange;
         Symbol = symbol;
+        VolumeCurrencyOptions =
+        [
+            new(OrderBookVolumeCurrency.Base, $"Базовая ({symbol.Split('/')[0]})"),
+            new(OrderBookVolumeCurrency.Quote, $"Котирования ({symbol.Split('/').Last()})")
+        ];
         _service = service;
         BuyCommand = new RelayCommand(_ => Trade("Buy"), _ => CanTrade);
         SellCommand = new RelayCommand(_ => Trade("Sell"), _ => CanTrade);
@@ -38,6 +48,36 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     public string Title => $"Стакан · {Symbol} · {Exchange}";
     public string BaseHeader => $"Объем ({_update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]})";
     public string QuoteHeader => $"Сумма ({_update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last()})";
+    public OrderBookVolumeOption[] VolumeCurrencyOptions { get; }
+    public OrderBookVolumeCurrency VolumeCurrency
+    {
+        get => _volumeCurrency;
+        set
+        {
+            if (value is not (OrderBookVolumeCurrency.Base or OrderBookVolumeCurrency.Quote) || value == _volumeCurrency) return;
+            _volumeCurrency = value;
+            Changed();
+        }
+    }
+    public string MaxVolumeHeader => $"Объем для 100% ({(VolumeCurrency == OrderBookVolumeCurrency.Base
+        ? _update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]
+        : _update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last())})";
+    public string MaxVolumeText
+    {
+        get => _maxVolumeTexts[(int)VolumeCurrency];
+        set
+        {
+            _maxVolumeTexts[(int)VolumeCurrency] = value;
+            if (string.IsNullOrWhiteSpace(value)) _maxVolumes[(int)VolumeCurrency] = null;
+            else if (TryPositive(value, out var volume)) _maxVolumes[(int)VolumeCurrency] = volume;
+            Changed();
+        }
+    }
+    public bool HasVolumeScaleError => !string.IsNullOrWhiteSpace(MaxVolumeText) && !TryPositive(MaxVolumeText, out _);
+    public string VolumeScaleHint => HasVolumeScaleError
+        ? "Введите число больше нуля; сохранен предыдущий масштаб."
+        : string.IsNullOrWhiteSpace(MaxVolumeText) ? "Пусто — авто по видимому максимуму."
+        : "Объемы выше порога заполняют полосу на 100%.";
     public int[] Multipliers { get; } = [1, 5, 10];
     public int Multiplier
     {
@@ -105,7 +145,7 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
             : book.BestBid ?? book.BestAsk;
         if (marketCenter is null) return [];
         if (_followMarket || _center is null) _center = marketCenter;
-        return OrderBookLadder.Build(book, Multiplier, _center.Value, count);
+        return OrderBookLadder.Build(book, Multiplier, _center.Value, count, _maxVolumes[(int)VolumeCurrency], VolumeCurrency);
     }
 
     public void Scroll(int levels)

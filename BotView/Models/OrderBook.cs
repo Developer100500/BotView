@@ -15,5 +15,6 @@ public sealed record OrderBookSnapshot(
 public enum OrderBookConnection { Connecting, Live, Reconnecting, Error, Closed }
 public sealed record OrderBookUpdate(OrderBookSnapshot? Snapshot, OrderBookConnection Connection, string Message);
 public enum OrderBookSide { Spread, Bid, Ask }
+public enum OrderBookVolumeCurrency { Base, Quote }
 public sealed record OrderBookRow(decimal Price, decimal Amount, decimal Cost, OrderBookSide Side,
     bool HasDepth, bool IsBest, double VolumeFraction);

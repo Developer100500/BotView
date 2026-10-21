@@ -37,6 +37,78 @@ public sealed class OrderBookTests
         Assert.Equal(2, rows.Count(r => r.IsBest));
     }
 
+    [Fact]
+    public void QuoteVolumeUsesNotionalValueAndPreservesGroupedCosts()
+    {
+        var book = new OrderBookSnapshot(new("ETH/USDT", "ETH", "USDT", 1m),
+            new[] { new OrderBookLevel(100, 2) }, new[] { new OrderBookLevel(200, 1) }, DateTimeOffset.UtcNow);
+        var baseRows = OrderBookLadder.Build(book, 1, 150, 110);
+        var quoteRows = OrderBookLadder.Build(book, 1, 150, 110, volumeCurrency: OrderBookVolumeCurrency.Quote);
+        Assert.Equal(.5, baseRows.Single(r => r.Price == 200).VolumeFraction);
+        Assert.Equal(1, quoteRows.Single(r => r.Price == 200).VolumeFraction);
+        Assert.Equal(1, quoteRows.Single(r => r.Price == 100).VolumeFraction);
+        var fixedRows = OrderBookLadder.Build(book, 1, 150, 110, 400m, OrderBookVolumeCurrency.Quote);
+        Assert.Equal(.5, fixedRows.Single(r => r.Price == 100).VolumeFraction);
+        var grouped = OrderBookLadder.Build(Book(), 10, 100m, 10, 1000m, OrderBookVolumeCurrency.Quote);
+        var ask = grouped.Single(r => r.Price == 100.1m);
+        Assert.Equal((double)((100.03m * 4 + 100.05m * 5) / 1000m), ask.VolumeFraction);
+    }
+
+    [Fact]
+    public async Task SwitchingVolumeCurrencyRetainsSeparateThresholdsAndUpdatesUnits()
+    {
+        await using var vm = new OrderBookViewModel("binance", "BTC/USDT", new FakeService(new FakeSubscription(Book())));
+        await vm.StartAsync();
+        vm.Refresh();
+        vm.MaxVolumeText = "8";
+        vm.VolumeCurrency = OrderBookVolumeCurrency.Quote;
+        Assert.Equal("", vm.MaxVolumeText);
+        Assert.Contains("USDT", vm.MaxVolumeHeader);
+        vm.MaxVolumeText = "800";
+        Assert.Equal(.25, vm.GetRows(13).Single(r => r.Price == 100m).VolumeFraction);
+        vm.VolumeCurrency = OrderBookVolumeCurrency.Base;
+        Assert.Equal("8", vm.MaxVolumeText);
+        Assert.Contains("BTC", vm.MaxVolumeHeader);
+        vm.VolumeCurrency = OrderBookVolumeCurrency.Quote;
+        Assert.Equal("800", vm.MaxVolumeText);
+    }
+
+    [Fact]
+    public void FixedVolumeScaleRemainsStableAcrossViewportsAndCapsLargeAmounts()
+    {
+        var book = Book();
+        var rows = OrderBookLadder.Build(book, 1, 100.02m, 13, 4m);
+        Assert.Equal(.5, rows.Single(r => r.Price == 100m).VolumeFraction);
+        Assert.Equal(1, rows.Single(r => r.Price == 100.03m).VolumeFraction);
+        Assert.Equal(1, rows.Single(r => r.Price == 100.05m).VolumeFraction);
+        var scrolled = OrderBookLadder.Build(book, 1, 99.99m, 7, 4m);
+        Assert.Equal(.5, scrolled.Single(r => r.Price == 100m).VolumeFraction);
+        var tinyThreshold = OrderBookLadder.Build(book, 1, 100.02m, 13, .0000000000000000000000000001m);
+        Assert.All(tinyThreshold.Where(r => r.Amount > 0), r => Assert.Equal(1, r.VolumeFraction));
+        Assert.All(rows.Where(r => r.Amount == 0), r => Assert.Equal(0, r.VolumeFraction));
+    }
+
+    [Fact]
+    public async Task VolumeScaleInputAcceptsDecimalsPreservesLastValidValueAndRestoresAuto()
+    {
+        await using var vm = new OrderBookViewModel("binance", "BTC/USDT", new FakeService(new FakeSubscription(Book())));
+        await vm.StartAsync();
+        vm.Refresh();
+        Assert.Equal(.4, vm.GetRows(13).Single(r => r.Price == 100m).VolumeFraction);
+        vm.MaxVolumeText = "8,0";
+        Assert.False(vm.HasVolumeScaleError);
+        Assert.Equal(.25, vm.GetRows(13).Single(r => r.Price == 100m).VolumeFraction);
+        foreach (var invalid in new[] { "0", "-2", "abc" })
+        {
+            vm.MaxVolumeText = invalid;
+            Assert.True(vm.HasVolumeScaleError);
+            Assert.Equal(.25, vm.GetRows(13).Single(r => r.Price == 100m).VolumeFraction);
+        }
+        vm.MaxVolumeText = " ";
+        Assert.False(vm.HasVolumeScaleError);
+        Assert.Equal(.4, vm.GetRows(13).Single(r => r.Price == 100m).VolumeFraction);
+    }
+
     [Theory]
     [InlineData(5)]
     [InlineData(10)]
@@ -233,8 +305,19 @@ public sealed class OrderBookTests
             content.Measure(new Size(320, 440));
             content.Arrange(new Rect(0, 0, 320, 440));
             content.UpdateLayout();
+            var scaleInput = (TextBox)window.FindName("MaxVolumeInput");
+            scaleInput.Text = "8";
+            Assert.Equal("8", vm.MaxVolumeText);
+            Assert.Equal(.25, vm.GetRows(13).Single(r => r.Price == 100m).VolumeFraction);
+            var currencySelector = (ComboBox)window.FindName("VolumeCurrencySelector");
+            currencySelector.SelectedValue = OrderBookVolumeCurrency.Quote;
+            Assert.Equal(OrderBookVolumeCurrency.Quote, vm.VolumeCurrency);
+            Assert.Equal("", scaleInput.Text);
+            currencySelector.SelectedValue = OrderBookVolumeCurrency.Base;
+            Assert.Equal("8", scaleInput.Text);
+            content.UpdateLayout();
             var ladder = (OrderBookLadderControl)window.FindName("Ladder");
-            Assert.True(ladder.ActualHeight > 100);
+            Assert.True(ladder.ActualHeight >= 4 * OrderBookLadderControl.RowHeight);
             var rows = vm.GetRows((int)(ladder.ActualHeight / OrderBookLadderControl.RowHeight));
             Assert.Contains(rows, r => r.Side == OrderBookSide.Spread);
             Assert.Contains(rows, r => r.Side == OrderBookSide.Ask);
