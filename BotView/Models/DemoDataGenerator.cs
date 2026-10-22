@@ -4,7 +4,7 @@ namespace BotView.Models
 {
     public static class DemoDataGenerator
     {
-        public static CandlestickData Generate(string timeframe, int candleCount = 30)
+        public static OHLCV[] Generate(string timeframe, int candleCount = 30)
         {
             DateTime startTime = DateTime.Parse("2025/10/01 00:00:00");
             var demoCandles = new OHLCV[candleCount];
@@ -26,16 +26,11 @@ namespace BotView.Models
                 DateTime candleTime = startTime.Add(TimeSpan.FromTicks(timeframeInterval.Ticks * i));
                 long timestamp = ((DateTimeOffset)candleTime).ToUnixTimeMilliseconds();
 
-                demoCandles[i] = new OHLCV(timestamp, open, high, low, close, volume);
+                demoCandles[i] = new OHLCV { timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume };
                 basePrice = close;
             }
 
-            return new CandlestickData(
-                timeframe: timeframe,
-                beginDateTime: startTime,
-                endDateTime: startTime.Add(TimeSpan.FromTicks(timeframeInterval.Ticks * candleCount)),
-                candles: demoCandles
-            );
+            return demoCandles;
         }
     }
 }

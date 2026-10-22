@@ -8,7 +8,7 @@ namespace BotView.Tests;
 public sealed class CandleSeriesTests
 {
     private static OHLCV Candle(long timestamp, double close = 1) =>
-        new(timestamp, close, close, close, close, 1);
+        new OHLCV { timestamp = timestamp, open = close, high = close, low = close, close = close, volume = 1 };
 
     [Fact]
     public void InitialLoadSortsDeduplicatesAndKeepsLiveInForward()
@@ -20,8 +20,8 @@ public sealed class CandleSeriesTests
         Assert.Equal(3, snapshot.Count);
         Assert.Equal(2, snapshot.ClosedCount);
         Assert.Equal(new long[] { 10, 20, 30 },
-            snapshot.Enumerate(long.MinValue, long.MaxValue).Select(x => x.Candle.timestamp));
-        Assert.Equal(2, snapshot[1].close);
+            snapshot.Enumerate(long.MinValue, long.MaxValue).Select(x => x.Candle.timestamp.GetValueOrDefault()));
+        Assert.Equal(2, snapshot[1].close.GetValueOrDefault());
         Assert.Equal(2, snapshot.BlockReferences.Length);
     }
 
@@ -34,9 +34,9 @@ public sealed class CandleSeriesTests
         var forward = beforeTick.BlockReferences[^1];
 
         Assert.Equal(LiveCandleChange.Updated, series.UpdateLive(Candle(1, 2), out _));
-        Assert.Equal(1, beforeTick.Live!.Value.close);
+        Assert.Equal(1, beforeTick.Live!.Value.close.GetValueOrDefault());
         Assert.Same(forward, series.GetSnapshot().BlockReferences[^1]);
-        Assert.Equal(2, series.GetSnapshot().Live!.Value.close);
+        Assert.Equal(2, series.GetSnapshot().Live!.Value.close.GetValueOrDefault());
 
         for (int i = 2; i <= 251; i++)
             Assert.Equal(LiveCandleChange.Closed, series.UpdateLive(Candle(i), out _));
@@ -47,8 +47,8 @@ public sealed class CandleSeriesTests
         Assert.Equal(2, snapshot.BlockReferences.Length);
         Assert.Same(forward, snapshot.BlockReferences[0]);
         Assert.NotSame(forward, snapshot.BlockReferences[1]);
-        Assert.Equal(2, snapshot[0].close);
-        Assert.Equal(251, snapshot.Live!.Value.timestamp);
+        Assert.Equal(2, snapshot[0].close.GetValueOrDefault());
+        Assert.Equal(251, snapshot.Live!.Value.timestamp.GetValueOrDefault());
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public sealed class CandleSeriesTests
         var snapshot = series.GetSnapshot();
         Assert.Equal(377, snapshot.Count);
         Assert.Equal(126, snapshot.OldestTimestamp);
-        Assert.Equal(502, snapshot.Live!.Value.timestamp);
+        Assert.Equal(502, snapshot.Live!.Value.timestamp.GetValueOrDefault());
         Assert.Same(main, snapshot.BlockReferences[^2]);
         Assert.Equal(4, snapshot.BlockReferences.Length);
     }
@@ -86,16 +86,16 @@ public sealed class CandleSeriesTests
         {
             var snapshot = series.GetSnapshot();
             var timestamps = snapshot.Enumerate(long.MinValue, long.MaxValue)
-                .Select(x => x.Candle.timestamp).ToArray();
+                .Select(x => x.Candle.timestamp.GetValueOrDefault()).ToArray();
             Assert.Equal(snapshot.Count, timestamps.Length);
             Assert.True(timestamps.SequenceEqual(timestamps.OrderBy(x => x)));
         }
         await producer;
         Assert.Equal(1000, series.GetSnapshot().Count);
         Assert.Equal(1, original.Count);
-        Assert.Equal(1, original.Live!.Value.timestamp);
+        Assert.Equal(1, original.Live!.Value.timestamp.GetValueOrDefault());
         Assert.Equal(new long[] { 1 },
-            original.Enumerate(long.MinValue, long.MaxValue).Select(x => x.Candle.timestamp));
+            original.Enumerate(long.MinValue, long.MaxValue).Select(x => x.Candle.timestamp.GetValueOrDefault()));
     }
 
     [Fact]
@@ -129,12 +129,12 @@ public sealed class CandleSeriesTests
         var snapshot = series.GetSnapshot();
 
         Assert.Equal(551, snapshot.Count);
-        Assert.Equal(1, snapshot[0].timestamp);
-        Assert.Equal(250, snapshot[249].timestamp);
-        Assert.Equal(251, snapshot[250].timestamp);
-        Assert.Equal(551, snapshot[550].timestamp);
+        Assert.Equal(1, snapshot[0].timestamp.GetValueOrDefault());
+        Assert.Equal(250, snapshot[249].timestamp.GetValueOrDefault());
+        Assert.Equal(251, snapshot[250].timestamp.GetValueOrDefault());
+        Assert.Equal(551, snapshot[550].timestamp.GetValueOrDefault());
         Assert.Equal(new long[] { 249, 250, 251, 252 },
-            snapshot.Enumerate(249, 252).Select(x => x.Candle.timestamp));
+            snapshot.Enumerate(249, 252).Select(x => x.Candle.timestamp.GetValueOrDefault()));
     }
 
     [Fact]
@@ -147,8 +147,8 @@ public sealed class CandleSeriesTests
         Assert.Equal(2, series.AppendClosed(new[] { Candle(300), Candle(200), Candle(300) }));
         var after = series.GetSnapshot();
         Assert.Equal(new long[] { 100, 200, 300, 400 },
-            after.Enumerate(long.MinValue, long.MaxValue).Select(x => x.Candle.timestamp));
-        Assert.Equal(400, after.Live!.Value.timestamp);
+            after.Enumerate(long.MinValue, long.MaxValue).Select(x => x.Candle.timestamp.GetValueOrDefault()));
+        Assert.Equal(400, after.Live!.Value.timestamp.GetValueOrDefault());
         Assert.Equal(2, before.Count);
     }
 
@@ -189,7 +189,7 @@ public sealed class CandleSeriesTests
         series.PrependHistory(Enumerable.Range(1, 250)
             .Select(i => Candle(start - i * 60_000L)));
         controller.OnHistoryExtended();
-        Assert.Equal(start - 250 * 60_000L, series.GetSnapshot()[0].timestamp);
+        Assert.Equal(start - 250 * 60_000L, series.GetSnapshot()[0].timestamp.GetValueOrDefault());
         Assert.Equal(series.GetSnapshot()[0].GetDateTime(), controller.GetCandleTime(0));
     }
 }

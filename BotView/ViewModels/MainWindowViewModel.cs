@@ -975,11 +975,11 @@ namespace BotView.ViewModels
                     "Ошибка подключения к бирже",
                     $"Ошибка загрузки данных с биржи {SelectedExchange}:\n\n{ex.Message}\n\nБудут загружены демонстрационные данные.");
 
-                var demoData = _dataProvider.LoadDemoData(SelectedTimeframe);
+                var demoData = _dataProvider.LoadDemoData(key.Timeframe);
                 var demoSeries = new CandleSeries();
-                demoSeries.LoadInitial(demoData.candles);
+                demoSeries.LoadInitial(demoData);
                 CurrentSeries = demoSeries;
-                ChartSeriesReady?.Invoke(demoSeries, demoData.timeframe, false, seriesVersion);
+                ChartSeriesReady?.Invoke(demoSeries, key.Timeframe, false, seriesVersion);
                 if (ComparisonSymbol != null)
                     ComparisonStatusText = "Сравнение недоступно для демонстрационных данных.";
             }

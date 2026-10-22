@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using BotView.Models;
 using Xunit;
 
@@ -93,8 +93,8 @@ namespace BotView.Tests
             var result = store.GetRange(key, 2000, 3000);
 
             Assert.Equal(2, result.Count);
-            Assert.Equal(2000, result[0].timestamp);
-            Assert.Equal(3000, result[1].timestamp);
+            Assert.Equal(2000, result[0].timestamp.GetValueOrDefault());
+            Assert.Equal(3000, result[1].timestamp.GetValueOrDefault());
         }
 
         /// <summary> Возвращает пустой список, когда границы диапазона некорректны. </summary>
@@ -153,7 +153,7 @@ namespace BotView.Tests
         /// <summary> Создает свечу с заданным timestamp и предсказуемыми значениями. </summary>
         private static OHLCV CreateCandle(long timestamp)
         {
-            return new OHLCV(timestamp, 1, 2, 0.5, 1.5, 10);
+            return new OHLCV { timestamp = timestamp, open = 1, high = 2, low = 0.5, close = 1.5, volume = 10 };
         }
     }
 }

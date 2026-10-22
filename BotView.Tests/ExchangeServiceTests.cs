@@ -166,24 +166,26 @@ namespace BotView.Tests
         #region GetCandlestickDataAsync Success Tests
 
         [Fact]
+        [Trait("Category", "Integration")]
         public async Task GetCandlestickDataAsync_ValidParameters_ReturnsData()
         {
             // Act
             var result = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h");
 
             // Assert
-            Assert.Equal("1h", result.timeframe);
-            Assert.True(result.candles.Length > 0);
+            Assert.IsType<ccxt.OHLCV[]>(result);
+            Assert.True(result.Length > 0);
         }
 
         [Fact]
+        [Trait("Category", "Integration")]
         public async Task GetCandlestickDataAsync_CaseInsensitiveExchange_ReturnsData()
         {
             // Act
             var result = await _exchangeService.GetCandlestickDataAsync("BINANCE", "BTC/USDT", "1h");
 
             // Assert
-            Assert.True(result.candles != null);
+            Assert.True(result != null);
         }
 
         #endregion
@@ -191,6 +193,7 @@ namespace BotView.Tests
         #region Caching Tests
 
         [Fact]
+        [Trait("Category", "Integration")]
         public async Task GetCandlestickDataAsync_SameRequestTwice_UsesCacheOnSecondCall()
         {
             // Act
@@ -198,7 +201,7 @@ namespace BotView.Tests
             var result2 = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h");
 
             // Assert
-            Assert.Equal(result1.timeframe, result2.timeframe);
+            Assert.Same(result1, result2);
             
             // Verify cache hit was logged
             _mockLogger.Verify(x => x.LogCacheHit(It.IsAny<string>(), It.IsAny<string>(), 

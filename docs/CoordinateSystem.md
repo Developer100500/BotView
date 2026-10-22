@@ -118,7 +118,7 @@ ChartCoordinates mouseChart = ViewToChart(mouseView);
 ### Автомасштаб цены
 
 При смене инструмента или таймфрейма:
-1. Загружаются новые свечи (`SetCandlestickData`)
+1. Загружаются новые свечи (`SetCandles` с массивом `ccxt.OHLCV[]` и таймфреймом либо `SetSeries`)
 2. Горизонтальный масштаб сбрасывается (`ResetTimeScaleToTimeframe`) — ~80 свечей текущего TF
 3. Последняя свеча прижимается к правому краю (`SnapLastCandleToRightEdge`)
 4. Вертикальный масштаб сбрасывается (`ResetPriceScaleToCurrentPrice`)

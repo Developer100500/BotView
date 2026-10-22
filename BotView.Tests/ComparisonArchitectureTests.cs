@@ -40,12 +40,12 @@ public sealed class ComparisonArchitectureTests
         controller.SetComparison(comparison, "ETH/USDT");
         var snapshot = comparison.GetSnapshot();
         var last = snapshot[snapshot.Count - 1];
-        comparison.UpdateLive(new OHLCV(last.timestamp, 50, 100, 50, 100, 1), out _);
+        comparison.UpdateLive(new OHLCV { timestamp = last.timestamp.GetValueOrDefault(), open = 50, high = 100, low = 50, close = 100, volume = 1 }, out _);
         controller.OnComparisonChanged();
         Assert.True(controller.Viewport.maxPrice >= 200);
         controller.Pan(0, 1);
         double manualRange = controller.State.PriceRangeInViewport;
-        comparison.UpdateLive(new OHLCV(last.timestamp, 50, 150, 50, 150, 1), out _);
+        comparison.UpdateLive(new OHLCV { timestamp = last.timestamp.GetValueOrDefault(), open = 50, high = 150, low = 50, close = 150, volume = 1 }, out _);
         controller.OnComparisonChanged();
         controller.OnLiveCandleUpdated();
         Assert.Equal(manualRange, controller.State.PriceRangeInViewport);
@@ -60,7 +60,7 @@ public sealed class ComparisonArchitectureTests
     {
         var controller = Ready();
         var missing = new CandleSeries();
-        missing.LoadInitial(new[] { new OHLCV(60_001, 50, 50, 50, 50, 1) });
+        missing.LoadInitial(new[] { new OHLCV { timestamp = 60_001, open = 50, high = 50, low = 50, close = 50, volume = 1 } });
         controller.SetComparison(missing, "ETH/USDT");
         Assert.Null(controller.State.ComparisonAnchor);
         Assert.Equal("—", controller.FormatPriceLabel(100));
@@ -172,7 +172,7 @@ public sealed class ComparisonArchitectureTests
     {
         var series = new CandleSeries();
         series.LoadInitial(Enumerable.Range(1, 3).Select(i =>
-            new OHLCV(i * 60_000, price, price * 1.2, price * 0.9, price * (1 + (i - 1) * 0.1), 1)));
+            new OHLCV { timestamp = i * 60_000, open = price, high = price * 1.2, low = price * 0.9, close = price * (1 + (i - 1) * 0.1), volume = 1 }));
         return series;
     }
 

@@ -238,10 +238,10 @@ public partial class ChartController : INotifyPropertyChanged
 		state.TimeRangeInViewport = ParseTimeframe(state.Timeframe) * 100;
 		var last = candles[candles.Count - 1];
 		state.WorldOriginTime = candles[0].GetDateTime();
-		state.WorldOriginPrice = last.close;
+		state.WorldOriginPrice = last.close.GetValueOrDefault();
 		var center = last.GetDateTime().Subtract(TimeSpan.FromTicks(state.TimeRangeInViewport.Ticks / 2));
 		state.CameraPosition = new Coordinates((center - state.WorldOriginTime).TotalSeconds, 0);
-		state.PriceRangeInViewport = Math.Clamp(Math.Abs(last.close) * 0.20, 1e-8, 1000000);
+		state.PriceRangeInViewport = Math.Clamp(Math.Abs(last.close.GetValueOrDefault()) * 0.20, 1e-8, 1000000);
 		state.IsInitialized = true;
 		UpdateViewportFromCamera();
 	}
@@ -561,11 +561,11 @@ public partial class ChartController : INotifyPropertyChanged
 	// === PUBLIC API METHODS ===
 
 	///<summary> Устанавливает новые данные свечей </summary>
-	public void SetCandlestickData(CandlestickData newData)
+	public void SetCandles(OHLCV[] candles, string timeframe)
 	{
 		var series = new CandleSeries();
-		series.LoadInitial(newData.candles ?? Array.Empty<OHLCV>());
-		SetSeries(series, newData.timeframe);
+		series.LoadInitial(candles ?? Array.Empty<OHLCV>());
+		SetSeries(series, timeframe);
 	}
 
 	/// <summary>Assigns the primary candle series and timeframe, clears the ruler and initializes geometry when needed.</summary>
@@ -647,7 +647,7 @@ public partial class ChartController : INotifyPropertyChanged
 		DateTime lastCandleTime = candles[candles.Count - 1].GetDateTime();
 		TimeSpan halfRange = TimeSpan.FromTicks(state.TimeRangeInViewport.Ticks / 2);
 		DateTime centerTime = lastCandleTime.Subtract(halfRange);
-		double centerPrice = candles[candles.Count - 1].close;
+		double centerPrice = candles[candles.Count - 1].close.GetValueOrDefault();
 
 		ChartCoordinates centerChart = new ChartCoordinates(centerTime, centerPrice);
 		state.CameraPosition = ChartToWorld(centerChart);
@@ -668,7 +668,7 @@ public partial class ChartController : INotifyPropertyChanged
 		if (candles.Count == 0)
 			return;
 
-		double currentPrice = candles[candles.Count - 1].close;
+		double currentPrice = candles[candles.Count - 1].close.GetValueOrDefault();
 		if (!double.IsFinite(currentPrice) || Math.Abs(currentPrice) < double.Epsilon)
 			return;
 
@@ -733,7 +733,7 @@ public partial class ChartController : INotifyPropertyChanged
 		double targetOffsetSeconds = halfViewportSeconds - candleHalfWidthSeconds;
 
 		var lastCandle = candles[lastIndex];
-		Coordinates lastCandleWorld = ChartToWorld(new ChartCoordinates(lastCandleTime, lastCandle.close));
+		Coordinates lastCandleWorld = ChartToWorld(new ChartCoordinates(lastCandleTime, lastCandle.close.GetValueOrDefault()));
 
 		state.CameraPosition = new Coordinates(
 			lastCandleWorld.x - targetOffsetSeconds,

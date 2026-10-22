@@ -146,9 +146,9 @@ public sealed class MarketDataService : IMarketDataService
                             return 0;
                     }
                     var converted = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe);
-                    var olderOnly = converted.candles
-                        .Where(c => c.timestamp < oldestTimestamp.Value)
-                        .OrderBy(c => c.timestamp)
+                    var olderOnly = converted
+                        .Where(c => c.timestamp.GetValueOrDefault() < oldestTimestamp.Value)
+                        .OrderBy(c => c.timestamp.GetValueOrDefault())
                         .ToArray();
 
                     if (olderOnly.Length > 0)
@@ -273,8 +273,7 @@ public sealed class MarketDataService : IMarketDataService
                 if (fetched != null && fetched.Count > 0)
                 {
                     var recent = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
-                        .candles
-                        .OrderBy(c => c.timestamp)
+                        .OrderBy(c => c.timestamp.GetValueOrDefault())
                         .ToArray();
                     var notifications = new List<(LiveCandleChange Change, OHLCV Closed, OHLCV Current)>();
                     var keyLock = GetOrCreateKeyLock(key);
@@ -284,7 +283,7 @@ public sealed class MarketDataService : IMarketDataService
                         var beforeCatchUp = _store.GetSeries(key).GetSnapshot();
                         var currentLive = beforeCatchUp.Live;
                         if (currentLive.HasValue && recent.Length > 0 &&
-                            recent[^1].timestamp - currentLive.Value.timestamp >
+                            recent[^1].timestamp.GetValueOrDefault() - currentLive.Value.timestamp.GetValueOrDefault() >
                             GetTimeframeMilliseconds(key.Timeframe) * recent.Length)
                         {
                             // Fill a gap larger than the recent polling window before publishing ticks.
@@ -370,12 +369,12 @@ public sealed class MarketDataService : IMarketDataService
             ct);
         ct.ThrowIfCancellationRequested();
 
-        if (initial.candles == null || initial.candles.Length == 0)
+        if (initial == null || initial.Length == 0)
         {
             return;
         }
 
-        _store.LoadInitial(key, initial.candles);
+        _store.LoadInitial(key, initial);
     }
 
     /// <summary> Catches cached history up to the newest closed candle and current live candle. </summary>
@@ -401,9 +400,9 @@ public sealed class MarketDataService : IMarketDataService
         }
 
         var latestCandles = CandlestickDataConverter.ConvertFromCCXT(latestFetched, key.Timeframe)
-            .candles.OrderBy(c => c.timestamp).ToArray();
+            .OrderBy(c => c.timestamp.GetValueOrDefault()).ToArray();
         var latest = latestCandles[^1];
-        if (snapshot.Live.HasValue && snapshot.Live.Value.timestamp >= latest.timestamp)
+        if (snapshot.Live.HasValue && snapshot.Live.Value.timestamp.GetValueOrDefault() >= latest.timestamp.GetValueOrDefault())
         {
             _store.UpdateLive(key, latest, out _);
             return;
@@ -411,7 +410,7 @@ public sealed class MarketDataService : IMarketDataService
 
         var timeframeMs = GetTimeframeMilliseconds(key.Timeframe);
         var pageLimit = Math.Max(2, key.Limit);
-        var since = snapshot.Live?.timestamp
+        var since = snapshot.Live?.timestamp.GetValueOrDefault()
             ?? (snapshot.NewestClosedTimestamp ?? 0) + timeframeMs;
 
         while (!ct.IsCancellationRequested)
@@ -431,9 +430,8 @@ public sealed class MarketDataService : IMarketDataService
             }
 
             var candles = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
-                .candles
-                .Where(c => c.timestamp >= since && c.timestamp <= latest.timestamp)
-                .OrderBy(c => c.timestamp)
+                .Where(c => c.timestamp.GetValueOrDefault() >= since && c.timestamp.GetValueOrDefault() <= latest.timestamp.GetValueOrDefault())
+                .OrderBy(c => c.timestamp.GetValueOrDefault())
                 .ToArray();
 
             if (candles.Length == 0)
@@ -443,9 +441,9 @@ public sealed class MarketDataService : IMarketDataService
                 _store.UpdateLive(key, candle, out _);
 
             var last = candles[^1];
-            if (last.timestamp >= latest.timestamp)
+            if (last.timestamp.GetValueOrDefault() >= latest.timestamp.GetValueOrDefault())
                 break;
-            since = last.timestamp + timeframeMs;
+            since = last.timestamp.GetValueOrDefault() + timeframeMs;
 
             if (candles.Length < pageLimit)
                 break;

@@ -17,7 +17,7 @@ public sealed class ChartArchitectureTests
 {
 	private const long Start = 1_700_000_000_000;
 	private static OHLCV Candle(int index, double price = 100) =>
-		new(Start + index * 60_000L, price - 1, price + 2, price - 2, price, 1000);
+		new OHLCV { timestamp = Start + index * 60_000L, open = price - 1, high = price + 2, low = price - 2, close = price, volume = 1000 };
 
 	private static ChartController Ready(out CandleSeries series)
 	{
@@ -314,7 +314,7 @@ public sealed class ChartArchitectureTests
 			var before = frame.Viewport;
 			series.UpdateLive(Candle(200, 102), out _);
 			controller.Pan(100, 1);
-			Assert.Equal(101, frame.Candles[frame.Candles.Count - 1].close);
+			Assert.Equal(101, frame.Candles[frame.Candles.Count - 1].close.GetValueOrDefault());
 			AssertSameViewport(before, frame.Viewport);
 			Render(frame);
 		});
@@ -485,7 +485,7 @@ public sealed class ChartArchitectureTests
 	{
 		var controller = Ready(out _);
 		var legacy = new CandleSeries();
-		legacy.LoadInitial([new OHLCV(0, 100, 101, 99, 100, 1), Candle(1)]);
+		legacy.LoadInitial([new OHLCV { timestamp = 0, open = 100, high = 101, low = 99, close = 100, volume = 1 }, Candle(1)]);
 		controller.SetSeries(legacy, "1m");
 		var frame = controller.PrepareRenderFrame();
 		var oldTime = frame.GetCandleTime(0);

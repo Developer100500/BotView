@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Xunit;
 using BotView.Services;
 using BotView.Exceptions;
+using BotView.Models;
 
 namespace BotView.Tests
 {
@@ -10,7 +11,7 @@ namespace BotView.Tests
     public class DataProviderTests
     {
         [Fact]
-        public void ConvertFromCCXT_ObjectArray_ValidData_ReturnsCandlestickData()
+        public void ConvertFromCCXT_ObjectArray_ValidData_ReturnsCandleArray()
         {
             var ccxtData = new object[][]
             {
@@ -20,8 +21,8 @@ namespace BotView.Tests
 
             var result = CandlestickDataConverter.ConvertFromCCXT(ccxtData, "1m");
 
-            Assert.Equal("1m", result.timeframe);
-            Assert.Equal(2, result.candles.Length);
+            Assert.IsType<ccxt.OHLCV[]>(result);
+            Assert.Equal(2, result.Length);
         }
 
         [Fact]
@@ -36,7 +37,7 @@ namespace BotView.Tests
         }
 
         [Fact]
-        public void ConvertFromCCXT_List_ValidData_ReturnsCandlestickData()
+        public void ConvertFromCCXT_List_ValidData_ReturnsCandleArray()
         {
             var ccxtData = new List<ccxt.OHLCV>
             {
@@ -45,8 +46,8 @@ namespace BotView.Tests
 
             var result = CandlestickDataConverter.ConvertFromCCXT(ccxtData, "1m");
 
-            Assert.Single(result.candles);
-            Assert.Equal(1504541580000L, result.candles[0].timestamp);
+            Assert.Single(result);
+            Assert.Equal(1504541580000L, result[0].timestamp.GetValueOrDefault());
         }
 
         [Fact]
@@ -56,11 +57,11 @@ namespace BotView.Tests
 
             var result = CandlestickDataConverter.ConvertCCXTCandle(candleData);
 
-            Assert.Equal(4235.4, result.open);
-            Assert.Equal(4240.6, result.high);
-            Assert.Equal(4230.0, result.low);
-            Assert.Equal(4230.7, result.close);
-            Assert.Equal(37.72941911, result.volume);
+            Assert.Equal(4235.4, result.open.GetValueOrDefault());
+            Assert.Equal(4240.6, result.high.GetValueOrDefault());
+            Assert.Equal(4230.0, result.low.GetValueOrDefault());
+            Assert.Equal(4230.7, result.close.GetValueOrDefault());
+            Assert.Equal(37.72941911, result.volume.GetValueOrDefault());
         }
 
         [Fact]

@@ -62,7 +62,7 @@ public sealed class ComparisonRenderTests
     {
         var series = new CandleSeries();
         series.LoadInitial(closes.Select((close, index) =>
-            new OHLCV((index + 1) * 60_000, close, close, close, close, 1)));
+            new OHLCV { timestamp = (index + 1) * 60_000, open = close, high = close, low = close, close = close, volume = 1 }));
         return series;
     }
 }

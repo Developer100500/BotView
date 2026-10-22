@@ -198,7 +198,7 @@ public sealed class MeasurementTests
     }
 
     /// <summary>Creates a candle at the specified minute offset from the fixture origin.</summary>
-    private static OHLCV Candle(int minute) => new(new DateTimeOffset(Origin.AddMinutes(minute)).ToUnixTimeMilliseconds(), 105, 115, 95, 110, 1);
+    private static OHLCV Candle(int minute) => new OHLCV { timestamp = new DateTimeOffset(Origin.AddMinutes(minute)).ToUnixTimeMilliseconds(), open = 105, high = 115, low = 95, close = 110, volume = 1 };
 
     /// <summary>Runs action on an STA thread and reports any WPF exception as a test failure.</summary>
     private static void RunWpf(Action action)

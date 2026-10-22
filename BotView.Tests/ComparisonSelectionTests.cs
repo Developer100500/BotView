@@ -255,5 +255,5 @@ public sealed class ComparisonSelectionTests
 
     /// <summary>Creates a candle at UTC time with all prices set to close.</summary>
     private static OHLCV Candle(DateTime time, double close) =>
-        new(ComparisonSeriesMath.ToUnixMilliseconds(time), close, close, close, close, 1);
+        new OHLCV { timestamp = ComparisonSeriesMath.ToUnixMilliseconds(time), open = close, high = close, low = close, close = close, volume = 1 };
 }

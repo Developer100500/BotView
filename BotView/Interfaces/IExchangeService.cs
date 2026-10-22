@@ -16,9 +16,9 @@ namespace BotView.Interfaces
         /// <param name="symbol">Trading pair symbol (e.g., "BTC/USDT")</param>
         /// <param name="timeframe">Timeframe (e.g., "1m", "5m", "1h", "1d")</param>
         /// <param name="limit">Maximum number of candles to retrieve (default: 500)</param>
-        /// <returns>CandlestickData containing the retrieved candles</returns>
-        Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500);
-        Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct);
+        /// <returns>Array of application candles for the requested timeframe</returns>
+        Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500);
+        Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct);
 
         /// <summary>
         /// Gets list of available trading symbols from specified exchange

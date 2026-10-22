@@ -22,7 +22,7 @@ namespace BotView.Services
         private readonly Dictionary<string, Exchange> _exchanges;
         private readonly IExchangeLogger _logger;
         private readonly ExchangePerformanceMetrics _performanceMetrics;
-        private readonly Dictionary<string, CandlestickData> _cache;
+        private readonly Dictionary<string, OHLCV[]> _cache;
         private readonly Dictionary<string, DateTime> _cacheTimestamps;
         private readonly object _cacheSync = new();
         private readonly TimeSpan _cacheExpiration;
@@ -41,7 +41,7 @@ namespace BotView.Services
             _logger = logger;
             _performanceMetrics = new ExchangePerformanceMetrics();
             _exchanges = new Dictionary<string, Exchange>();
-            _cache = new Dictionary<string, CandlestickData>();
+            _cache = new Dictionary<string, OHLCV[]>();
             _cacheTimestamps = new Dictionary<string, DateTime>();
             _cacheExpiration = TimeSpan.FromMinutes(cacheExpirationMinutes);
             _maxRetryAttempts = Math.Max(1, maxRetryAttempts);
@@ -55,14 +55,14 @@ namespace BotView.Services
         /// <param name="symbol">Trading pair symbol (e.g., "BTC/USDT")</param>
         /// <param name="timeframe">Timeframe (e.g., "1m", "5m", "1h", "1d")</param>
         /// <param name="limit">Maximum number of candles to retrieve (default: 500)</param>
-        /// <returns>CandlestickData containing the retrieved candles</returns>
+        /// <returns>Array of application candles for the requested timeframe</returns>
         /// <exception cref="ArgumentException">Thrown when parameters are invalid</exception>
         /// <exception cref="NotSupportedException">Thrown when exchange or timeframe is not supported</exception>
         /// <exception cref="ExchangeException">Thrown when exchange API call fails and no cached data is available</exception>
-        public Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500) =>
+        public Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500) =>
             GetCandlestickDataAsync(exchange, symbol, timeframe, limit, CancellationToken.None);
 
-        public async Task<CandlestickData> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct)
+        public async Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct)
         {
             // Validate input parameters
             if (string.IsNullOrWhiteSpace(exchange))
@@ -92,7 +92,7 @@ namespace BotView.Services
 
             // Check cache first
             var cacheKey = $"{normalizedExchange}_{symbol}_{timeframe}_{limit}";
-            CandlestickData? cached = null;
+            OHLCV[]? cached = null;
             DateTime cacheTime = default;
             lock (_cacheSync)
             {
@@ -107,7 +107,7 @@ namespace BotView.Services
                 var cacheAge = DateTime.UtcNow - cacheTime;
                 _logger?.LogCacheHit(normalizedExchange, symbol, timeframe, cacheAge);
                 _performanceMetrics.RecordCacheHit(normalizedExchange, "GetCandlestickData");
-                return cached.Value;
+                return cached;
             }
 
             _logger?.LogCacheMiss(normalizedExchange, symbol, timeframe);
@@ -137,7 +137,7 @@ namespace BotView.Services
                     var result = CandlestickDataConverter.ConvertFromCCXT(ccxtData, timeframe);
                     
                     // Log successful data retrieval
-                    _logger?.LogDataReceived(normalizedExchange, symbol, result.candles.Length, timeframe);
+                    _logger?.LogDataReceived(normalizedExchange, symbol, result.Length, timeframe);
                     
                     // Cache the result
                     lock (_cacheSync)
@@ -201,7 +201,7 @@ namespace BotView.Services
             {
                 _logger?.LogCacheFallback(normalizedExchange, symbol, timeframe,
                     DateTime.UtcNow - cacheTime, "API requests failed");
-                return cached.Value;
+                return cached;
             }
             
             // No cached data available, throw the last exception

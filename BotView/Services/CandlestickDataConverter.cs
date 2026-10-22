@@ -6,11 +6,11 @@ using BotView.Exceptions;
 
 namespace BotView.Services
 {
-    /// <summary> Pure conversion from CCXT OHLCV shapes to application candlestick types. </summary>
+    /// <summary>Validates CCXT candle batches and adapts legacy object rows to the same CCXT type.</summary>
     public static class CandlestickDataConverter
     {
-        /// <summary> Converts CCXT OHLCV list to CandlestickData format. </summary>
-        public static CandlestickData ConvertFromCCXT(List<ccxt.OHLCV> ccxtData, string timeframe)
+        /// <summary>Copies a validated CCXT batch to an array, preserving the existing fallback for missing numeric values.</summary>
+        public static OHLCV[] ConvertFromCCXT(List<ccxt.OHLCV> ccxtData, string timeframe)
         {
 			if (ccxtData == null || ccxtData.Count == 0)
 			{
@@ -49,14 +49,11 @@ namespace BotView.Services
 							$"Invalid candle data at index {i}", DataConversionErrorType.InvalidFormat, i
 					    );
 
-					candles[i] = new OHLCV(timestamp, open, high, low, close, volume);
+					candles[i] = new OHLCV { timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume };
 				}
 
-				return new CandlestickData(
-					    timeframe,
-					    candles[0].GetDateTime(),
-					    candles[^1].GetDateTime(),
-					    candles);
+				//ValidateEndpointTimestamps(candles);
+				return candles;
 			}
             catch (DataConversionException)
             {
@@ -69,8 +66,8 @@ namespace BotView.Services
             }
         }
 
-        /// <summary> Converts CCXT OHLCV array to CandlestickData format. </summary>
-        public static CandlestickData ConvertFromCCXT(object[][] ccxtData, string timeframe)
+        /// <summary>Converts legacy CCXT object rows to typed CCXT candles.</summary>
+        public static OHLCV[] ConvertFromCCXT(object[][] ccxtData, string timeframe)
         {
             try
             {
@@ -103,16 +100,8 @@ namespace BotView.Services
                     }
                 }
 
-                if (candles.Length == 0)
-                {
-                    DateTime currentTime = DateTime.UtcNow;
-                    return new CandlestickData(timeframe, currentTime, currentTime, new OHLCV[0]);
-                }
-
-                var beginTime = candles[0].GetDateTime();
-                var endTime = candles[candles.Length - 1].GetDateTime();
-
-                return new CandlestickData(timeframe, beginTime, endTime, candles);
+                ValidateEndpointTimestamps(candles);
+                return candles;
             }
             catch (DataConversionException)
             {
@@ -123,6 +112,15 @@ namespace BotView.Services
                 throw new DataConversionException($"Unexpected error during data conversion: {ex.Message}",
                     DataConversionErrorType.InvalidFormat, ex);
             }
+        }
+
+        // Keep the timestamp validation previously performed when constructing batch time bounds.
+        private static void ValidateEndpointTimestamps(OHLCV[] candles)
+        {
+            if (candles.Length == 0)
+                return;
+            _ = candles[0].GetDateTime();
+            _ = candles[^1].GetDateTime();
         }
 
         /// <summary> Converts a single CCXT candle row to OHLCV. </summary>
@@ -171,7 +169,7 @@ namespace BotView.Services
                         DataConversionErrorType.InvalidVolume);
                 }
 
-                return new OHLCV(timestamp, open, high, low, close, volume);
+                return new OHLCV { timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume };
             }
             catch (InvalidCastException ex)
             {

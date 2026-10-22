@@ -50,7 +50,7 @@ public sealed class MarketCatalogTests
         {
             Assert.Equal(timeframe.Duration, controller.ParseTimeframe(timeframe.Id));
             Assert.Equal(timeframe.DemoCandleCount,
-                dataProvider.LoadDemoData(timeframe.Id).candles.Length);
+                dataProvider.LoadDemoData(timeframe.Id).Length);
         }
     }
 }

@@ -16,7 +16,7 @@ public sealed class MarketDataSubscriptionTests
                 "binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
             .Returns((string _, string _, string _, int _, CancellationToken ct) => WaitForCancellation(ct));
 
-        async Task<CandlestickData> WaitForCancellation(CancellationToken ct)
+        async Task<OHLCV[]> WaitForCancellation(CancellationToken ct)
         {
             started.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
@@ -40,8 +40,7 @@ public sealed class MarketDataSubscriptionTests
     {
         var exchange = new Mock<IExchangeService>();
         exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
-                new[] { Candle(1000), Candle(2000) }));
+            .ReturnsAsync(new[] { Candle(1000), Candle(2000) });
         exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", null, 3, It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new List<ccxt.OHLCV>
             {
@@ -69,8 +68,7 @@ public sealed class MarketDataSubscriptionTests
         exchange.Setup(x => x.GetCandlestickDataAsync(
                 It.IsAny<string>(), It.IsAny<string>(), "1m", 250, It.IsAny<CancellationToken>()))
             .ReturnsAsync((string _, string _, string _, int _, CancellationToken _) =>
-                new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
-                    new[] { Candle(60_000), Candle(120_000) }));
+                new[] { Candle(60_000), Candle(120_000) });
         var store = new CandleStore();
         await using var service = new MarketDataService(exchange.Object, store, TimeSpan.FromHours(1));
         var btc = new CandleCacheKey("binance", "BTC/USDT", "1m", 250);
@@ -100,8 +98,7 @@ public sealed class MarketDataSubscriptionTests
         var exchange = new Mock<IExchangeService>();
         exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250,
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
-                new[] { Candle(180_000), Candle(240_000) }));
+            .ReturnsAsync(new[] { Candle(180_000), Candle(240_000) });
         exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", 0, 250,
                 It.IsAny<CancellationToken>()))
             .Returns(() =>
@@ -137,8 +134,7 @@ public sealed class MarketDataSubscriptionTests
     {
         var exchange = new Mock<IExchangeService>();
         exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
-                new[] { Candle(180_000), Candle(240_000) }));
+            .ReturnsAsync(new[] { Candle(180_000), Candle(240_000) });
         exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", 0, 250, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ccxt.OHLCV>
             {
@@ -153,10 +149,10 @@ public sealed class MarketDataSubscriptionTests
         subscription.OlderCandlesLoaded += candles => published = candles;
 
         Assert.Equal(2, await service.LoadOlderAsync(key, 250, TestContext.Current.CancellationToken));
-        Assert.Equal(new long[] { 60_000, 120_000 }, published!.Select(c => c.timestamp));
+        Assert.Equal(new long[] { 60_000, 120_000 }, published!.Select(c => c.timestamp.GetValueOrDefault()));
         Assert.Equal(new long[] { 60_000, 120_000, 180_000, 240_000 },
             subscription.Series.GetSnapshot().Enumerate(long.MinValue, long.MaxValue)
-                .Select(item => item.Candle.timestamp));
+                .Select(item => item.Candle.timestamp.GetValueOrDefault()));
     }
 
     [Fact]
@@ -164,8 +160,7 @@ public sealed class MarketDataSubscriptionTests
     {
         var exchange = new Mock<IExchangeService>();
         exchange.Setup(x => x.GetCandlestickDataAsync("binance", "BTC/USDT", "1m", 250, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CandlestickData("1m", DateTime.UtcNow, DateTime.UtcNow,
-                new[] { Candle(60_000) }));
+            .ReturnsAsync(new[] { Candle(60_000) });
         var pollingResponse = new TaskCompletionSource<List<ccxt.OHLCV>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         exchange.Setup(x => x.FetchOHLCVAsync("binance", "BTC/USDT", "1m", null, 3, It.IsAny<CancellationToken>()))
@@ -189,10 +184,10 @@ public sealed class MarketDataSubscriptionTests
         var snapshot = subscription.Series.GetSnapshot();
         Assert.Equal(10, snapshot.Count);
         Assert.Equal(9, snapshot.ClosedCount);
-        Assert.Equal(600_000, snapshot.Live!.Value.timestamp);
+        Assert.Equal(600_000, snapshot.Live!.Value.timestamp.GetValueOrDefault());
     }
 
-    private static OHLCV Candle(long timestamp) => new(timestamp, 1, 2, 1, 2, 1);
+    private static OHLCV Candle(long timestamp) => new OHLCV { timestamp = timestamp, open = 1, high = 2, low = 1, close = 2, volume = 1 };
     private static ccxt.OHLCV ExchangeCandle(long timestamp) =>
         new() { timestamp = timestamp, open = 1, high = 2, low = 1, close = 2, volume = 1 };
 }

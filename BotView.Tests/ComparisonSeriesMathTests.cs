@@ -95,8 +95,7 @@ public sealed class ComparisonSeriesMathTests
     private static CandleSeries Series(params (long Second, double Close)[] values)
     {
         var series = new CandleSeries();
-        series.LoadInitial(values.Select(v => new OHLCV(v.Second * 1000,
-            v.Close, v.Close, v.Close, v.Close, 1)));
+        series.LoadInitial(values.Select(v => new OHLCV { timestamp = v.Second * 1000, open = v.Close, high = v.Close, low = v.Close, close = v.Close, volume = 1 }));
         return series;
     }
 }

@@ -70,7 +70,7 @@ public class FuturesQuoteTests
     }
 
     [Fact]
-    public async Task Widget_UsesPreviousCloseUntilNineThirtyAndLabelsIt()
+    public async Task Widget_UsesPreviousCloseUntilNineThirtyAndShowsSource()
     {
         var asOf = new DateTimeOffset(2026, 9, 29, 9, 12, 0, TimeSpan.FromHours(-4));
         var quote = new MarketQuote("ES=F", 7756.50m, asOf, [], "Yahoo Finance",
@@ -80,7 +80,7 @@ public class FuturesQuoteTests
         await widget.RefreshAsync();
 
         Assert.Equal("+9,75 п. (+0,13%)", widget.ChangeText);
-        Assert.StartsWith("От предыдущего закрытия", widget.StatusText);
+        Assert.Equal("Yahoo Finance", widget.StatusText);
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class FuturesQuoteTests
         await widget.RefreshAsync();
 
         Assert.Equal("+6,50 п. (+0,08%)", widget.ChangeText);
-        Assert.StartsWith("От 09:30 NY", widget.StatusText);
+        Assert.Equal("Yahoo Finance", widget.StatusText);
     }
 
     private sealed class StaticQuoteProvider(MarketQuote quote) : IQuoteProvider

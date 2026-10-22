@@ -80,7 +80,7 @@ public class RSIIndicator : Indicator
 		double[] closePrices = new double[count];
 		for (int i = 0; i < count; i++)
 		{
-			closePrices[i] = getCandle(i).close;
+			closePrices[i] = getCandle(i).close.GetValueOrDefault();
 		}
 
 		// Prepare output array
