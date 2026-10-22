@@ -16,6 +16,7 @@ public partial class OrderBookWindow : Window
         InitializeComponent();
         _viewModel = new(exchange, symbol, service);
         DataContext = _viewModel;
+        // update order book every 50ms
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(50) };
         _timer.Tick += (_, _) => _viewModel.Refresh();
         Loaded += async (_, _) =>

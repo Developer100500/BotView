@@ -40,10 +40,7 @@
         <StackPanel Grid.Row="1">
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="65"/></Grid.ColumnDefinitions>
-            <StackPanel>
-                <TextBlock Text="{Binding SpreadText}"/>
-                <TextBlock Text="{Binding FollowText}" Foreground="#94A3B8" FontSize="10"/>
-            </StackPanel>
+            
             <TextBlock Grid.Column="1" Text="{Binding StepText}" VerticalAlignment="Center" Margin="4,0,8,0" FontSize="11"/>
             <ComboBox Grid.Column="2" ItemsSource="{Binding Multipliers}" SelectedItem="{Binding Multiplier}" VerticalContentAlignment="Center"
                       ToolTip="Множитель биржевого шага цены">

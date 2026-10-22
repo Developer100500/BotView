@@ -12,30 +12,52 @@ namespace BotView.Services
         /// <summary> Converts CCXT OHLCV list to CandlestickData format. </summary>
         public static CandlestickData ConvertFromCCXT(List<ccxt.OHLCV> ccxtData, string timeframe)
         {
-            try
+			if (ccxtData == null || ccxtData.Count == 0)
+			{
+				throw new DataConversionException("CCXT data cannot be null", DataConversionErrorType.EmptyData);
+			}
+
+			if (string.IsNullOrWhiteSpace(timeframe))
+			{
+				throw new DataConversionException("Timeframe cannot be null or empty", DataConversionErrorType.InvalidFormat);
+			}
+
+			try
             {
-                if (ccxtData == null || ccxtData.Count == 0)
-                {
-                    throw new DataConversionException("CCXT data cannot be null", DataConversionErrorType.EmptyData);
-                }
+				var candles = new OHLCV[ccxtData.Count];
 
-                if (string.IsNullOrWhiteSpace(timeframe))
-                {
-                    throw new DataConversionException("Timeframe cannot be null or empty", DataConversionErrorType.InvalidFormat);
-                }
+				for (int i = 0; i < ccxtData.Count; i++)
+				{
+					var source = ccxtData[i];
 
-                var objectArray = ccxtData.Select(ohlcv => new object[]
-                {
-                    ohlcv.timestamp,
-                    ohlcv.open,
-                    ohlcv.high,
-                    ohlcv.low,
-                    ohlcv.close,
-                    ohlcv.volume
-                }).ToArray();
+					long timestamp = source.timestamp.GetValueOrDefault();
+					double open = source.open.GetValueOrDefault();
+					double high = source.high.GetValueOrDefault();
+					double low = source.low.GetValueOrDefault();
+					double close = source.close.GetValueOrDefault();
+					double volume = source.volume.GetValueOrDefault();
 
-                return ConvertFromCCXT(objectArray, timeframe);
-            }
+					bool valid =
+						timestamp > 0 &&
+						high >= low &&
+						open >= 0 && high >= 0 &&
+						low >= 0 && close >= 0 &&
+						volume >= 0;
+
+					if (!valid)
+						throw new DataConversionException(
+							$"Invalid candle data at index {i}", DataConversionErrorType.InvalidFormat, i
+					    );
+
+					candles[i] = new OHLCV(timestamp, open, high, low, close, volume);
+				}
+
+				return new CandlestickData(
+					    timeframe,
+					    candles[0].GetDateTime(),
+					    candles[^1].GetDateTime(),
+					    candles);
+			}
             catch (DataConversionException)
             {
                 throw;

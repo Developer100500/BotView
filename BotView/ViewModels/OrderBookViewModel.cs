@@ -93,19 +93,11 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
             if (_update is null) return "Подключение…";
             var snapshot = _update.Snapshot;
             var age = snapshot is null ? "" : $" · {snapshot.ReceivedAt.ToLocalTime():HH:mm:ss.fff}";
-            var stale = snapshot is not null && DateTimeOffset.UtcNow - snapshot.ReceivedAt > TimeSpan.FromSeconds(10);
+            bool stale = snapshot is not null && DateTimeOffset.UtcNow - snapshot.ReceivedAt > TimeSpan.FromSeconds(10);
             return _update.Message + (stale && _update.Connection == OrderBookConnection.Live ? " · Нет свежих данных" : "") + age;
         }
     }
-    public string SpreadText
-    {
-        get
-        {
-            var book = _update?.Snapshot;
-            if (book?.BestBid is not { } bid || book.BestAsk is not { } ask) return "Спред: —";
-            return $"Спред: {Format(ask - bid)} ({(ask - bid) / bid * 100:0.####}%)";
-        }
-    }
+
     public string StepText => _update?.Snapshot is { } b ? $"Шаг: {Format(b.Market.TickSize * Multiplier)}" : "Шаг: —";
     public string PriceText { get => _priceText; set { _priceText = value; Changed(); } }
     public string AmountText { get => _amountText; set { _amountText = value; Changed(); } }
