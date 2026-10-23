@@ -11,7 +11,7 @@ namespace BotView.Services;
 /// <summary>Provider registry, retry policy and initial-history cache shared by all transports.</summary>
 public sealed class ExchangeService : IExchangeService
 {
-    private readonly Dictionary<string, IMarketDataProvider> _providers;
+    private readonly Dictionary<string, IInstrumentProvider> _providers;
     private readonly IExchangeLogger? _logger;
     private readonly ExchangePerformanceMetrics _performanceMetrics = new();
     private readonly Dictionary<InitialCacheKey, (Candle[] Candles, DateTime At)> _cache = new();
@@ -22,7 +22,7 @@ public sealed class ExchangeService : IExchangeService
     private int _disposed;
     private readonly record struct InitialCacheKey(string Exchange, string Symbol, string Timeframe, int Limit);
 
-    public ExchangeService(IEnumerable<IMarketDataProvider> providers, IExchangeLogger? logger = null,
+    public ExchangeService(IEnumerable<IInstrumentProvider> providers, IExchangeLogger? logger = null,
         int cacheExpirationMinutes = 5, int maxRetryAttempts = 3, int baseRetryDelaySeconds = 1)
     {
         _logger = logger;
@@ -40,7 +40,7 @@ public sealed class ExchangeService : IExchangeService
     public List<string> GetSupportedTimeframes() => _providers.Values.SelectMany(p => p.Definition.SupportedTimeframes)
         .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-    private IMarketDataProvider GetProvider(string exchange)
+    private IInstrumentProvider GetProvider(string exchange)
     {
         ObjectDisposedException.ThrowIf(_disposed != 0, this);
         if (string.IsNullOrWhiteSpace(exchange)) throw new ArgumentException("Exchange cannot be empty.", nameof(exchange));
@@ -50,7 +50,8 @@ public sealed class ExchangeService : IExchangeService
 
     private IMarketDataProvider ValidateRequest(string exchange, string symbol, string timeframe, int limit)
     {
-        var provider = GetProvider(exchange);
+        if (GetProvider(exchange) is not IMarketDataProvider provider)
+            throw new NotSupportedException($"Source '{exchange}' provides an instrument catalog only; candles are unavailable.");
         if (string.IsNullOrWhiteSpace(symbol)) throw new ArgumentException("Symbol cannot be empty.", nameof(symbol));
         if (string.IsNullOrWhiteSpace(timeframe)) throw new ArgumentException("Timeframe cannot be empty.", nameof(timeframe));
         if (limit <= 0) throw new ArgumentException("Limit must be greater than zero.", nameof(limit));

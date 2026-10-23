@@ -11,8 +11,7 @@ public sealed class ExchangeDefinition
         IReadOnlyList<string> supportedTimeframes, string providerId = "custom", string? venue = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        if (supportedTimeframes.Count == 0)
-            throw new ArgumentException("At least one timeframe is required.", nameof(supportedTimeframes));
+        ArgumentNullException.ThrowIfNull(supportedTimeframes);
         Id = id;
         DisplayName = displayName;
         ApiUrl = apiUrl;

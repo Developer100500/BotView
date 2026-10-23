@@ -4,11 +4,8 @@ using BotView.Models;
 namespace BotView.Interfaces;
 
 /// <summary>One connection to a source of market data. Owns its transport and native identifiers.</summary>
-public interface IMarketDataProvider : IAsyncDisposable
+public interface IMarketDataProvider : IInstrumentProvider
 {
-    ExchangeDefinition Definition { get; }
-    Task<IReadOnlyList<Instrument>> GetInstrumentsAsync(CancellationToken ct = default);
-
     /// <summary>Returns up to limit nearest bars strictly before beforeExclusive (latest if null),
     /// ordered oldest first. Empty means no earlier accessible history. Handles API paging internally.</summary>
     Task<Candle[]> GetCandlesAsync(InstrumentKey instrument, string timeframe,

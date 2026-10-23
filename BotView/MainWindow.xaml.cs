@@ -208,6 +208,7 @@ namespace BotView
 
         private void Pair_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (_viewModel.IsInstrumentCatalogMode) return;
             if (sender is not FrameworkElement target) return;
             var menu = Views.CoinInfoContextMenu.Create(target, pair =>
             {
@@ -234,6 +235,7 @@ namespace BotView
 
         private void OpenOrderBook(string symbol)
         {
+            if (_viewModel.IsInstrumentCatalogMode) return;
             _viewModel.IsSearchDropdownOpen = false;
             _viewModel.IsComparisonDropdownOpen = false;
             var key = (Exchange: _viewModel.SelectedExchange, Symbol: symbol);

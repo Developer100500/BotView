@@ -198,8 +198,8 @@
                     <TextBlock Text="MARKET TERMINAL" FontSize="9" Foreground="{StaticResource AccentBrush}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,0,10,0">
-                    <TextBlock Text="БИРЖА" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
-                    <ComboBox Name="cmbExchange" Width="100" ItemsSource="{Binding Exchanges}"
+                    <TextBlock Text="ИСТОЧНИК" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
+                    <ComboBox Name="cmbExchange" Width="180" ItemsSource="{Binding Exchanges}"
                               
                               DisplayMemberPath="DisplayName" SelectedValuePath="Id"
                               SelectedValue="{Binding SelectedExchange, Mode=TwoWay}" Foreground="#FF1754CE">
@@ -208,7 +208,7 @@
                         </ComboBox.Background>
                     </ComboBox>
                 </StackPanel>
-                <StackPanel Grid.Column="2" Margin="0,0,14,0">
+                <StackPanel Grid.Column="2" Margin="0,0,14,0" Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}">
                     <TextBlock Text="ТАЙМФРЕЙМ" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
                     <ComboBox Name="cmbTimeframe" Width="105" FontWeight="SemiBold"
                               ItemsSource="{Binding Timeframes}"
@@ -222,9 +222,9 @@
                     <TextBox x:Name="txtSymbolSearch"
                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                             Width="400"
-                            FontSize="14" ToolTip="Поиск торговой пары"
+                            FontSize="14" ToolTip="{Binding SearchPlaceholder}"
                             GotFocus="TxtSymbolSearch_GotFocus" LostFocus="TxtSymbolSearch_LostFocus"/>
-                    <TextBlock Text="Поиск пары, например BTC/USDT" IsHitTestVisible="False"
+                    <TextBlock Text="{Binding SearchPlaceholder}" IsHitTestVisible="False"
                             Foreground="{StaticResource TextMutedBrush}" Padding="12,0,12,0"
                             VerticalAlignment="Center">
                         <TextBlock.Style>
@@ -260,6 +260,7 @@
 
                 </Grid>
                 <Button Grid.Column="4" Style="{StaticResource FavoriteButtonStyle}"
+                        Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}"
                         Content="{Binding FavoriteActionText}" Command="{Binding ToggleFavoriteCommand}"
                         ToolTip="{Binding FavoritesFilePath}" VerticalAlignment="Bottom"/>
             </Grid>
@@ -287,7 +288,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2" Margin="12">
+        <Grid Grid.Row="2" Margin="12" Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="184"/>
                 <ColumnDefinition Width="*"/>
@@ -530,17 +531,85 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
             </Border>
         </Grid>
 
+        <Border Grid.Row="2" Margin="12" Style="{StaticResource CardStyle}"
+                Visibility="{Binding IsInstrumentCatalogMode, Converter={StaticResource BoolToVis}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <DockPanel Margin="0,0,0,10" LastChildFill="False">
+                    <TextBlock Text="ИНСТРУМЕНТЫ МОСБИРЖИ" Style="{StaticResource SectionTitleStyle}"
+                               VerticalAlignment="Center" Margin="0,0,20,0"/>
+                    <ComboBox Width="155" ItemsSource="{Binding CatalogCategories}"
+                              SelectedItem="{Binding SelectedCatalogCategory}"/>
+                    <Button DockPanel.Dock="Right" Content="Обновить" Command="{Binding RefreshCatalogCommand}"
+                            Style="{StaticResource ToolbarButtonStyle}" Margin="10,0,0,0"/>
+                </DockPanel>
+                <StackPanel Grid.Row="1" Margin="0,0,0,10">
+                    <ProgressBar IsIndeterminate="True" Height="4" Margin="0,0,0,8"
+                                 Visibility="{Binding IsCatalogLoading, Converter={StaticResource BoolToVis}}"/>
+                    <TextBlock Text="Загрузка каталога QUIK…" Foreground="{StaticResource TextMutedBrush}"
+                               Visibility="{Binding IsCatalogLoading, Converter={StaticResource BoolToVis}}"/>
+                    <TextBlock Text="{Binding CatalogErrorText}" Foreground="#FBBF24" TextWrapping="Wrap"/>
+                </StackPanel>
+                <DataGrid Grid.Row="2" ItemsSource="{Binding CatalogRows}" AutoGenerateColumns="False" IsReadOnly="True"
+                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="True"
+                          EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True" HeadersVisibility="Column"
+                          Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                          RowBackground="{StaticResource SurfaceBrush}" AlternatingRowBackground="{StaticResource SurfaceRaisedBrush}"
+                          GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                          BorderBrush="{StaticResource BorderBrush}" RowHeight="30">
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                            <Setter Property="Padding" Value="10,8"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
+                    <DataGrid.CellStyle>
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="Padding" Value="8,4"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                        </Style>
+                    </DataGrid.CellStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Тип" Binding="{Binding Type}" Width="120"/>
+                        <DataGridTextColumn Header="Тикер" Binding="{Binding Ticker}" Width="150"/>
+                        <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="*" MinWidth="200"/>
+                        <DataGridTextColumn Header="Класс" Binding="{Binding ClassCode}" Width="100"/>
+                        <DataGridTextColumn Header="Лот" Binding="{Binding LotSize, TargetNullValue=—}" Width="90"/>
+                        <DataGridTextColumn Header="Шаг цены" Binding="{Binding PriceStep, TargetNullValue=—}" Width="120"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <DockPanel Grid.Row="3" Margin="0,10,0,0">
+                    <TextBlock Text="{Binding CatalogCountText}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock Text="Каталог терминала · Графики и торговые операции пока недоступны"
+                               Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
+                </DockPanel>
+            </Grid>
+        </Border>
+
         <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,0" Padding="14,7">
             <DockPanel>
-                <TextBlock Text="●  LIVE" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
+                <TextBlock Text="●  LIVE" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold"
+                           Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}"/>
+                <TextBlock Text="КАТАЛОГ ИНСТРУМЕНТОВ" Foreground="{StaticResource TextMutedBrush}" FontSize="11"
+                           Visibility="{Binding IsInstrumentCatalogMode, Converter={StaticResource BoolToVis}}"/>
                 <TextBlock Text="{Binding RenderTimeText}" Foreground="{StaticResource TextMutedBrush}"
+                           Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}"
                            FontSize="11" HorizontalAlignment="Right"/>
             </DockPanel>
         </Border>
 
         <Border Grid.RowSpan="4" Background="#B30B1120"
-                Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+                Visibility="{Binding IsBlockingBusy, Converter={StaticResource BoolToVis}}"
                 d:IsHidden="True" Panel.ZIndex="100" IsHitTestVisible="True">
             <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="1" CornerRadius="10" Padding="28,22"

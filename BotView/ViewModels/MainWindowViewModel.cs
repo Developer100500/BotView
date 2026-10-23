@@ -14,7 +14,7 @@ using BotView.Services;
 
 namespace BotView.ViewModels
 {
-    public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
+    public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
         private const int HistoryBatchSize = CandleSeries.CandleChunkSize;
         private const int MaxSearchResults = 50;
@@ -97,7 +97,7 @@ namespace BotView.ViewModels
             if (!_exchangeDefinitions.Any(d => d.Id == _selectedExchange))
                 _selectedExchange = _exchangeDefinitions[0].Id;
             var selectedDefinition = _exchangeDefinitions.First(d => d.Id == _selectedExchange);
-            if (!selectedDefinition.SupportsTimeframe(_selectedTimeframe))
+            if (selectedDefinition.SupportedTimeframes.Count > 0 && !selectedDefinition.SupportsTimeframe(_selectedTimeframe))
                 _selectedTimeframe = selectedDefinition.SupportedTimeframes[0];
             _marketDataService = marketDataService;
             _metricsController = metricsController;
@@ -136,6 +136,7 @@ namespace BotView.ViewModels
             RemoveComparisonCommand = new RelayCommand(RemoveComparison);
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
             RemoveFavoriteCommand = new RelayCommand(RemoveFavorite);
+            RefreshCatalogCommand = new RelayCommand(_ => RefreshCatalogAsync(), _ => IsInstrumentCatalogMode && !IsCatalogLoading);
 
             _metricsTimer = new Timer(
                 _ => LogMetrics(),
@@ -164,13 +165,24 @@ namespace BotView.ViewModels
 
                 RemoveComparison();
                 _selectedExchange = value;
+                _loadedSymbolsExchange = null;
+                _allSymbols = [];
+                _searchText = "";
+                IsSearchDropdownOpen = false;
+                ResetCatalog();
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(SearchText));
+                OnPropertyChanged(nameof(IsInstrumentCatalogMode));
+                OnPropertyChanged(nameof(IsChartMode));
+                OnPropertyChanged(nameof(IsBlockingBusy));
+                OnPropertyChanged(nameof(SearchPlaceholder));
                 UpdateTimeframesForExchange();
                 OnPropertyChanged(nameof(IsCurrentPairFavorite));
                 OnPropertyChanged(nameof(FavoriteActionText));
                 if (_isReady)
                 {
-                    LoadFavoriteTradingPairs();
+                    if (IsInstrumentCatalogMode) TradingPairs.Clear();
+                    else LoadFavoriteTradingPairs();
                     _ = MarketMovers.SetExchangeAsync(_selectedExchange);
                 }
                 _ = StartSelectionLoadAsync();
@@ -194,7 +206,7 @@ namespace BotView.ViewModels
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsCurrentPairFavorite));
                 OnPropertyChanged(nameof(FavoriteActionText));
-                SymbolChanged?.Invoke(_selectedSymbol);
+                if (IsChartMode) SymbolChanged?.Invoke(_selectedSymbol);
                 _ = StartSelectionLoadAsync();
             }
         }
@@ -212,7 +224,7 @@ namespace BotView.ViewModels
                     Timeframes.Add(timeframe);
             }
 
-            if (!exchange.SupportsTimeframe(_selectedTimeframe))
+            if (exchange.SupportedTimeframes.Count > 0 && !exchange.SupportsTimeframe(_selectedTimeframe))
             {
                 _selectedTimeframe = exchange.SupportedTimeframes[0];
                 OnPropertyChanged(nameof(SelectedTimeframe));
@@ -313,7 +325,7 @@ namespace BotView.ViewModels
                     return;
                 }
 
-                _isSearchDropdownOpen = value;
+                _isSearchDropdownOpen = value && IsChartMode;
                 OnPropertyChanged();
             }
         }
@@ -357,6 +369,7 @@ namespace BotView.ViewModels
 
                 _isBusy = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsBlockingBusy));
             }
         }
 
@@ -439,7 +452,7 @@ namespace BotView.ViewModels
         {
             _isReady = true;
             _ = MarketMovers.SetExchangeAsync(SelectedExchange);
-            SymbolChanged?.Invoke(SelectedSymbol);
+            if (IsChartMode) SymbolChanged?.Invoke(SelectedSymbol);
             await StartSelectionLoadAsync();
         }
 
@@ -480,11 +493,17 @@ namespace BotView.ViewModels
         private async Task LoadSelectionAsync(CancellationTokenSource source)
         {
             var ct = source.Token;
-            SetBusy(true, $"Загрузка {SelectedSymbol}...");
+            var exchange = SelectedExchange;
+            var catalogMode = IsInstrumentCatalogMode;
+            SetBusy(!catalogMode, catalogMode ? "" : $"Загрузка {SelectedSymbol}...");
             try
             {
                 ct.ThrowIfCancellationRequested();
-                var exchange = SelectedExchange;
+                if (catalogMode)
+                {
+                    await LoadCatalogAsync(exchange, source);
+                    return;
+                }
                 if (!string.Equals(_loadedSymbolsExchange, exchange, StringComparison.OrdinalIgnoreCase))
                 {
                     await LoadExchangeSymbolsAsync(exchange, ct);
@@ -503,7 +522,11 @@ namespace BotView.ViewModels
             {
                 Debug.WriteLine($"Failed to load selection: {ex}");
                 if (_isReady && ReferenceEquals(_selectionLoadCts, source))
-                    ErrorOccurred?.Invoke("Ошибка загрузки", $"Не удалось загрузить выбранный рынок.\n\n{ex.Message}");
+                {
+                    if (catalogMode)
+                        CatalogErrorText = (_catalogInstruments.Count > 0 ? "Список не обновлён. " : "") + ex.Message;
+                    else ErrorOccurred?.Invoke("Ошибка загрузки", $"Не удалось загрузить выбранный рынок.\n\n{ex.Message}");
+                }
             }
             finally
             {
@@ -511,6 +534,7 @@ namespace BotView.ViewModels
                 {
                     _selectionLoadCts = null;
                     SetBusy(false);
+                    IsCatalogLoading = false;
                 }
                 source.Dispose();
             }
@@ -518,7 +542,7 @@ namespace BotView.ViewModels
 
         public async Task LoadOlderAsync()
         {
-            if (!_isReady)
+            if (!_isReady || IsInstrumentCatalogMode)
                 return;
 
             var ct = _historyLoadCts.Token;
@@ -601,6 +625,7 @@ namespace BotView.ViewModels
 
         private void ToggleFavorite()
         {
+            if (IsInstrumentCatalogMode) return;
             try
             {
                 if (IsCurrentPairFavorite)
@@ -716,6 +741,12 @@ namespace BotView.ViewModels
         private void UpdateSearchResults()
         {
             SearchResults.Clear();
+            if (IsInstrumentCatalogMode)
+            {
+                IsSearchDropdownOpen = false;
+                FilterCatalog();
+                return;
+            }
 
             var query = _searchText.Trim();
             if (query.Length == 0 || _allSymbols.Count == 0)
@@ -743,6 +774,7 @@ namespace BotView.ViewModels
 
         private void SelectSearchResult(object? parameter)
         {
+            if (IsInstrumentCatalogMode) return;
             if (parameter is not string symbol || string.IsNullOrWhiteSpace(symbol))
             {
                 return;
@@ -767,6 +799,11 @@ namespace BotView.ViewModels
         private void UpdateComparisonSearchResults()
         {
             ComparisonSearchResults.Clear();
+            if (IsInstrumentCatalogMode)
+            {
+                IsComparisonDropdownOpen = false;
+                return;
+            }
             var query = _comparisonSearchText.Trim();
             if (query.Length == 0 || _allSymbols.Count == 0)
             {
@@ -784,6 +821,7 @@ namespace BotView.ViewModels
         /// <summary>Selects the symbol supplied in parameter and starts an independent comparison subscription.</summary>
         private void SelectComparisonResult(object? parameter)
         {
+            if (IsInstrumentCatalogMode) return;
             if (parameter is not string symbol ||
                 symbol.Equals(SelectedSymbol, StringComparison.OrdinalIgnoreCase) ||
                 !_allSymbols.Contains(symbol, StringComparer.OrdinalIgnoreCase)) return;

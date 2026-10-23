@@ -60,7 +60,8 @@ namespace BotView
 
                 // Создание ExchangeService с настройками из конфигурации и логгером
                 ExchangeService = new ExchangeService(
-                    CcxtMarketDataProvider.CreateDefaults(RealtimePollInterval),
+                    CcxtMarketDataProvider.CreateDefaults(RealtimePollInterval)
+                        .Cast<IInstrumentProvider>().Append(new QuikInstrumentProvider()),
                     logger: ExchangeLogger,
                     cacheExpirationMinutes: cacheSettings.ExpirationMinutes,
                     maxRetryAttempts: connectionSettings.MaxRetryAttempts,
