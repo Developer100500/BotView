@@ -1,3 +1,4 @@
+using BotView.Services.Providers;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -22,7 +23,7 @@ namespace BotView.Tests
 
         public IntegrationTests()
         {
-            _exchangeService = new ExchangeService(null, 
+            _exchangeService = new ExchangeService(CcxtMarketDataProvider.CreateDefaults(), null,
                 cacheExpirationMinutes: 1, maxRetryAttempts: 3, baseRetryDelaySeconds: 1);
         }
 
@@ -79,24 +80,24 @@ namespace BotView.Tests
             var result = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h", 10);
 
             // Assert
-            Assert.IsType<ccxt.OHLCV[]>(result);
+            Assert.IsType<Candle[]>(result);
             Assert.True(result.Length > 0, "Should return at least one candle");
             Assert.True(result.Length <= 10, "Should not return more than requested limit");
             
             // Verify data integrity
             foreach (var candle in result)
             {
-                Assert.True(candle.timestamp.GetValueOrDefault() > 0, "Timestamp should be positive");
-                Assert.True(candle.high.GetValueOrDefault() >= candle.low.GetValueOrDefault(), "High should be >= Low");
-                Assert.True(candle.open.GetValueOrDefault() >= 0, "Open should be non-negative");
-                Assert.True(candle.close.GetValueOrDefault() >= 0, "Close should be non-negative");
-                Assert.True(candle.volume.GetValueOrDefault() >= 0, "Volume should be non-negative");
+                Assert.True(candle.Timestamp > 0, "Timestamp should be positive");
+                Assert.True(candle.High >= candle.Low, "High should be >= Low");
+                Assert.True(candle.Open >= 0, "Open should be non-negative");
+                Assert.True(candle.Close >= 0, "Close should be non-negative");
+                Assert.True(candle.Volume >= 0, "Volume should be non-negative");
             }
 
             // Verify time ordering (candles should be in chronological order)
             for (int i = 1; i < result.Length; i++)
             {
-                Assert.True(result[i].timestamp.GetValueOrDefault() >= result[i-1].timestamp.GetValueOrDefault(),
+                Assert.True(result[i].Timestamp >= result[i-1].Timestamp,
                     "Candles should be in chronological order");
             }
         }
@@ -108,15 +109,15 @@ namespace BotView.Tests
             var result = await _exchangeService.GetCandlestickDataAsync("bybit", "ETH/USDT", "1d", 5);
 
             // Assert
-            Assert.IsType<ccxt.OHLCV[]>(result);
+            Assert.IsType<Candle[]>(result);
             Assert.True(result.Length > 0, "Should return at least one candle");
             Assert.True(result.Length <= 5, "Should not return more than requested limit");
             
             // Verify basic data structure
             var firstCandle = result[0];
-            Assert.True(firstCandle.timestamp.GetValueOrDefault() > 0);
-            Assert.True(firstCandle.high.GetValueOrDefault() >= firstCandle.low.GetValueOrDefault());
-            Assert.True(firstCandle.volume.GetValueOrDefault() >= 0);
+            Assert.True(firstCandle.Timestamp > 0);
+            Assert.True(firstCandle.High >= firstCandle.Low);
+            Assert.True(firstCandle.Volume >= 0);
         }
 
         [Fact]
@@ -126,7 +127,7 @@ namespace BotView.Tests
             var result = await _exchangeService.GetCandlestickDataAsync("okx", "BTC/USDT", "4h", 3);
 
             // Assert
-            Assert.IsType<ccxt.OHLCV[]>(result);
+            Assert.IsType<Candle[]>(result);
             Assert.True(result.Length > 0, "Should return at least one candle");
             Assert.True(result.Length <= 3, "Should respect the limit parameter");
         }
@@ -139,7 +140,7 @@ namespace BotView.Tests
             var result = await _exchangeService.GetCandlestickDataAsync("kraken", "BTC/USD", "1d", 7);
 
             // Assert
-            Assert.IsType<ccxt.OHLCV[]>(result);
+            Assert.IsType<Candle[]>(result);
             Assert.True(result.Length > 0, "Should return at least one candle");
             Assert.True(result.Length <= 7, "Should not return more than requested limit");
         }
@@ -239,9 +240,9 @@ namespace BotView.Tests
             var candlestickData = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h", 20);
 
             // Assert - Verify data is ready for chart consumption
-            Assert.IsType<OHLCV[]>(candlestickData);
+            Assert.IsType<Candle[]>(candlestickData);
             Assert.True(candlestickData.Length > 0);
-            Assert.True(candlestickData[0].timestamp.GetValueOrDefault() <= candlestickData[^1].timestamp.GetValueOrDefault());
+            Assert.True(candlestickData[0].Timestamp <= candlestickData[^1].Timestamp);
 
             // Verify each candle can be used for chart rendering
             foreach (var candle in candlestickData)
@@ -251,10 +252,10 @@ namespace BotView.Tests
                 Assert.True(dateTime > DateTime.MinValue);
                 Assert.True(dateTime < DateTime.UtcNow.AddDays(1)); // Should not be in the future
 
-                // Verify OHLCV data integrity for chart rendering
-                Assert.True(candle.high.GetValueOrDefault() >= Math.Max(candle.open.GetValueOrDefault(), candle.close.GetValueOrDefault()),
+                // Verify Candle data integrity for chart rendering
+                Assert.True(candle.High >= Math.Max(candle.Open, candle.Close),
                     "High should be >= max(open, close)");
-                Assert.True(candle.low.GetValueOrDefault() <= Math.Min(candle.open.GetValueOrDefault(), candle.close.GetValueOrDefault()),
+                Assert.True(candle.Low <= Math.Min(candle.Open, candle.Close),
                     "Low should be <= min(open, close)");
             }
 
@@ -275,17 +276,17 @@ namespace BotView.Tests
             var bybitData = await _exchangeService.GetCandlestickDataAsync("bybit", "BTC/USDT", "1d", 3);
 
             // Assert - Both should have the same structure and format
-            Assert.IsType<OHLCV[]>(binanceData);
-            Assert.IsType<OHLCV[]>(bybitData);
+            Assert.IsType<Candle[]>(binanceData);
+            Assert.IsType<Candle[]>(bybitData);
             Assert.True(binanceData.Length > 0);
             Assert.True(bybitData.Length > 0);
 
-            // Verify both use the same timestamp format and OHLCV structure
+            // Verify both use the same timestamp format and Candle structure
             var binanceCandle = binanceData[0];
             var bybitCandle = bybitData[0];
 
-            Assert.True(binanceCandle.timestamp.GetValueOrDefault() > 0);
-            Assert.True(bybitCandle.timestamp.GetValueOrDefault() > 0);
+            Assert.True(binanceCandle.Timestamp > 0);
+            Assert.True(bybitCandle.Timestamp > 0);
             
             // Both should have valid DateTime conversion
             var binanceDateTime = binanceCandle.GetDateTime();

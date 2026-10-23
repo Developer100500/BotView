@@ -1,697 +1,251 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System.Linq;
-using System.Threading;
-using System.Net;
-using System.Net.Http;
 using System.Diagnostics;
-using ccxt;
-using BotView.Models;
-using BotView.Interfaces;
-using BotView.Exceptions;
+using System.Net.Http;
+using System.Runtime.CompilerServices;
 using BotView.Configuration;
+using BotView.Exceptions;
+using BotView.Interfaces;
+using BotView.Models;
 
-namespace BotView.Services
+namespace BotView.Services;
+
+/// <summary>Provider registry, retry policy and initial-history cache shared by all transports.</summary>
+public sealed class ExchangeService : IExchangeService
 {
-    /// <summary>
-    /// Service for working with cryptocurrency exchanges using CCXT library
-    /// </summary>
-    public class ExchangeService : IExchangeService
+    private readonly Dictionary<string, IMarketDataProvider> _providers;
+    private readonly IExchangeLogger? _logger;
+    private readonly ExchangePerformanceMetrics _performanceMetrics = new();
+    private readonly Dictionary<InitialCacheKey, (Candle[] Candles, DateTime At)> _cache = new();
+    private readonly object _cacheSync = new();
+    private readonly TimeSpan _cacheExpiration;
+    private readonly int _maxRetryAttempts;
+    private readonly TimeSpan _baseRetryDelay;
+    private int _disposed;
+    private readonly record struct InitialCacheKey(string Exchange, string Symbol, string Timeframe, int Limit);
+
+    public ExchangeService(IEnumerable<IMarketDataProvider> providers, IExchangeLogger? logger = null,
+        int cacheExpirationMinutes = 5, int maxRetryAttempts = 3, int baseRetryDelaySeconds = 1)
     {
-        private readonly Dictionary<string, Exchange> _exchanges;
-        private readonly IExchangeLogger _logger;
-        private readonly ExchangePerformanceMetrics _performanceMetrics;
-        private readonly Dictionary<string, OHLCV[]> _cache;
-        private readonly Dictionary<string, DateTime> _cacheTimestamps;
-        private readonly object _cacheSync = new();
-        private readonly TimeSpan _cacheExpiration;
-        private readonly int _maxRetryAttempts;
-        private readonly TimeSpan _baseRetryDelay;
+        _logger = logger;
+        _cacheExpiration = TimeSpan.FromMinutes(cacheExpirationMinutes);
+        _maxRetryAttempts = Math.Max(1, maxRetryAttempts);
+        _baseRetryDelay = TimeSpan.FromSeconds(Math.Max(1, baseRetryDelaySeconds));
+        ArgumentNullException.ThrowIfNull(providers);
+        _providers = providers.ToDictionary(p => p.Definition.Id, StringComparer.OrdinalIgnoreCase);
+        if (_providers.Count == 0) throw new ArgumentException("Register at least one provider.", nameof(providers));
+    }
 
-        /// <summary>
-        /// Initializes a new instance of ExchangeService
-        /// </summary>
-        /// <param name="logger">Logger for exchange operations (optional)</param>
-        /// <param name="cacheExpirationMinutes">Cache expiration time in minutes (default: 5)</param>
-        /// <param name="maxRetryAttempts">Maximum number of retry attempts for failed requests (default: 3)</param>
-        /// <param name="baseRetryDelaySeconds">Base delay between retry attempts in seconds (default: 1)</param>
-        public ExchangeService(IExchangeLogger logger = null, int cacheExpirationMinutes = 5, int maxRetryAttempts = 3, int baseRetryDelaySeconds = 1)
+    public IReadOnlyList<ExchangeDefinition> GetExchanges() =>
+        _providers.Values.Select(p => p.Definition).ToArray();
+    public List<string> GetSupportedExchanges() => _providers.Keys.ToList();
+    public List<string> GetSupportedTimeframes() => _providers.Values.SelectMany(p => p.Definition.SupportedTimeframes)
+        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private IMarketDataProvider GetProvider(string exchange)
+    {
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        if (string.IsNullOrWhiteSpace(exchange)) throw new ArgumentException("Exchange cannot be empty.", nameof(exchange));
+        return _providers.TryGetValue(exchange, out var provider) ? provider :
+            throw new NotSupportedException($"Exchange '{exchange}' is not supported.");
+    }
+
+    private IMarketDataProvider ValidateRequest(string exchange, string symbol, string timeframe, int limit)
+    {
+        var provider = GetProvider(exchange);
+        if (string.IsNullOrWhiteSpace(symbol)) throw new ArgumentException("Symbol cannot be empty.", nameof(symbol));
+        if (string.IsNullOrWhiteSpace(timeframe)) throw new ArgumentException("Timeframe cannot be empty.", nameof(timeframe));
+        if (limit <= 0) throw new ArgumentException("Limit must be greater than zero.", nameof(limit));
+        if (!provider.Definition.SupportsTimeframe(timeframe))
+            throw new NotSupportedException($"Timeframe '{timeframe}' is not supported by '{exchange}'.");
+        return provider;
+    }
+
+    public Task<IReadOnlyList<Instrument>> GetInstrumentsAsync(string exchange, CancellationToken ct = default)
+    {
+        var provider = GetProvider(exchange);
+        return ExecuteAsync(provider.Definition.Id, "GetInstruments", () => provider.GetInstrumentsAsync(ct), ct);
+    }
+
+    public Task<List<string>> GetAvailableSymbolsAsync(string exchange) => GetAvailableSymbolsAsync(exchange, CancellationToken.None);
+    public async Task<List<string>> GetAvailableSymbolsAsync(string exchange, CancellationToken ct) =>
+        (await GetInstrumentsAsync(exchange, ct).ConfigureAwait(false)).Select(i => i.Symbol)
+        .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+
+    private static async Task<InstrumentKey> ResolveAsync(IMarketDataProvider provider, string symbol, CancellationToken ct)
+    {
+        var instruments = await provider.GetInstrumentsAsync(ct).ConfigureAwait(false);
+        var matches = instruments.Where(i => string.Equals(i.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return matches.Length switch
         {
-            _logger = logger;
-            _performanceMetrics = new ExchangePerformanceMetrics();
-            _exchanges = new Dictionary<string, Exchange>();
-            _cache = new Dictionary<string, OHLCV[]>();
-            _cacheTimestamps = new Dictionary<string, DateTime>();
-            _cacheExpiration = TimeSpan.FromMinutes(cacheExpirationMinutes);
-            _maxRetryAttempts = Math.Max(1, maxRetryAttempts);
-            _baseRetryDelay = TimeSpan.FromSeconds(Math.Max(1, baseRetryDelaySeconds));
+            1 => matches[0].Key,
+            0 => throw new ExchangeException(provider.Definition.Id,
+                $"Instrument '{symbol}' is unavailable.", ExchangeErrorType.SymbolNotFound),
+            _ => throw new InvalidOperationException($"Provider '{provider.Definition.Id}' returned ambiguous symbol '{symbol}'.")
+        };
+    }
+
+    public Task<Candle[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500) =>
+        GetCandlestickDataAsync(exchange, symbol, timeframe, limit, CancellationToken.None);
+
+    public async Task<Candle[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct)
+    {
+        var provider = ValidateRequest(exchange, symbol, timeframe, limit);
+        ct.ThrowIfCancellationRequested();
+        var key = new InitialCacheKey(provider.Definition.Id, symbol, timeframe, limit);
+        (Candle[] Candles, DateTime At) cached = default;
+        lock (_cacheSync) _cache.TryGetValue(key, out cached);
+        if (cached.Candles is not null && DateTime.UtcNow - cached.At < _cacheExpiration)
+        {
+            _logger?.LogCacheHit(key.Exchange, symbol, timeframe, DateTime.UtcNow - cached.At);
+            _performanceMetrics.RecordCacheHit(key.Exchange, "GetCandlestickData");
+            return cached.Candles;
         }
-
-        /// <summary>
-        /// Gets candlestick data from specified exchange using CCXT FetchOHLCV with retry logic and fallback to cache
-        /// </summary>
-        /// <param name="exchange">Exchange name (e.g., "binance", "bybit")</param>
-        /// <param name="symbol">Trading pair symbol (e.g., "BTC/USDT")</param>
-        /// <param name="timeframe">Timeframe (e.g., "1m", "5m", "1h", "1d")</param>
-        /// <param name="limit">Maximum number of candles to retrieve (default: 500)</param>
-        /// <returns>Array of application candles for the requested timeframe</returns>
-        /// <exception cref="ArgumentException">Thrown when parameters are invalid</exception>
-        /// <exception cref="NotSupportedException">Thrown when exchange or timeframe is not supported</exception>
-        /// <exception cref="ExchangeException">Thrown when exchange API call fails and no cached data is available</exception>
-        public Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500) =>
-            GetCandlestickDataAsync(exchange, symbol, timeframe, limit, CancellationToken.None);
-
-        public async Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct)
+        _logger?.LogCacheMiss(key.Exchange, symbol, timeframe);
+        _performanceMetrics.RecordCacheMiss(key.Exchange, "GetCandlestickData");
+        try
         {
-            // Validate input parameters
-            if (string.IsNullOrWhiteSpace(exchange))
-                throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchange));
-            
-            if (string.IsNullOrWhiteSpace(symbol))
-                throw new ArgumentException("Symbol cannot be null or empty", nameof(symbol));
-            
-            if (string.IsNullOrWhiteSpace(timeframe))
-                throw new ArgumentException("Timeframe cannot be null or empty", nameof(timeframe));
-            
-            if (limit <= 0)
-                throw new ArgumentException("Limit must be greater than zero", nameof(limit));
-
-            ct.ThrowIfCancellationRequested();
-
-            // Normalize exchange name
-            var normalizedExchange = exchange.ToLowerInvariant();
-            
-            // Check if exchange is supported
-            if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
-                throw new NotSupportedException($"Exchange '{exchange}' is not supported");
-
-            // Check if timeframe is supported
-            if (!MarketCatalog.GetExchange(normalizedExchange).SupportsTimeframe(timeframe))
-                throw new NotSupportedException($"Timeframe '{timeframe}' is not supported");
-
-            // Check cache first
-            var cacheKey = $"{normalizedExchange}_{symbol}_{timeframe}_{limit}";
-            OHLCV[]? cached = null;
-            DateTime cacheTime = default;
-            lock (_cacheSync)
-            {
-                if (IsCacheValid(cacheKey))
-                {
-                    cached = _cache[cacheKey];
-                    cacheTime = _cacheTimestamps[cacheKey];
-                }
-            }
-            if (cached != null)
-            {
-                var cacheAge = DateTime.UtcNow - cacheTime;
-                _logger?.LogCacheHit(normalizedExchange, symbol, timeframe, cacheAge);
-                _performanceMetrics.RecordCacheHit(normalizedExchange, "GetCandlestickData");
-                return cached;
-            }
-
-            _logger?.LogCacheMiss(normalizedExchange, symbol, timeframe);
-            _performanceMetrics.RecordCacheMiss(normalizedExchange, "GetCandlestickData");
-
-            // Try to fetch data with retry logic
-            Exception lastException = null;
-            
-            for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var stopwatch = Stopwatch.StartNew();
-                try
-                {
-                    // Get or create exchange instance
-                    var exchangeInstance = GetExchangeInstance(normalizedExchange);
-                    
-                    // Fetch OHLCV data from exchange
-                    var ccxtData = await exchangeInstance.FetchOHLCV(symbol, timeframe, null, limit).WaitAsync(ct);
-                    ct.ThrowIfCancellationRequested();
-                    
-                    stopwatch.Stop();
-                    _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true, symbol, timeframe);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true);
-                    
-                    // Convert CCXT data to application format
-                    var result = CandlestickDataConverter.ConvertFromCCXT(ccxtData, timeframe);
-                    
-                    // Log successful data retrieval
-                    _logger?.LogDataReceived(normalizedExchange, symbol, result.Length, timeframe);
-                    
-                    // Cache the result
-                    lock (_cacheSync)
-                    {
-                        _cache[cacheKey] = result;
-                        _cacheTimestamps[cacheKey] = DateTime.UtcNow;
-                    }
-                    
-                    return result;
-                }
-                catch (DataConversionException)
-                {
-                    // Re-throw data conversion exceptions immediately - no retry needed
-                    stopwatch.Stop();
-                    _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false, symbol, timeframe);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false);
-                    throw;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    stopwatch.Stop();
-                    lastException = ex;
-                    var errorType = DetermineErrorType(ex);
-                    
-                    _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false, symbol, timeframe);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false);
-                    _logger?.LogError(normalizedExchange, ex, $"Attempt {attempt}/{_maxRetryAttempts} for {symbol} {timeframe}");
-                    
-                    // Don't retry for certain error types
-                    if (!ShouldRetry(errorType, attempt))
-                    {
-                        break;
-                    }
-                    
-                    // Wait before retry with exponential backoff
-                    if (attempt < _maxRetryAttempts)
-                    {
-                        var delay = CalculateRetryDelay(attempt);
-                        _logger?.LogRetryAttempt(normalizedExchange, "FetchOHLCV", attempt + 1, _maxRetryAttempts, delay, ex.Message);
-                        await Task.Delay(delay, ct);
-                    }
-                }
-            }
-            
-            // All retry attempts failed, try to fallback to cached data (even if expired)
-            ct.ThrowIfCancellationRequested();
-            lock (_cacheSync)
-            {
-                if (HasCachedData(cacheKey))
-                {
-                    cached = _cache[cacheKey];
-                    cacheTime = _cacheTimestamps[cacheKey];
-                }
-            }
-            if (cached != null)
-            {
-                _logger?.LogCacheFallback(normalizedExchange, symbol, timeframe,
-                    DateTime.UtcNow - cacheTime, "API requests failed");
-                return cached;
-            }
-            
-            // No cached data available, throw the last exception
-            var finalErrorType = DetermineErrorType(lastException);
-            throw new ExchangeException(normalizedExchange, 
-                $"Failed to get candlestick data from {exchange} after {_maxRetryAttempts} attempts: {lastException?.Message}", 
-                finalErrorType, lastException);
+            var candles = await GetCandlesAsync(exchange, symbol, timeframe, null, limit, ct).ConfigureAwait(false);
+            lock (_cacheSync) _cache[key] = (candles, DateTime.UtcNow);
+            return candles;
         }
-
-        /// <summary> Gets raw OHLCV candles from exchange for advanced pagination scenarios. </summary>
-        public Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500) =>
-            FetchOHLCVAsync(exchange, symbol, timeframe, since, limit, CancellationToken.None);
-
-        public async Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since, int limit, CancellationToken ct)
+        catch (ExchangeException ex) when (cached.Candles is not null && !ct.IsCancellationRequested)
         {
-            if (string.IsNullOrWhiteSpace(exchange))
-                throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchange));
-
-            if (string.IsNullOrWhiteSpace(symbol))
-                throw new ArgumentException("Symbol cannot be null or empty", nameof(symbol));
-
-            if (string.IsNullOrWhiteSpace(timeframe))
-                throw new ArgumentException("Timeframe cannot be null or empty", nameof(timeframe));
-
-            if (limit <= 0)
-                throw new ArgumentException("Limit must be greater than zero", nameof(limit));
-
-            ct.ThrowIfCancellationRequested();
-
-            var normalizedExchange = exchange.ToLowerInvariant();
-
-            if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
-                throw new NotSupportedException($"Exchange '{exchange}' is not supported");
-
-            if (!MarketCatalog.GetExchange(normalizedExchange).SupportsTimeframe(timeframe))
-                throw new NotSupportedException($"Timeframe '{timeframe}' is not supported");
-
-            Exception lastException = null;
-
-            for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var stopwatch = Stopwatch.StartNew();
-                try
-                {
-                    var exchangeInstance = GetExchangeInstance(normalizedExchange);
-                    var data = await exchangeInstance.FetchOHLCV(symbol, timeframe, since, limit).WaitAsync(ct);
-                    ct.ThrowIfCancellationRequested();
-
-                    stopwatch.Stop();
-                    _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true, symbol, timeframe);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, true);
-
-                    return data;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    stopwatch.Stop();
-                    lastException = ex;
-                    var errorType = DetermineErrorType(ex);
-
-                    _logger?.LogApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false, symbol, timeframe);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchOHLCV", stopwatch.Elapsed, false);
-                    _logger?.LogError(normalizedExchange, ex, $"Attempt {attempt}/{_maxRetryAttempts} for raw FetchOHLCV");
-
-                    if (!ShouldRetry(errorType, attempt))
-                    {
-                        break;
-                    }
-
-                    if (attempt < _maxRetryAttempts)
-                    {
-                        await Task.Delay(CalculateRetryDelay(attempt), ct);
-                    }
-                }
-            }
-
-            ct.ThrowIfCancellationRequested();
-            var finalErrorType = DetermineErrorType(lastException);
-            throw new ExchangeException(normalizedExchange,
-                $"Failed to fetch OHLCV from {exchange} after {_maxRetryAttempts} attempts: {lastException?.Message}",
-                finalErrorType, lastException);
+            _logger?.LogCacheFallback(key.Exchange, symbol, timeframe, DateTime.UtcNow - cached.At, ex.Message);
+            return cached.Candles;
         }
+    }
 
-        /// <summary>
-        /// Gets list of available trading symbols from specified exchange with retry logic
-        /// </summary>
-        /// <param name="exchange">Exchange name</param>
-        /// <returns>List of available trading pair symbols</returns>
-        /// <exception cref="ArgumentException">Thrown when exchange name is invalid</exception>
-        /// <exception cref="NotSupportedException">Thrown when exchange is not supported</exception>
-        /// <exception cref="ExchangeException">Thrown when exchange API call fails</exception>
-        public Task<List<string>> GetAvailableSymbolsAsync(string exchange) =>
-            GetAvailableSymbolsAsync(exchange, CancellationToken.None);
-
-        public async Task<List<string>> GetAvailableSymbolsAsync(string exchange, CancellationToken ct)
+    public Task<Candle[]> GetCandlesAsync(string exchange, string symbol, string timeframe,
+        DateTimeOffset? beforeExclusive, int limit, CancellationToken ct = default)
+    {
+        var provider = ValidateRequest(exchange, symbol, timeframe, limit);
+        return ExecuteAsync(provider.Definition.Id, "GetCandles", async () =>
         {
-            if (string.IsNullOrWhiteSpace(exchange))
-                throw new ArgumentException("Exchange name cannot be null or empty", nameof(exchange));
-
+            var instrument = await ResolveAsync(provider, symbol, ct).ConfigureAwait(false);
+            var candles = await provider.GetCandlesAsync(instrument, timeframe, beforeExclusive, limit, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
+            foreach (var candle in candles) ValidateCandle(candle);
+            // Enforce the public boundary even if a native endpoint returns an inclusive end.
+            return candles.Where(c => !beforeExclusive.HasValue || c.Timestamp < beforeExclusive.Value.ToUnixTimeMilliseconds())
+                .DistinctBy(c => c.Timestamp).OrderBy(c => c.Timestamp).TakeLast(limit).ToArray();
+        }, ct);
+    }
 
-            var normalizedExchange = exchange.ToLowerInvariant();
-            
-            if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
-                throw new NotSupportedException($"Exchange '{exchange}' is not supported");
-
-            Exception lastException = null;
-            
-            for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var stopwatch = Stopwatch.StartNew();
-                try
-                {
-                    var exchangeInstance = GetExchangeInstance(normalizedExchange);
-                    var markets = await exchangeInstance.LoadMarkets().WaitAsync(ct);
-                    ct.ThrowIfCancellationRequested();
-
-                    var symbols = markets.Values
-                        .Where(m => m.active != false)
-                        .Where(m => m.spot == true)
-                        .Select(m => m.symbol)
-                        .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-                    
-                    stopwatch.Stop();
-                    _logger?.LogApiRequest(normalizedExchange, "LoadMarkets", stopwatch.Elapsed, true);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "LoadMarkets", stopwatch.Elapsed, true);
-                    _logger?.LogInfo($"Loaded {symbols.Count} active spot symbols (of {markets.Count} markets)", normalizedExchange);
-                    
-                    return symbols;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    stopwatch.Stop();
-                    lastException = ex;
-                    var errorType = DetermineErrorType(ex);
-                    
-                    _logger?.LogApiRequest(normalizedExchange, "LoadMarkets", stopwatch.Elapsed, false);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "LoadMarkets", stopwatch.Elapsed, false);
-                    _logger?.LogError(normalizedExchange, ex, $"Attempt {attempt}/{_maxRetryAttempts} for LoadMarkets");
-                    
-                    // Don't retry for certain error types
-                    if (!ShouldRetry(errorType, attempt))
-                    {
-                        break;
-                    }
-                    
-                    // Wait before retry with exponential backoff
-                    if (attempt < _maxRetryAttempts)
-                    {
-                        var delay = CalculateRetryDelay(attempt);
-                        _logger?.LogRetryAttempt(normalizedExchange, "LoadMarkets", attempt + 1, _maxRetryAttempts, delay, ex.Message);
-                        await Task.Delay(delay, ct);
-                    }
-                }
-            }
-            
+    public async IAsyncEnumerable<CandleUpdate> WatchCandlesAsync(string exchange, string symbol, string timeframe,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var provider = ValidateRequest(exchange, symbol, timeframe, 1);
+        var instrument = await ResolveAsync(provider, symbol, ct).ConfigureAwait(false);
+        await foreach (var update in provider.WatchCandlesAsync(instrument, timeframe, ct).WithCancellation(ct).ConfigureAwait(false))
+        {
             ct.ThrowIfCancellationRequested();
-            var finalErrorType = DetermineErrorType(lastException);
-            throw new ExchangeException(normalizedExchange, 
-                $"Failed to get available symbols from {exchange} after {_maxRetryAttempts} attempts: {lastException?.Message}", 
-                finalErrorType, lastException);
+            ValidateCandle(update.Candle);
+            yield return update;
         }
+    }
 
-        /// <summary>Gets all spot USDT movers using a single bulk ticker request.</summary>
-        public async Task<IReadOnlyList<MarketMover>> GetMarketMoversAsync(string exchange, CancellationToken ct = default)
+    private static void ValidateCandle(Candle candle)
+    {
+        _ = candle.OpenTimeUtc;
+        if (!double.IsFinite(candle.Open) || !double.IsFinite(candle.High) || !double.IsFinite(candle.Low) ||
+            !double.IsFinite(candle.Close) || !double.IsFinite(candle.Volume) || candle.High < candle.Low || candle.Volume < 0)
+            throw new DataConversionException("Provider returned an invalid candle.", DataConversionErrorType.InvalidFormat);
+    }
+
+    public Task<IReadOnlyList<MarketMover>> GetMarketMoversAsync(string exchange, CancellationToken ct = default)
+    {
+        var provider = GetProvider(exchange);
+        if (provider is not IMarketMoversProvider movers)
+            return Task.FromResult<IReadOnlyList<MarketMover>>(Array.Empty<MarketMover>());
+        return ExecuteAsync(provider.Definition.Id, "GetMarketMovers", () => movers.GetMarketMoversAsync(ct), ct);
+    }
+
+    public async Task<bool> TestConnectionAsync(string exchange)
+    {
+        if (string.IsNullOrWhiteSpace(exchange) || !_providers.ContainsKey(exchange)) return false;
+        var timer = Stopwatch.StartNew();
+        try
         {
-            if (string.IsNullOrWhiteSpace(exchange))
-                throw new ArgumentException("Exchange name cannot be empty", nameof(exchange));
-            var normalizedExchange = exchange.ToLowerInvariant();
-            if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
-                throw new NotSupportedException($"Exchange '{exchange}' is not supported");
-
-            Exception? lastException = null;
-            for (var attempt = 1; attempt <= _maxRetryAttempts; attempt++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var stopwatch = Stopwatch.StartNew();
-                try
-                {
-                    var client = GetExchangeInstance(normalizedExchange);
-                    var markets = await client.LoadMarkets().WaitAsync(ct);
-                    var tickers = await client.FetchTickers(null!, new Dictionary<string, object>
-                    {
-                        ["type"] = "spot"
-                    }).WaitAsync(ct);
-                    ct.ThrowIfCancellationRequested();
-                    var movers = MarketMoversCalculator.Calculate(markets.Values, tickers.tickers);
-                    _logger?.LogApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, true);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, true);
-                    return movers;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    lastException = ex;
-                    _logger?.LogApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, false);
-                    _performanceMetrics.RecordApiRequest(normalizedExchange, "FetchTickers", stopwatch.Elapsed, false);
-                    if (!ShouldRetry(DetermineErrorType(ex), attempt))
-                        break;
-                    if (attempt < _maxRetryAttempts)
-                        await Task.Delay(CalculateRetryDelay(attempt), ct);
-                }
-            }
-            throw new ExchangeException(normalizedExchange,
-                $"Failed to get 24-hour tickers: {lastException?.Message}",
-                DetermineErrorType(lastException!), lastException!);
+            await GetInstrumentsAsync(exchange).ConfigureAwait(false);
+            _logger?.LogConnectionTest(exchange, true, timer.Elapsed);
+            return true;
         }
-
-        /// <summary>
-        /// Tests connection to specified exchange
-        /// </summary>
-        /// <param name="exchange">Exchange name to test</param>
-        /// <returns>True if connection is successful, false otherwise</returns>
-        public async Task<bool> TestConnectionAsync(string exchange)
+        catch (Exception ex)
         {
-            if (string.IsNullOrWhiteSpace(exchange))
-                return false;
+            _logger?.LogConnectionTest(exchange, false, timer.Elapsed);
+            _logger?.LogError(exchange, ex, "Connection test failed");
+            return false;
+        }
+    }
 
-            var normalizedExchange = exchange.ToLowerInvariant();
-            
-            if (!ExchangeFactory.IsExchangeSupported(normalizedExchange))
-                return false;
-
-            var stopwatch = Stopwatch.StartNew();
+    private async Task<T> ExecuteAsync<T>(string exchange, string operation, Func<Task<T>> request, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var timer = Stopwatch.StartNew();
             try
             {
-                var exchangeInstance = GetExchangeInstance(normalizedExchange);
-                
-                // Try to load markets as a connection test
-                await exchangeInstance.LoadMarkets();
-                
-                stopwatch.Stop();
-                _logger?.LogConnectionTest(normalizedExchange, true, stopwatch.Elapsed);
-                _performanceMetrics.RecordApiRequest(normalizedExchange, "ConnectionTest", stopwatch.Elapsed, true);
-                
-                return true;
+                var result = await request().ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                _logger?.LogApiRequest(exchange, operation, timer.Elapsed, true);
+                _performanceMetrics.RecordApiRequest(exchange, operation, timer.Elapsed, true);
+                return result;
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) when (ex is not ArgumentException and not NotSupportedException and not DataConversionException)
             {
-                stopwatch.Stop();
-                _logger?.LogConnectionTest(normalizedExchange, false, stopwatch.Elapsed);
-                _logger?.LogError(normalizedExchange, ex, "Connection test failed");
-                _performanceMetrics.RecordApiRequest(normalizedExchange, "ConnectionTest", stopwatch.Elapsed, false);
-                
-                return false;
+                ct.ThrowIfCancellationRequested();
+                _logger?.LogApiRequest(exchange, operation, timer.Elapsed, false);
+                _performanceMetrics.RecordApiRequest(exchange, operation, timer.Elapsed, false);
+                _logger?.LogError(exchange, ex, $"Attempt {attempt}/{_maxRetryAttempts}: {operation}");
+                var errorType = Classify(ex);
+                if (attempt >= _maxRetryAttempts || errorType is ExchangeErrorType.AuthenticationError or ExchangeErrorType.SymbolNotFound)
+                    throw new ExchangeException(exchange, $"{operation} failed: {ex.Message}", errorType, ex);
+                var delay = TimeSpan.FromMilliseconds(Math.Min(30000, _baseRetryDelay.TotalMilliseconds * Math.Pow(2, attempt - 1)));
+                _logger?.LogRetryAttempt(exchange, operation, attempt + 1, _maxRetryAttempts, delay, ex.Message);
+                await Task.Delay(delay, ct).ConfigureAwait(false);
             }
         }
+    }
 
-        /// <summary>
-        /// Gets list of supported exchanges
-        /// </summary>
-        /// <returns>List of supported exchange names</returns>
-        public List<string> GetSupportedExchanges()
-        {
-            return ExchangeFactory.GetSupportedExchanges().ToList();
-        }
+    private static ExchangeErrorType Classify(Exception ex)
+    {
+        if (ex is ExchangeException known) return known.ErrorType;
+        var message = ex.Message.ToLowerInvariant();
+        if (message.Contains("429") || message.Contains("rate limit")) return ExchangeErrorType.RateLimitError;
+        if (message.Contains("401") || message.Contains("403") || message.Contains("unauthorized")) return ExchangeErrorType.AuthenticationError;
+        if (ex is HttpRequestException || message.Contains("network") || message.Contains("connection") || message.Contains("timeout"))
+            return ExchangeErrorType.NetworkError;
+        return ExchangeErrorType.ApiError;
+    }
 
-        /// <summary>
-        /// Gets list of supported timeframes
-        /// </summary>
-        /// <returns>List of supported timeframe strings</returns>
-        public List<string> GetSupportedTimeframes()
-        {
-            return MarketCatalog.TimeframeIds.ToList();
-        }
-
-        /// <summary>
-        /// Gets or creates an exchange instance for the specified exchange name
-        /// </summary>
-        /// <param name="exchangeName">Normalized exchange name (lowercase)</param>
-        /// <returns>CCXT Exchange instance</returns>
-        private Exchange GetExchangeInstance(string exchangeName)
-        {
-            if (!_exchanges.ContainsKey(exchangeName))
-            {
-                _exchanges[exchangeName] = ExchangeFactory.CreateExchange(exchangeName);
-            }
-            return _exchanges[exchangeName];
-        }
-
-        /// <summary>
-        /// Determines the error type based on the exception
-        /// </summary>
-        /// <param name="exception">Exception to analyze</param>
-        /// <returns>Appropriate ExchangeErrorType</returns>
-        private ExchangeErrorType DetermineErrorType(Exception exception)
-        {
-            if (exception == null)
-                return ExchangeErrorType.ApiError;
-
-            var message = exception.Message?.ToLowerInvariant() ?? "";
-            
-            // Network-related errors
-            if (exception is WebException || 
-                exception is HttpRequestException ||
-                message.Contains("timeout") ||
-                message.Contains("connection") ||
-                message.Contains("network") ||
-                message.Contains("unreachable"))
-            {
-                return ExchangeErrorType.NetworkError;
-            }
-            
-            // Rate limiting errors
-            if (message.Contains("rate limit") ||
-                message.Contains("too many requests") ||
-                message.Contains("429"))
-            {
-                return ExchangeErrorType.RateLimitError;
-            }
-            
-            // Authentication errors
-            if (message.Contains("unauthorized") ||
-                message.Contains("authentication") ||
-                message.Contains("api key") ||
-                message.Contains("401") ||
-                message.Contains("403"))
-            {
-                return ExchangeErrorType.AuthenticationError;
-            }
-            
-            // Symbol not found errors
-            if (message.Contains("symbol") && 
-                (message.Contains("not found") || message.Contains("invalid")))
-            {
-                return ExchangeErrorType.SymbolNotFound;
-            }
-            
-            // Timeframe not supported errors
-            if (message.Contains("timeframe") && 
-                (message.Contains("not supported") || message.Contains("invalid")))
-            {
-                return ExchangeErrorType.TimeframeNotSupported;
-            }
-            
-            // Default to API error
-            return ExchangeErrorType.ApiError;
-        }
-
-        /// <summary>
-        /// Determines if a retry should be attempted based on error type and attempt number
-        /// </summary>
-        /// <param name="errorType">Type of error that occurred</param>
-        /// <param name="attemptNumber">Current attempt number</param>
-        /// <returns>True if retry should be attempted, false otherwise</returns>
-        private bool ShouldRetry(ExchangeErrorType errorType, int attemptNumber)
-        {
-            // Don't retry if we've reached max attempts
-            if (attemptNumber >= _maxRetryAttempts)
-                return false;
-            
-            // Retry for network errors and rate limit errors
-            return errorType == ExchangeErrorType.NetworkError || 
-                   errorType == ExchangeErrorType.RateLimitError ||
-                   errorType == ExchangeErrorType.ApiError; // Generic API errors might be transient
-        }
-
-        /// <summary>
-        /// Calculates retry delay with exponential backoff
-        /// </summary>
-        /// <param name="attemptNumber">Current attempt number (1-based)</param>
-        /// <returns>TimeSpan representing the delay before next retry</returns>
-        private TimeSpan CalculateRetryDelay(int attemptNumber)
-        {
-            // Exponential backoff: baseDelay * 2^(attempt-1)
-            var multiplier = Math.Pow(2, attemptNumber - 1);
-            var delayMs = (int)(_baseRetryDelay.TotalMilliseconds * multiplier);
-            
-            // Cap the maximum delay at 30 seconds
-            delayMs = Math.Min(delayMs, 30000);
-            
-            return TimeSpan.FromMilliseconds(delayMs);
-        }
-
-        /// <summary>
-        /// Checks if cached data exists for the given key (regardless of expiration)
-        /// </summary>
-        /// <param name="cacheKey">Cache key to check</param>
-        /// <returns>True if cached data exists, false otherwise</returns>
-        private bool HasCachedData(string cacheKey)
-        {
-            return _cache.ContainsKey(cacheKey);
-        }
-
-        /// <summary>
-        /// Checks if cached data is still valid
-        /// </summary>
-        /// <param name="cacheKey">Cache key to check</param>
-        /// <returns>True if cache is valid, false otherwise</returns>
-        private bool IsCacheValid(string cacheKey)
-        {
-            if (!_cache.ContainsKey(cacheKey) || !_cacheTimestamps.ContainsKey(cacheKey))
-                return false;
-
-            var cacheTime = _cacheTimestamps[cacheKey];
-            return DateTime.UtcNow - cacheTime < _cacheExpiration;
-        }
-
-        /// <summary>
-        /// Clears expired cache entries
-        /// </summary>
-        public void ClearExpiredCache()
-        {
-            lock (_cacheSync)
-            {
-                var expiredKeys = _cacheTimestamps
-                    .Where(kvp => DateTime.UtcNow - kvp.Value >= _cacheExpiration)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
-
-                foreach (var key in expiredKeys)
-                {
-                    _cache.Remove(key);
-                    _cacheTimestamps.Remove(key);
-                }
-            }
-        }
-
-        public void EvictCandlestickData(string exchange, string symbol, string timeframe, int limit)
-        {
-            var cacheKey = $"{exchange.ToLowerInvariant()}_{symbol}_{timeframe}_{limit}";
-            lock (_cacheSync)
-            {
-                _cache.Remove(cacheKey);
-                _cacheTimestamps.Remove(cacheKey);
-            }
-        }
-
-        /// <summary>
-        /// Clears all cached data
-        /// </summary>
-        public void ClearCache()
-        {
-            lock (_cacheSync)
-            {
-                _cache.Clear();
-                _cacheTimestamps.Clear();
-            }
-            _logger?.LogInfo("Cache cleared");
-        }
-
-        /// <summary>
-        /// Gets performance metrics for exchange operations
-        /// </summary>
-        /// <returns>Performance metrics instance</returns>
-        public ExchangePerformanceMetrics GetPerformanceMetrics()
-        {
-            return _performanceMetrics;
-        }
-
-        /// <summary>
-        /// Gets formatted performance summary
-        /// </summary>
-        /// <returns>Formatted string with performance metrics</returns>
-        public string GetPerformanceSummary()
-        {
-            return _performanceMetrics.GetFormattedSummary();
-        }
-
-        /// <summary>
-        /// Logs current performance metrics
-        /// </summary>
-        public void LogPerformanceMetrics()
-        {
-            var summary = _performanceMetrics.GetFormattedSummary();
-            _logger?.LogInfo("Performance Metrics:\n" + summary);
-        }
-
-        /// <summary>
-        /// Logs detailed performance metrics for monitoring
-        /// </summary>
+    public void EvictCandlestickData(string exchange, string symbol, string timeframe)
+    {
+        lock (_cacheSync)
+            foreach (var key in _cache.Keys.Where(k => string.Equals(k.Exchange, exchange, StringComparison.OrdinalIgnoreCase) &&
+                         k.Symbol == symbol && k.Timeframe == timeframe).ToArray())
+                _cache.Remove(key);
+    }
+    public void ClearExpiredCache()
+    {
+        lock (_cacheSync)
+            foreach (var key in _cache.Where(p => DateTime.UtcNow - p.Value.At >= _cacheExpiration).Select(p => p.Key).ToArray())
+                _cache.Remove(key);
+    }
+    public void ClearCache()
+    {
+        lock (_cacheSync) _cache.Clear();
+        _logger?.LogInfo("Cache cleared");
+    }
+    public ExchangePerformanceMetrics GetPerformanceMetrics() => _performanceMetrics;
+    public string GetPerformanceSummary() => _performanceMetrics.GetFormattedSummary();
+    public void LogPerformanceMetrics() => _logger?.LogInfo(_performanceMetrics.GetFormattedSummary());
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        ClearCache();
+        await Task.WhenAll(_providers.Values.Select(p => p.DisposeAsync().AsTask())).ConfigureAwait(false);
+    }
         public void LogDetailedPerformanceMetrics()
         {
             var performanceSummary = _performanceMetrics.GetPerformanceSummary();
@@ -740,5 +294,4 @@ namespace BotView.Services
             
             _logger?.LogInfo("=== END PERFORMANCE METRICS ===");
         }
-    }
 }

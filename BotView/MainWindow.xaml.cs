@@ -124,7 +124,7 @@ namespace BotView
                         chartView.OnLiveCandleUpdated();
                 });
             };
-            _viewModel.CandleClosed += (closed, newOpen) =>
+            _viewModel.CandleClosed += closed =>
             {
                 var series = _viewModel.CurrentSeries;
                 var version = _viewModel.CurrentSeriesVersion;

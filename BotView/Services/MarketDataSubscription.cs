@@ -10,9 +10,9 @@ public sealed class MarketDataSubscription : IMarketDataSubscription
     public CandleCacheKey Key { get; }
     public ICandleSeriesReader Series { get; }
 
-    public event Action<OHLCV>? LiveCandleTicked;
-    public event Action<OHLCV, OHLCV>? CandleClosed;
-    public event Action<OHLCV[]>? OlderCandlesLoaded;
+    public event Action<Candle>? LiveCandleTicked;
+    public event Action<Candle>? CandleClosed;
+    public event Action<Candle[]>? OlderCandlesLoaded;
 
     /// <summary> Creates subscription wrapper over shared candle store. </summary>
     public MarketDataSubscription(CandleCacheKey key, CandleStore store, Action<MarketDataSubscription>? onDispose = null)
@@ -24,7 +24,7 @@ public sealed class MarketDataSubscription : IMarketDataSubscription
     }
 
     /// <summary> Notifies listeners that current live candle was updated. </summary>
-    internal void RaiseLiveCandleTicked(OHLCV candle)
+    internal void RaiseLiveCandleTicked(Candle candle)
     {
         if (_isDisposed)
         {
@@ -34,19 +34,19 @@ public sealed class MarketDataSubscription : IMarketDataSubscription
         LiveCandleTicked?.Invoke(candle);
     }
 
-    /// <summary> Notifies listeners that one candle closed and a new one opened. </summary>
-    internal void RaiseCandleClosed(OHLCV closed, OHLCV newOpen)
+    /// <summary>Notifies listeners that a candle closed, including a close before a trading break.</summary>
+    internal void RaiseCandleClosed(Candle closed)
     {
         if (_isDisposed)
         {
             return;
         }
 
-        CandleClosed?.Invoke(closed, newOpen);
+        CandleClosed?.Invoke(closed);
     }
 
     /// <summary> Notifies listeners about newly loaded older candles. </summary>
-    internal void RaiseOlderCandlesLoaded(OHLCV[] candles)
+    internal void RaiseOlderCandlesLoaded(Candle[] candles)
     {
         if (_isDisposed || candles == null || candles.Length == 0)
         {

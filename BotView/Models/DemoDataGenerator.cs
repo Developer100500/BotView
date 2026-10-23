@@ -4,10 +4,10 @@ namespace BotView.Models
 {
     public static class DemoDataGenerator
     {
-        public static OHLCV[] Generate(string timeframe, int candleCount = 30)
+        public static Candle[] Generate(string timeframe, int candleCount = 30)
         {
-            DateTime startTime = DateTime.Parse("2025/10/01 00:00:00");
-            var demoCandles = new OHLCV[candleCount];
+            var startTime = new DateTimeOffset(2025, 10, 1, 0, 0, 0, TimeSpan.Zero);
+            var demoCandles = new Candle[candleCount];
             Random random = new Random();
             double basePrice = 100.0;
 
@@ -23,10 +23,10 @@ namespace BotView.Models
                 double low = Math.Min(open, close) - random.NextDouble() * 3;
                 double volume = 1000 + random.NextDouble() * 2000;
 
-                DateTime candleTime = startTime.Add(TimeSpan.FromTicks(timeframeInterval.Ticks * i));
-                long timestamp = ((DateTimeOffset)candleTime).ToUnixTimeMilliseconds();
+                var candleTime = startTime.Add(TimeSpan.FromTicks(timeframeInterval.Ticks * i));
+                long timestamp = candleTime.ToUnixTimeMilliseconds();
 
-                demoCandles[i] = new OHLCV { timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume };
+                demoCandles[i] = new Candle { Timestamp = timestamp, Open = open, High = high, Low = low, Close = close, Volume = volume };
                 basePrice = close;
             }
 

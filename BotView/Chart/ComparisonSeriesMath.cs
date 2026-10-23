@@ -19,17 +19,17 @@ internal static class ComparisonSeriesMath
         {
             var mainCandle = main.Current.Candle;
             var otherCandle = other.Current.Candle;
-            if (mainCandle.timestamp.GetValueOrDefault() == otherCandle.timestamp.GetValueOrDefault())
+            if (mainCandle.Timestamp == otherCandle.Timestamp)
             {
-                if (double.IsFinite(mainCandle.close.GetValueOrDefault()) && mainCandle.close.GetValueOrDefault() > 0 &&
-                    double.IsFinite(otherCandle.close.GetValueOrDefault()) && otherCandle.close.GetValueOrDefault() > 0)
+                if (double.IsFinite(mainCandle.Close) && mainCandle.Close > 0 &&
+                    double.IsFinite(otherCandle.Close) && otherCandle.Close > 0)
                 {
-                    anchor = new Anchor(mainCandle.timestamp.GetValueOrDefault(), mainCandle.close.GetValueOrDefault(), otherCandle.close.GetValueOrDefault());
+                    anchor = new Anchor(mainCandle.Timestamp, mainCandle.Close, otherCandle.Close);
                     return true;
                 }
                 if (!main.MoveNext() || !other.MoveNext()) return false;
             }
-            else if (mainCandle.timestamp.GetValueOrDefault() < otherCandle.timestamp.GetValueOrDefault())
+            else if (mainCandle.Timestamp < otherCandle.Timestamp)
             {
                 if (!main.MoveNext()) return false;
             }

@@ -25,7 +25,7 @@ namespace BotView.Services
         }
 
         /// <summary> Loads candlestick data from the configured exchange service. </summary>
-        public async Task<OHLCV[]?> LoadDataAsync(string exchange, string symbol, string timeframe, int limit = 500)
+        public async Task<Candle[]?> LoadDataAsync(string exchange, string symbol, string timeframe, int limit = 500)
         {
             try
             {
@@ -46,7 +46,7 @@ namespace BotView.Services
         }
 
         /// <summary> Loads generated demo candlestick data for the specified timeframe. </summary>
-        public OHLCV[] LoadDemoData(string timeframe)
+        public Candle[] LoadDemoData(string timeframe)
         {
             int candleCount = MarketCatalog.TryGetTimeframe(timeframe, out var definition)
                 ? definition!.DemoCandleCount

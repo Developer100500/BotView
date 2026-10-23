@@ -58,12 +58,12 @@ public partial class ChartController
 		double min = double.PositiveInfinity, max = double.NegativeInfinity;
 		foreach (var (_, candle) in state.Series.GetSnapshot().Enumerate(from, to))
 		{
-			if (double.IsFinite(candle.low.GetValueOrDefault()) && candle.low.GetValueOrDefault() > 0) min = Math.Min(min, candle.low.GetValueOrDefault());
-			if (double.IsFinite(candle.high.GetValueOrDefault()) && candle.high.GetValueOrDefault() > 0) max = Math.Max(max, candle.high.GetValueOrDefault());
+			if (double.IsFinite(candle.Low) && candle.Low > 0) min = Math.Min(min, candle.Low);
+			if (double.IsFinite(candle.High) && candle.High > 0) max = Math.Max(max, candle.High);
 		}
 		foreach (var (_, candle) in state.ComparisonSeries.GetSnapshot().Enumerate(anchor.Timestamp, to))
 		{
-			double projected = ComparisonSeriesMath.ToPrimaryPrice(candle.close.GetValueOrDefault(), anchor);
+			double projected = ComparisonSeriesMath.ToPrimaryPrice(candle.Close, anchor);
 			if (!double.IsFinite(projected) || projected <= 0) continue;
 			min = Math.Min(min, projected);
 			max = Math.Max(max, projected);

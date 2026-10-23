@@ -111,9 +111,7 @@ public class ChartState
 	// === TECHNICAL ANALYSIS TOOLS ===
 	public TechnicalAnalysisManager TechnicalAnalysisManager { get; }
 
-	/// <summary>
-	/// Конструктор ChartState с инициализацией значений по умолчанию
-	/// </summary>
+
 	public ChartState(TechnicalAnalysisManager? technicalAnalysisManager = null)
 	{
 		TechnicalAnalysisManager = technicalAnalysisManager ?? new TechnicalAnalysisManager();
@@ -142,8 +140,8 @@ public class ChartState
 
 		foreach (var (_, candle) in snapshot.Enumerate(long.MinValue, long.MaxValue))
 		{
-			minPrice = Math.Min(minPrice, candle.low.GetValueOrDefault());
-			maxPrice = Math.Max(maxPrice, candle.high.GetValueOrDefault());
+			minPrice = Math.Min(minPrice, candle.Low);
+			maxPrice = Math.Max(maxPrice, candle.High);
 		}
 
 		// Добавляем отступы к ценовому диапазону (10% с каждой стороны)

@@ -1,3 +1,4 @@
+using BotView.Services.Providers;
 using BotView.Chart;
 using BotView.Configuration;
 using BotView.Database;
@@ -12,17 +13,19 @@ namespace BotView.Tests;
 
 public sealed class CandleDataFlowTests
 {
-    private static OHLCV Candle(long timestamp) => new OHLCV { timestamp = timestamp, open = 100, high = 102, low = 99, close = 101, volume = 10 };
+    private static Candle Candle(long timestamp) => new Candle { Timestamp = timestamp, Open = 100, High = 102, Low = 99, Close = 101, Volume = 10 };
 
     [Fact]
     public void CcxtConstructorCandlesRemainStableAcrossStoreUpdates()
     {
-        var first = new ccxt.OHLCV(new List<object> { 60_000L, 100d, 102d, 99d, 101d, 10d });
+        var first = Assert.Single(CcxtCandleConverter.ConvertFromCCXT(
+            new List<ccxt.OHLCV> { new(new List<object> { 60_000L, 100d, 102d, 99d, 101d, 10d }) }, "1m"));
         var store = new CandleStore();
-        var key = new CandleCacheKey("binance", "BTC/USDT", "1m", 250);
+        var key = new CandleCacheKey("binance", "BTC/USDT", "1m");
         store.LoadInitial(key, new[] { first });
         var before = store.GetSeries(key).GetSnapshot();
-        var next = new ccxt.OHLCV(new List<object> { 120_000L, 101d, 103d, 100d, 102d, 11d });
+        var next = Assert.Single(CcxtCandleConverter.ConvertFromCCXT(
+            new List<ccxt.OHLCV> { new(new List<object> { 120_000L, 101d, 103d, 100d, 102d, 11d }) }, "1m"));
 
         Assert.Equal(LiveCandleChange.Closed, store.UpdateLive(key, next, out var closed));
 
@@ -37,29 +40,24 @@ public sealed class CandleDataFlowTests
     {
         var source = new List<ccxt.OHLCV> { new() { timestamp = 60_000 } };
 
-        var candle = Assert.Single(CandlestickDataConverter.ConvertFromCCXT(source, "1m"));
+        var candle = Assert.Single(CcxtCandleConverter.ConvertFromCCXT(source, "1m"));
 
-        Assert.Equal(0d, candle.open);
-        Assert.Equal(0d, candle.high);
-        Assert.Equal(0d, candle.low);
-        Assert.Equal(0d, candle.close);
-        Assert.Equal(0d, candle.volume);
+        Assert.Equal(0d, candle.Open);
+        Assert.Equal(0d, candle.High);
+        Assert.Equal(0d, candle.Low);
+        Assert.Equal(0d, candle.Close);
+        Assert.Equal(0d, candle.Volume);
         Assert.Null(source[0].open);
         Assert.Null(source[0].close);
         Assert.Null(source[0].volume);
     }
 
     [Fact]
-    public void MissingCcxtTimestampKeepsLegacyTimeFallbackAndIsRejectedAtProviderBoundary()
+    public void MissingCcxtTimestampIsRejectedAtProviderBoundary()
     {
         var missingTime = new ccxt.OHLCV { open = 100, high = 102, low = 99, close = 101, volume = 10 };
-        Assert.Equal(DateTime.UnixEpoch, missingTime.GetDateTime());
-        var series = new CandleSeries();
-        series.LoadInitial(new[] { missingTime, Candle(60_000) });
-        Assert.Equal(DateTime.UnixEpoch, CandleTime.Get(series.GetSnapshot(), 0, TimeSpan.FromMinutes(1)));
-
         var error = Assert.Throws<DataConversionException>(() =>
-            CandlestickDataConverter.ConvertFromCCXT(new List<ccxt.OHLCV> { missingTime }, "1m"));
+            CcxtCandleConverter.ConvertFromCCXT(new List<ccxt.OHLCV> { missingTime }, "1m"));
         Assert.Equal(DataConversionErrorType.InvalidFormat, error.ErrorType);
     }
 
@@ -97,7 +95,7 @@ public sealed class CandleDataFlowTests
             Assert.Equal(timeframe.DemoCandleCount, candles.Length);
             for (int i = 1; i < candles.Length; i++)
                 Assert.Equal((long)timeframe.Duration.TotalMilliseconds,
-                    candles[i].timestamp - candles[i - 1].timestamp);
+                    candles[i].Timestamp - candles[i - 1].Timestamp);
         }
 
         Assert.Empty(DemoDataGenerator.Generate("1m", 0));
@@ -117,7 +115,7 @@ public sealed class CandleDataFlowTests
         Assert.Equal(candles, controller.State.Series.GetSnapshot()
             .Enumerate(long.MinValue, long.MaxValue).Select(item => item.Candle));
 
-        controller.SetCandles(Array.Empty<OHLCV>(), "4h");
+        controller.SetCandles(Array.Empty<Candle>(), "4h");
         Assert.Equal("4h", controller.State.Timeframe);
         Assert.Equal(0, controller.State.Series.GetSnapshot().Count);
         Assert.False(controller.IsReady);
@@ -153,15 +151,15 @@ public sealed class CandleDataFlowTests
         var snapshot = published.GetSnapshot();
         var definition = MarketCatalog.GetTimeframe(publishedTimeframe!);
         Assert.Equal(definition.DemoCandleCount, snapshot.Count);
-        Assert.Equal((long)definition.Duration.TotalMilliseconds, snapshot[1].timestamp - snapshot[0].timestamp);
+        Assert.Equal((long)definition.Duration.TotalMilliseconds, snapshot[1].Timestamp - snapshot[0].Timestamp);
     }
 
     [Fact]
     public void EmptyObjectRowsProduceAnEmptyArrayWhileEmptyTypedInputRemainsInvalid()
     {
-        Assert.Empty(CandlestickDataConverter.ConvertFromCCXT(Array.Empty<object[]>(), "1m"));
+        Assert.Empty(CcxtCandleConverter.ConvertFromCCXT(Array.Empty<object[]>(), "1m"));
         var error = Assert.Throws<DataConversionException>(() =>
-            CandlestickDataConverter.ConvertFromCCXT(new List<ccxt.OHLCV>(), "1m"));
+            CcxtCandleConverter.ConvertFromCCXT(new List<ccxt.OHLCV>(), "1m"));
         Assert.Equal(DataConversionErrorType.EmptyData, error.ErrorType);
     }
 
@@ -182,8 +180,8 @@ public sealed class CandleDataFlowTests
         source[index] = invalid;
 
         var error = Assert.Throws<DataConversionException>(() => typed
-            ? CandlestickDataConverter.ConvertFromCCXT(source, "1m")
-            : CandlestickDataConverter.ConvertFromCCXT(source.Select(c => new object[]
+            ? CcxtCandleConverter.ConvertFromCCXT(source, "1m")
+            : CcxtCandleConverter.ConvertFromCCXT(source.Select(c => new object[]
                 { c.timestamp!.Value, c.open!.Value, c.high!.Value, c.low!.Value, c.close!.Value, c.volume!.Value })
                 .ToArray(), "1m"));
 
@@ -203,7 +201,7 @@ public sealed class CandleDataFlowTests
             new() { timestamp = timestamp, open = 100, high = high, low = low, close = 101, volume = volume }
         };
         var error = Assert.Throws<DataConversionException>(() =>
-            CandlestickDataConverter.ConvertFromCCXT(source, "1m"));
+            CcxtCandleConverter.ConvertFromCCXT(source, "1m"));
         Assert.Equal(DataConversionErrorType.InvalidFormat, error.ErrorType);
         Assert.Equal(0, error.CandleIndex);
     }

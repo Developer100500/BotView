@@ -1,7 +1,8 @@
 using BotView.Models;
 using BotView.Services;
 
-public readonly record struct CandleCacheKey(string Exchange, string Symbol, string Timeframe, int Limit);
+/// <summary>Exchange identifies a provider connection; initial batch size does not identify a series.</summary>
+public readonly record struct CandleCacheKey(string Exchange, string Symbol, string Timeframe);
 
 /// <summary>Owns the shared candle series for each market data key.</summary>
 public sealed class CandleStore
@@ -27,32 +28,32 @@ public sealed class CandleStore
             return _seriesByKey.TryGetValue(key, out var series) ? series : null;
     }
 
-    public void LoadInitial(CandleCacheKey key, IEnumerable<OHLCV> candles) =>
+    public void LoadInitial(CandleCacheKey key, IEnumerable<Candle> candles) =>
         GetOrCreateSeries(key).LoadInitial(candles);
 
-    public LiveCandleChange UpdateLive(CandleCacheKey key, OHLCV candle, out OHLCV closed) =>
+    public LiveCandleChange UpdateLive(CandleCacheKey key, Candle candle, out Candle closed) =>
         GetOrCreateSeries(key).UpdateLive(candle, out closed);
 
-    public IReadOnlyList<OHLCV> GetRange(CandleCacheKey key, long fromTs, long toTs)
+    public IReadOnlyList<Candle> GetRange(CandleCacheKey key, long fromTs, long toTs)
     {
         if (fromTs > toTs)
-            return Array.Empty<OHLCV>();
+            return Array.Empty<Candle>();
         var series = FindSeries(key);
         if (series == null)
-            return Array.Empty<OHLCV>();
+            return Array.Empty<Candle>();
         var snapshot = series.GetSnapshot();
         return snapshot.Enumerate(fromTs, toTs)
             .Where(item => item.Index < snapshot.ClosedCount)
             .Select(item => item.Candle).ToArray();
     }
 
-    public int PrependHistory(CandleCacheKey key, IReadOnlyList<OHLCV> older) =>
+    public int PrependHistory(CandleCacheKey key, IReadOnlyList<Candle> older) =>
         GetOrCreateSeries(key).PrependHistory(older);
 
-    public int PrependHistory(CandleCacheKey key, IReadOnlyList<OHLCV> older, out OHLCV[] added) =>
+    public int PrependHistory(CandleCacheKey key, IReadOnlyList<Candle> older, out Candle[] added) =>
         GetOrCreateSeries(key).PrependHistory(older, out added);
 
-    public int AppendClosed(CandleCacheKey key, IReadOnlyList<OHLCV> newer) =>
+    public int AppendClosed(CandleCacheKey key, IReadOnlyList<Candle> newer) =>
         GetOrCreateSeries(key).AppendClosed(newer);
 
     public long? GetOldestTimestamp(CandleCacheKey key) =>

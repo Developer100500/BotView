@@ -1,76 +1,32 @@
+using BotView.Configuration;
 using BotView.Models;
 using BotView.Services;
-using ccxt;
 
-namespace BotView.Interfaces
+namespace BotView.Interfaces;
+
+/// <summary>Routes requests to registered connections without exposing provider library types.</summary>
+public interface IExchangeService : IAsyncDisposable
 {
-    /// <summary>
-    /// Interface for working with cryptocurrency exchanges
-    /// </summary>
-    public interface IExchangeService
-    {
-        /// <summary>
-        /// Gets candlestick data from specified exchange
-        /// </summary>
-        /// <param name="exchange">Exchange name (e.g., "binance", "bybit")</param>
-        /// <param name="symbol">Trading pair symbol (e.g., "BTC/USDT")</param>
-        /// <param name="timeframe">Timeframe (e.g., "1m", "5m", "1h", "1d")</param>
-        /// <param name="limit">Maximum number of candles to retrieve (default: 500)</param>
-        /// <returns>Array of application candles for the requested timeframe</returns>
-        Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500);
-        Task<OHLCV[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct);
+    IReadOnlyList<ExchangeDefinition> GetExchanges();
+    Task<IReadOnlyList<Instrument>> GetInstrumentsAsync(string exchange, CancellationToken ct = default);
+    Task<List<string>> GetAvailableSymbolsAsync(string exchange);
+    Task<List<string>> GetAvailableSymbolsAsync(string exchange, CancellationToken ct);
+    Task<Candle[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit = 500);
+    Task<Candle[]> GetCandlestickDataAsync(string exchange, string symbol, string timeframe, int limit, CancellationToken ct);
 
-        /// <summary>
-        /// Gets list of available trading symbols from specified exchange
-        /// </summary>
-        /// <param name="exchange">Exchange name</param>
-        /// <returns>List of available trading pair symbols</returns>
-        Task<List<string>> GetAvailableSymbolsAsync(string exchange);
-        Task<List<string>> GetAvailableSymbolsAsync(string exchange, CancellationToken ct);
+    /// <summary>Nearest accessible bars strictly before the bound, or latest bars if it is null.
+    /// Results are ordered oldest first; providers handle native paging and trading breaks.</summary>
+    Task<Candle[]> GetCandlesAsync(string exchange, string symbol, string timeframe,
+        DateTimeOffset? beforeExclusive, int limit, CancellationToken ct = default);
+    IAsyncEnumerable<CandleUpdate> WatchCandlesAsync(string exchange, string symbol, string timeframe,
+        CancellationToken ct = default);
 
-        /// <summary>Gets rolling 24-hour changes for active spot pairs quoted in USDT.</summary>
-        Task<IReadOnlyList<MarketMover>> GetMarketMoversAsync(string exchange, CancellationToken ct = default);
-
-        /// <summary> Gets raw OHLCV candles from exchange with optional since timestamp. </summary>
-        Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since = null, int limit = 500);
-        Task<List<ccxt.OHLCV>> FetchOHLCVAsync(string exchange, string symbol, string timeframe, long? since, int limit, CancellationToken ct);
-
-        /// <summary>
-        /// Tests connection to specified exchange
-        /// </summary>
-        /// <param name="exchange">Exchange name to test</param>
-        /// <returns>True if connection is successful, false otherwise</returns>
-        Task<bool> TestConnectionAsync(string exchange);
-
-        /// <summary>
-        /// Gets list of supported exchanges
-        /// </summary>
-        /// <returns>List of supported exchange names</returns>
-        List<string> GetSupportedExchanges();
-
-        /// <summary>
-        /// Gets list of supported timeframes
-        /// </summary>
-        /// <returns>List of supported timeframe strings</returns>
-        List<string> GetSupportedTimeframes();
-
-        /// <summary>
-        /// Gets performance metrics for exchange operations
-        /// </summary>
-        /// <returns>Performance metrics instance</returns>
-        ExchangePerformanceMetrics GetPerformanceMetrics();
-
-        /// <summary>
-        /// Logs detailed performance metrics for monitoring
-        /// </summary>
-        void LogDetailedPerformanceMetrics();
-
-        /// <summary>
-        /// Clears expired cache entries
-        /// </summary>
-        void ClearExpiredCache();
-
-        /// <summary>Releases cached initial candles for a market with no active subscribers.</summary>
-        void EvictCandlestickData(string exchange, string symbol, string timeframe, int limit);
-    }
+    Task<IReadOnlyList<MarketMover>> GetMarketMoversAsync(string exchange, CancellationToken ct = default);
+    Task<bool> TestConnectionAsync(string exchange);
+    List<string> GetSupportedExchanges();
+    List<string> GetSupportedTimeframes();
+    ExchangePerformanceMetrics GetPerformanceMetrics();
+    void LogDetailedPerformanceMetrics();
+    void ClearExpiredCache();
+    void EvictCandlestickData(string exchange, string symbol, string timeframe);
 }

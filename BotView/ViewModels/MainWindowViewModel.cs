@@ -22,6 +22,7 @@ namespace BotView.ViewModels
         private readonly DatabaseService _databaseService;
         private readonly IDataProvider _dataProvider;
         private readonly IExchangeService _exchangeService;
+        private readonly IReadOnlyList<ExchangeDefinition> _exchangeDefinitions;
         private readonly IMarketDataService _marketDataService;
         private readonly MetricsController _metricsController;
         private readonly FavoritePairsStore _favoritePairsStore;
@@ -91,17 +92,24 @@ namespace BotView.ViewModels
             _databaseService = databaseService;
             _dataProvider = dataProvider;
             _exchangeService = exchangeService;
+            var registered = exchangeService.GetExchanges();
+            _exchangeDefinitions = registered is { Count: > 0 } ? registered : MarketCatalog.Exchanges;
+            if (!_exchangeDefinitions.Any(d => d.Id == _selectedExchange))
+                _selectedExchange = _exchangeDefinitions[0].Id;
+            var selectedDefinition = _exchangeDefinitions.First(d => d.Id == _selectedExchange);
+            if (!selectedDefinition.SupportsTimeframe(_selectedTimeframe))
+                _selectedTimeframe = selectedDefinition.SupportedTimeframes[0];
             _marketDataService = marketDataService;
             _metricsController = metricsController;
             _favoritePairsStore = favoritePairsStore ?? new FavoritePairsStore();
             FuturesQuote = quoteProvider is null ? null : new FuturesQuoteViewModel(quoteProvider);
             MarketMovers = new MarketMoversViewModel(exchangeService);
 
-            Exchanges = new ObservableCollection<ExchangeOption>(MarketCatalog.Exchanges
+            Exchanges = new ObservableCollection<ExchangeOption>(_exchangeDefinitions
                 .Select(exchange => new ExchangeOption(exchange.Id, exchange.DisplayName)));
 
             Timeframes = new ObservableCollection<string>(
-                MarketCatalog.GetExchange(_selectedExchange).SupportedTimeframes);
+                _exchangeDefinitions.First(d => d.Id == _selectedExchange).SupportedTimeframes);
 
             TradingPairs = new ObservableCollection<TradingPairModel>();
             SearchResults = new ObservableCollection<string>();
@@ -193,7 +201,8 @@ namespace BotView.ViewModels
 
         private void UpdateTimeframesForExchange()
         {
-            if (!MarketCatalog.TryGetExchange(_selectedExchange, out var exchange))
+            var exchange = _exchangeDefinitions.FirstOrDefault(d => d.Id == _selectedExchange);
+            if (exchange is null)
                 return;
 
             if (!Timeframes.SequenceEqual(exchange!.SupportedTimeframes))
@@ -393,9 +402,9 @@ namespace BotView.ViewModels
         public event Action<int>? ComparisonSeriesCleared;
         public event Action<int>? ComparisonDataChanged;
 
-        public event Action<OHLCV>? LiveCandleUpdated;
-        public event Action<OHLCV, OHLCV>? CandleClosed;
-        public event Action<OHLCV[]>? OlderCandlesLoaded;
+        public event Action<Candle>? LiveCandleUpdated;
+        public event Action<Candle>? CandleClosed;
+        public event Action<Candle[]>? OlderCandlesLoaded;
         public event Action<TechnicalAnalysisToolType>? DrawingToolRequested;
         public event Action? SnapLastToRightRequested;
         public event Action? ResetVerticalScaleRequested;
@@ -483,7 +492,7 @@ namespace BotView.ViewModels
 
                 ct.ThrowIfCancellationRequested();
                 var key = new CandleCacheKey(
-                    SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize);
+                    SelectedExchange, SelectedSymbol, SelectedTimeframe);
                 await SwitchSubscriptionAsync(key, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -817,7 +826,7 @@ namespace BotView.ViewModels
             StopComparisonSubscription();
             if (!_isReady || CurrentSeries == null || ComparisonSymbol is not { } symbol)
                 return;
-            var key = new CandleCacheKey(SelectedExchange, symbol, SelectedTimeframe, HistoryBatchSize);
+            var key = new CandleCacheKey(SelectedExchange, symbol, SelectedTimeframe);
             var source = new CancellationTokenSource();
             _comparisonSessionCts = source;
             var token = source.Token;
@@ -838,7 +847,7 @@ namespace BotView.ViewModels
                 CurrentComparisonSeries = sub.Series;
                 ComparisonStatusText = string.Empty;
                 sub.LiveCandleTicked += _ => RaiseComparisonDataChanged(sub, version);
-                sub.CandleClosed += (_, _) => RaiseComparisonDataChanged(sub, version);
+                sub.CandleClosed += _ => RaiseComparisonDataChanged(sub, version);
                 sub.OlderCandlesLoaded += _ => RaiseComparisonDataChanged(sub, version);
                 ComparisonSeriesReady?.Invoke(sub.Series, symbol, version);
             }
@@ -928,7 +937,7 @@ namespace BotView.ViewModels
                 var sub = await _marketDataService.SubscribeAsync(key, initialHistory: HistoryBatchSize, ct: ct);
 
                 if (ct.IsCancellationRequested || !_isReady || key != new CandleCacheKey(
-                        SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize))
+                        SelectedExchange, SelectedSymbol, SelectedTimeframe))
                 {
                     sub.Dispose();
                     ct.ThrowIfCancellationRequested();
@@ -944,9 +953,9 @@ namespace BotView.ViewModels
                 {
                     if (ReferenceEquals(_subscription, sub)) LiveCandleUpdated?.Invoke(c);
                 };
-                sub.CandleClosed += (closed, newOpen) =>
+                sub.CandleClosed += closed =>
                 {
-                    if (ReferenceEquals(_subscription, sub)) CandleClosed?.Invoke(closed, newOpen);
+                    if (ReferenceEquals(_subscription, sub)) CandleClosed?.Invoke(closed);
                 };
                 sub.OlderCandlesLoaded += arr =>
                 {
@@ -962,7 +971,7 @@ namespace BotView.ViewModels
             {
                 ct.ThrowIfCancellationRequested();
                 if (!_isReady || key != new CandleCacheKey(
-                        SelectedExchange, SelectedSymbol, SelectedTimeframe, HistoryBatchSize))
+                        SelectedExchange, SelectedSymbol, SelectedTimeframe))
                 {
                     return;
                 }

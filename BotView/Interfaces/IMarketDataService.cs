@@ -3,7 +3,8 @@ using BotView.Services;
 
 public interface IMarketDataService : IAsyncDisposable
 {
-    /// <summary> Подписывается на real-time обновления; внутри гарантирует наличие initial history (limit свечей). </summary>
+    /// <summary>Подписывается на обновления общей серии. Первый подписчик загружает initialHistory свечей;
+    /// следующие используют уже загруженную серию.</summary>
     Task<IMarketDataSubscription> SubscribeAsync(CandleCacheKey key, int initialHistory = 500, CancellationToken ct = default);
     
     /// <summary> Догружает <paramref name="count"/> свечей старее текущей самой левой; идемпотентно. </summary>

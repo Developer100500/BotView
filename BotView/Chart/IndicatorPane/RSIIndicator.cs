@@ -61,15 +61,15 @@ public class RSIIndicator : Indicator
 	}
 
 	/// <summary>Calculates RSI values from candlestick data using TA-Lib</summary>
-	/// <param name="candles">OHLCV candlestick data array</param>
+	/// <param name="candles">Candle candlestick data array</param>
 	/// <param name="getTime">Function to get DateTime for each candle index</param>
-	public void Calculate(OHLCV[] candles, Func<int, DateTime> getTime)
+	public void Calculate(Candle[] candles, Func<int, DateTime> getTime)
 		=> CalculateCore(candles.Length, i => candles[i], getTime);
 
 	public void Calculate(CandleSeriesSnapshot snapshot, Func<int, DateTime> getTime)
 		=> CalculateCore(snapshot.Count, i => snapshot[i], getTime);
 
-	private void CalculateCore(int count, Func<int, OHLCV> getCandle, Func<int, DateTime> getTime)
+	private void CalculateCore(int count, Func<int, Candle> getCandle, Func<int, DateTime> getTime)
 	{
 		Points.Clear();
 
@@ -80,7 +80,7 @@ public class RSIIndicator : Indicator
 		double[] closePrices = new double[count];
 		for (int i = 0; i < count; i++)
 		{
-			closePrices[i] = getCandle(i).close.GetValueOrDefault();
+			closePrices[i] = getCandle(i).Close;
 		}
 
 		// Prepare output array

@@ -1,3 +1,4 @@
+using BotView.Services.Providers;
 using System;
 using System.Threading.Tasks;
 using Xunit;
@@ -19,7 +20,7 @@ namespace BotView.Tests
         public ExchangeServiceTests()
         {
             _mockLogger = new Mock<IExchangeLogger>();
-            _exchangeService = new ExchangeService(_mockLogger.Object, 
+            _exchangeService = new ExchangeService(CcxtMarketDataProvider.CreateDefaults(), _mockLogger.Object,
                 cacheExpirationMinutes: 1, maxRetryAttempts: 2, baseRetryDelaySeconds: 1);
         }
 
@@ -29,7 +30,7 @@ namespace BotView.Tests
         public void Constructor_ValidParameters_CreatesInstance()
         {
             // Act
-            var service = new ExchangeService(_mockLogger.Object);
+            var service = new ExchangeService(CcxtMarketDataProvider.CreateDefaults(), _mockLogger.Object);
 
             // Assert
             Assert.NotNull(service);
@@ -173,7 +174,7 @@ namespace BotView.Tests
             var result = await _exchangeService.GetCandlestickDataAsync("binance", "BTC/USDT", "1h");
 
             // Assert
-            Assert.IsType<ccxt.OHLCV[]>(result);
+            Assert.IsType<Candle[]>(result);
             Assert.True(result.Length > 0);
         }
 

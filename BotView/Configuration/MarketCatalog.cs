@@ -1,23 +1,25 @@
-using ccxt;
-
 namespace BotView.Configuration;
 
 /// <summary>One definition for each timeframe used by the UI, chart and data services.</summary>
 public sealed record TimeframeDefinition(string Id, TimeSpan Duration, int DemoCandleCount);
 
-/// <summary>Metadata and client factory for one supported exchange.</summary>
+/// <summary>Transport-independent metadata for one provider connection.</summary>
 public sealed class ExchangeDefinition
 {
-    internal ExchangeDefinition(
+    public ExchangeDefinition(
         string id, string displayName, string apiUrl, bool isActive,
-        Func<Exchange> createClient, IReadOnlyList<string> supportedTimeframes)
+        IReadOnlyList<string> supportedTimeframes, string providerId = "custom", string? venue = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (supportedTimeframes.Count == 0)
+            throw new ArgumentException("At least one timeframe is required.", nameof(supportedTimeframes));
         Id = id;
         DisplayName = displayName;
         ApiUrl = apiUrl;
         IsActive = isActive;
-        CreateClient = createClient;
-        SupportedTimeframes = supportedTimeframes;
+        ProviderId = providerId;
+        Venue = venue ?? id;
+        SupportedTimeframes = Array.AsReadOnly(supportedTimeframes.ToArray());
     }
 
     public string Id { get; }
@@ -25,13 +27,14 @@ public sealed class ExchangeDefinition
     public string ApiUrl { get; }
     public bool IsActive { get; }
     public IReadOnlyList<string> SupportedTimeframes { get; }
-    internal Func<Exchange> CreateClient { get; }
+    public string ProviderId { get; }
+    public string Venue { get; }
 
     public bool SupportsTimeframe(string timeframe) =>
-        SupportedTimeframes.Contains(timeframe, StringComparer.OrdinalIgnoreCase);
+        SupportedTimeframes.Contains(timeframe, StringComparer.Ordinal);
 }
 
-/// <summary>The single source of supported exchanges and timeframe capabilities.</summary>
+/// <summary>Default connection metadata and fixed-duration timeframe definitions.</summary>
 public static class MarketCatalog
 {
     public const string DefaultExchangeId = "binance";
@@ -54,17 +57,17 @@ public static class MarketCatalog
 
     public static IReadOnlyList<ExchangeDefinition> Exchanges { get; } = Array.AsReadOnly(new[]
     {
-        new ExchangeDefinition("binance", "Binance", "https://api.binance.com", true, () => new binance(), TimeframeIds),
-        new ExchangeDefinition("bybit", "Bybit", "https://api.bybit.com", true, () => new bybit(), TimeframeIds),
-        new ExchangeDefinition("okx", "OKX", "https://www.okx.com/api", false, () => new okx(), TimeframeIds),
-        new ExchangeDefinition("kraken", "Kraken", "https://api.kraken.com", false, () => new kraken(), TimeframeIds)
+        new ExchangeDefinition("binance", "Binance", "https://api.binance.com", true, TimeframeIds, "ccxt"),
+        new ExchangeDefinition("bybit", "Bybit", "https://api.bybit.com", true, TimeframeIds, "ccxt"),
+        new ExchangeDefinition("okx", "OKX", "https://www.okx.com/api", false, TimeframeIds, "ccxt"),
+        new ExchangeDefinition("kraken", "Kraken", "https://api.kraken.com", false, TimeframeIds, "ccxt")
     });
 
     private static readonly IReadOnlyDictionary<string, ExchangeDefinition> ExchangesById =
         Exchanges.ToDictionary(exchange => exchange.Id, StringComparer.OrdinalIgnoreCase);
 
     private static readonly IReadOnlyDictionary<string, TimeframeDefinition> TimeframesById =
-        Timeframes.ToDictionary(timeframe => timeframe.Id, StringComparer.OrdinalIgnoreCase);
+        Timeframes.ToDictionary(timeframe => timeframe.Id, StringComparer.Ordinal);
 
     public static bool TryGetExchange(string? id, out ExchangeDefinition? exchange) =>
         ExchangesById.TryGetValue(id ?? string.Empty, out exchange);
@@ -74,8 +77,33 @@ public static class MarketCatalog
             ? exchange!
             : throw new NotSupportedException($"Exchange '{id}' is not supported.");
 
-    public static bool TryGetTimeframe(string? id, out TimeframeDefinition? timeframe) =>
-        TimeframesById.TryGetValue(id ?? string.Empty, out timeframe);
+    /// <summary>Resolves a standard interval or a provider's fixed interval (e.g. MOEX 10m).
+    /// Calendar months are not fixed durations and must not be confused with lowercase m.</summary>
+    public static bool TryGetTimeframe(string? id, out TimeframeDefinition? timeframe)
+    {
+        if (TimeframesById.TryGetValue(id ?? string.Empty, out timeframe)) return true;
+        if (string.IsNullOrEmpty(id) || id.Length < 2 ||
+            !int.TryParse(id.AsSpan(0, id.Length - 1), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var count) || count <= 0) return false;
+        var unitTicks = id[^1] switch
+        {
+            's' => TimeSpan.TicksPerSecond,
+            'm' => TimeSpan.TicksPerMinute,
+            'h' => TimeSpan.TicksPerHour,
+            'd' => TimeSpan.TicksPerDay,
+            'w' => TimeSpan.TicksPerDay * 7,
+            _ => 0L
+        };
+        if (unitTicks == 0) return false;
+        try
+        {
+            var duration = TimeSpan.FromTicks(checked(unitTicks * count));
+            var demoCount = (int)Math.Clamp(TimeSpan.TicksPerDay / duration.Ticks, 30L, 1440L);
+            timeframe = new TimeframeDefinition(id, duration, demoCount);
+            return true;
+        }
+        catch (OverflowException) { return false; }
+    }
 
     public static TimeframeDefinition GetTimeframe(string id) =>
         TryGetTimeframe(id, out var timeframe)

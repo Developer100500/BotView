@@ -1,1 +1,1 @@
-global using OHLCV = ccxt.OHLCV;
+global using BotView.Models;

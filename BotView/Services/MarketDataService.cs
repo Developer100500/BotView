@@ -13,23 +13,25 @@ public sealed class MarketDataService : IMarketDataService
 {
     private readonly IExchangeService _exchangeService;
     private readonly CandleStore _store;
-    private readonly TimeSpan _pollInterval;
+    private readonly TimeSpan _reconnectDelay;
     private readonly Dictionary<CandleCacheKey, HashSet<MarketDataSubscription>> _subscriptions = new();
     private readonly Dictionary<CandleCacheKey, MarketDataSubscription[]> _subscriberSnapshots = new();
     private readonly Dictionary<CandleCacheKey, SemaphoreSlim> _keyLocks = new();
     private readonly Dictionary<CandleCacheKey, CancellationTokenSource> _realtimeLoops = new();
+    private readonly HashSet<Task> _workers = new();
     private readonly object _sync = new();
     private bool _isDisposed;
 
     /// <summary> Creates market data service backed by exchange service and shared candle store. </summary>
-    public MarketDataService(IExchangeService exchangeService, CandleStore? store = null, TimeSpan? pollInterval = null)
+    public MarketDataService(IExchangeService exchangeService, CandleStore? store = null, TimeSpan? reconnectDelay = null)
     {
         _exchangeService = exchangeService ?? throw new ArgumentNullException(nameof(exchangeService));
         _store = store ?? new CandleStore();
-        _pollInterval = pollInterval ?? TimeSpan.FromSeconds(5);
+        _reconnectDelay = reconnectDelay ?? TimeSpan.FromSeconds(5);
+        if (_reconnectDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(reconnectDelay));
     }
 
-    /// <summary> Subscribes to key and guarantees initial history is loaded. </summary>
+    /// <summary>The first subscriber loads initial history; later subscribers share that series and stream.</summary>
     public async Task<IMarketDataSubscription> SubscribeAsync(
         CandleCacheKey key,
         int initialHistory = 500,
@@ -68,7 +70,13 @@ public sealed class MarketDataService : IMarketDataService
                     _subscriptions[key] = subscribers;
                     var loopCts = new CancellationTokenSource();
                     _realtimeLoops[key] = loopCts;
-                    _ = Task.Run(() => RunRealtimeLoopAsync(key, loopCts.Token), loopCts.Token);
+                    var worker = Task.Run(() => RunRealtimeLoopAsync(key, loopCts.Token));
+                    _workers.Add(worker);
+                    _ = worker.ContinueWith(completed =>
+                    {
+                        loopCts.Dispose();
+                        lock (_sync) _workers.Remove(completed);
+                    }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 }
 
                 var created = new MarketDataSubscription(key, _store, RemoveSubscription);
@@ -102,7 +110,7 @@ public sealed class MarketDataService : IMarketDataService
 
         var keyLock = GetOrCreateKeyLock(key);
         await keyLock.WaitAsync(ct);
-        OHLCV[] addedBatch = Array.Empty<OHLCV>();
+        Candle[] addedBatch = Array.Empty<Candle>();
         int added = 0;
         try
         {
@@ -125,19 +133,17 @@ public sealed class MarketDataService : IMarketDataService
             }
             else
             {
-                var timeframeMs = GetTimeframeMilliseconds(key.Timeframe);
-                var since = Math.Max(0, oldestTimestamp.Value - (timeframeMs * count));
 
-                var fetched = await _exchangeService.FetchOHLCVAsync(
+                var fetched = await _exchangeService.GetCandlesAsync(
                     key.Exchange,
                     key.Symbol,
                     key.Timeframe,
-                    since,
+                    DateTimeOffset.FromUnixTimeMilliseconds(oldestTimestamp.Value),
                     count,
                     ct);
                 ct.ThrowIfCancellationRequested();
 
-                if (fetched != null && fetched.Count > 0)
+                if (fetched != null && fetched.Length > 0)
                 {
                     lock (_sync)
                     {
@@ -145,10 +151,9 @@ public sealed class MarketDataService : IMarketDataService
                         if (!_subscriptions.ContainsKey(key))
                             return 0;
                     }
-                    var converted = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe);
-                    var olderOnly = converted
-                        .Where(c => c.timestamp.GetValueOrDefault() < oldestTimestamp.Value)
-                        .OrderBy(c => c.timestamp.GetValueOrDefault())
+                    var olderOnly = fetched
+                        .Where(c => c.Timestamp < oldestTimestamp.Value)
+                        .OrderBy(c => c.Timestamp)
                         .ToArray();
 
                     if (olderOnly.Length > 0)
@@ -173,6 +178,7 @@ public sealed class MarketDataService : IMarketDataService
     public async ValueTask DisposeAsync()
     {
         CandleCacheKey[] keys;
+        Task[] workers;
         lock (_sync)
         {
             if (_isDisposed)
@@ -185,7 +191,6 @@ public sealed class MarketDataService : IMarketDataService
             foreach (var cts in _realtimeLoops.Values)
             {
                 cts.Cancel();
-                cts.Dispose();
             }
 
             _realtimeLoops.Clear();
@@ -196,8 +201,10 @@ public sealed class MarketDataService : IMarketDataService
             _subscriberSnapshots.Clear();
 
             keys = _keyLocks.Keys.ToArray();
+            workers = _workers.ToArray();
         }
 
+        await Task.WhenAll(workers).ConfigureAwait(false);
         // Wait for in-flight mutations before dropping the final store references.
         await Task.WhenAll(keys.Select(EvictWhenIdleAsync)).ConfigureAwait(false);
     }
@@ -221,7 +228,6 @@ public sealed class MarketDataService : IMarketDataService
             if (_realtimeLoops.TryGetValue(key, out var cts))
             {
                 cts.Cancel();
-                cts.Dispose();
                 _realtimeLoops.Remove(key);
             }
             // Eviction waits for any in-flight history mutation to finish.
@@ -250,92 +256,63 @@ public sealed class MarketDataService : IMarketDataService
             if (_subscriptions.ContainsKey(key))
                 return;
             _store.Clear(key);
-            _exchangeService.EvictCandlestickData(key.Exchange, key.Symbol, key.Timeframe, key.Limit);
+            _exchangeService.EvictCandlestickData(key.Exchange, key.Symbol, key.Timeframe);
         }
     }
 
-    /// <summary> Polls exchange for latest candles and raises subscription events. </summary>
+    /// <summary>Consumes the provider's snapshots; transport and polling belong to the adapter.</summary>
     private async Task RunRealtimeLoopAsync(CandleCacheKey key, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                // Fetch a small window so the previous live candle can receive its final values.
-                var fetched = await _exchangeService.FetchOHLCVAsync(
-                    key.Exchange,
-                    key.Symbol,
-                    key.Timeframe,
-                    since: null,
-                    limit: 3,
-                    ct: ct).ConfigureAwait(false);
-
-                if (fetched != null && fetched.Count > 0)
+                await foreach (var update in _exchangeService.WatchCandlesAsync(
+                    key.Exchange, key.Symbol, key.Timeframe, ct).WithCancellation(ct).ConfigureAwait(false))
                 {
-                    var recent = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
-                        .OrderBy(c => c.timestamp.GetValueOrDefault())
-                        .ToArray();
-                    var notifications = new List<(LiveCandleChange Change, OHLCV Closed, OHLCV Current)>();
-                    var keyLock = GetOrCreateKeyLock(key);
-                    await keyLock.WaitAsync(ct).ConfigureAwait(false);
+                    var notifications = new List<(bool Closed, Candle Candle)>();
+                    var gate = GetOrCreateKeyLock(key);
+                    await gate.WaitAsync(ct).ConfigureAwait(false);
                     try
                     {
-                        var beforeCatchUp = _store.GetSeries(key).GetSnapshot();
-                        var currentLive = beforeCatchUp.Live;
-                        if (currentLive.HasValue && recent.Length > 0 &&
-                            recent[^1].timestamp.GetValueOrDefault() - currentLive.Value.timestamp.GetValueOrDefault() >
-                            GetTimeframeMilliseconds(key.Timeframe) * recent.Length)
+                        ct.ThrowIfCancellationRequested();
+                        var snapshot = _store.GetSeries(key).GetSnapshot();
+                        var known = snapshot.Count > 0 ? snapshot[snapshot.Count - 1].Timestamp : (long?)null;
+                        var timeframeMs = GetTimeframeMilliseconds(key.Timeframe);
+                        if (known.HasValue && update.Candle.Timestamp > known.Value &&
+                            (snapshot.Live.HasValue || update.Candle.Timestamp - known.Value > timeframeMs))
                         {
-                            // Fill a gap larger than the recent polling window before publishing ticks.
-                            await EnsureRightEdgeCoreAsync(key, ct).ConfigureAwait(false);
-                            var afterCatchUp = _store.GetSeries(key).GetSnapshot();
-                            if (afterCatchUp.ClosedCount > beforeCatchUp.ClosedCount && afterCatchUp.Live.HasValue)
-                                notifications.Add((LiveCandleChange.Closed,
-                                    afterCatchUp[afterCatchUp.ClosedCount - 1], afterCatchUp.Live.Value));
+                            var closedBefore = snapshot.ClosedCount;
+                            await CatchUpBeforeAsync(key, known.Value, update.Candle.Timestamp, ct).ConfigureAwait(false);
+                            var after = _store.GetSeries(key).GetSnapshot();
+                            if (after.ClosedCount > closedBefore)
+                                notifications.Add((true, after[after.ClosedCount - 1]));
                         }
-                        foreach (var candle in recent)
+                        ct.ThrowIfCancellationRequested();
+                        var change = _store.UpdateLive(key, update.Candle, out var closed);
+                        if (change == LiveCandleChange.Closed) notifications.Add((true, closed));
+                        if (change != LiveCandleChange.Stale)
                         {
-                            ct.ThrowIfCancellationRequested();
-                            var change = _store.UpdateLive(key, candle, out var closed);
-                            if (change != LiveCandleChange.Stale)
-                                notifications.Add((change, closed, candle));
+                            if (update.IsClosed && _store.GetOrCreateSeries(key).FinalizeLive(update.Candle.Timestamp))
+                                notifications.Add((true, update.Candle));
+                            else notifications.Add((false, update.Candle));
                         }
                     }
-                    finally
+                    finally { gate.Release(); }
+                    foreach (var (closed, candle) in notifications)
                     {
-                        keyLock.Release();
-                    }
-
-
-                    // Subscriber callbacks run only after the series and key locks are released.
-                    foreach (var (change, closed, current) in notifications)
-                    {
-                        if (change == LiveCandleChange.Closed)
-                            RaiseCandleClosed(key, closed, current);
-                        else
-                            RaiseLiveCandleTicked(key, current);
+                        if (closed) RaiseCandleClosed(key, candle);
+                        else RaiseLiveCandleTicked(key, candle);
                     }
                 }
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                break;
-            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
-                // Keep polling after a transient fetch or conversion failure.
-                Debug.WriteLine($"Realtime loop error for {key.Symbol}: {ex.Message}");
+                Debug.WriteLine($"Market stream error for {key.Symbol}: {ex.Message}");
             }
-
-            try
-            {
-                // Pace requests and let cancellation stop the loop during the wait.
-                await Task.Delay(_pollInterval, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                break;
-            }
+            try { await Task.Delay(_reconnectDelay, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
         }
     }
 
@@ -346,8 +323,8 @@ public sealed class MarketDataService : IMarketDataService
         {
             await EnsureInitialHistoryCoreAsync(key, initialHistory, ct);
         }
-        else
-        {
+            else
+            {
             await EnsureRightEdgeCoreAsync(key, ct);
         }
     }
@@ -377,83 +354,41 @@ public sealed class MarketDataService : IMarketDataService
         _store.LoadInitial(key, initial);
     }
 
-    /// <summary> Catches cached history up to the newest closed candle and current live candle. </summary>
+    /// <summary>Brings a retained series up to date without replacing its existing history.</summary>
     private async Task EnsureRightEdgeCoreAsync(CandleCacheKey key, CancellationToken ct)
     {
         var snapshot = _store.GetSeries(key).GetSnapshot();
-        if (snapshot.Count == 0)
-            return;
-
+        if (snapshot.Count == 0) return;
+        var recent = await _exchangeService.GetCandlesAsync(key.Exchange, key.Symbol, key.Timeframe,
+            null, 3, ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
-        var latestFetched = await _exchangeService.FetchOHLCVAsync(
-            key.Exchange,
-            key.Symbol,
-            key.Timeframe,
-            since: null,
-            limit: 3,
-            ct: ct).ConfigureAwait(false);
-        ct.ThrowIfCancellationRequested();
-
-        if (latestFetched == null || latestFetched.Count == 0)
-        {
-            return;
-        }
-
-        var latestCandles = CandlestickDataConverter.ConvertFromCCXT(latestFetched, key.Timeframe)
-            .OrderBy(c => c.timestamp.GetValueOrDefault()).ToArray();
-        var latest = latestCandles[^1];
-        if (snapshot.Live.HasValue && snapshot.Live.Value.timestamp.GetValueOrDefault() >= latest.timestamp.GetValueOrDefault())
-        {
-            _store.UpdateLive(key, latest, out _);
-            return;
-        }
-
-        var timeframeMs = GetTimeframeMilliseconds(key.Timeframe);
-        var pageLimit = Math.Max(2, key.Limit);
-        var since = snapshot.Live?.timestamp.GetValueOrDefault()
-            ?? (snapshot.NewestClosedTimestamp ?? 0) + timeframeMs;
-
-        while (!ct.IsCancellationRequested)
-        {
-            var fetched = await _exchangeService.FetchOHLCVAsync(
-                key.Exchange,
-                key.Symbol,
-                key.Timeframe,
-                since,
-                pageLimit,
-                ct).ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-
-            if (fetched == null || fetched.Count == 0)
-            {
-                break;
-            }
-
-            var candles = CandlestickDataConverter.ConvertFromCCXT(fetched, key.Timeframe)
-                .Where(c => c.timestamp.GetValueOrDefault() >= since && c.timestamp.GetValueOrDefault() <= latest.timestamp.GetValueOrDefault())
-                .OrderBy(c => c.timestamp.GetValueOrDefault())
-                .ToArray();
-
-            if (candles.Length == 0)
-                break;
-
-            foreach (var candle in candles)
-                _store.UpdateLive(key, candle, out _);
-
-            var last = candles[^1];
-            if (last.timestamp.GetValueOrDefault() >= latest.timestamp.GetValueOrDefault())
-                break;
-            since = last.timestamp.GetValueOrDefault() + timeframeMs;
-
-            if (candles.Length < pageLimit)
-                break;
-        }
-
-        foreach (var candle in latestCandles)
-            _store.UpdateLive(key, candle, out _);
+        if (recent.Length == 0) return;
+        var known = snapshot[snapshot.Count - 1].Timestamp;
+        await CatchUpBeforeAsync(key, known, recent[^1].Timestamp, ct).ConfigureAwait(false);
+        foreach (var candle in recent) _store.UpdateLive(key, candle, out _);
     }
 
-    /// <summary> Returns existing semaphore for key or creates a new one. </summary>
+    /// <summary>Walks backwards to the known right edge. Trading breaks are not missing bars.</summary>
+    private async Task CatchUpBeforeAsync(CandleCacheKey key, long knownTimestamp, long beforeExclusive, CancellationToken ct)
+    {
+        if (beforeExclusive <= knownTimestamp) return;
+        var collected = new SortedDictionary<long, Candle>();
+        var before = beforeExclusive;
+        while (before > knownTimestamp)
+        {
+            var candles = await _exchangeService.GetCandlesAsync(key.Exchange, key.Symbol, key.Timeframe,
+                DateTimeOffset.FromUnixTimeMilliseconds(before), CandleSeries.CandleChunkSize, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            var earlier = candles.Where(c => c.Timestamp < before).OrderBy(c => c.Timestamp).ToArray();
+            if (earlier.Length == 0) break;
+            foreach (var candle in earlier.Where(c => c.Timestamp >= knownTimestamp))
+                collected[candle.Timestamp] = candle;
+            before = earlier[0].Timestamp;
+        }
+        ct.ThrowIfCancellationRequested();
+        foreach (var candle in collected.Values) _store.UpdateLive(key, candle, out _);
+    }
+
     private SemaphoreSlim GetOrCreateKeyLock(CandleCacheKey key)
     {
         lock (_sync)
@@ -481,7 +416,7 @@ public sealed class MarketDataService : IMarketDataService
     }
 
     /// <summary> Raises OlderCandlesLoaded event for active subscription when available. </summary>
-    private void RaiseOlderCandlesLoaded(CandleCacheKey key, OHLCV[] candles)
+    private void RaiseOlderCandlesLoaded(CandleCacheKey key, Candle[] candles)
     {
         foreach (var subscriber in GetSubscriptions(key))
         {
@@ -496,7 +431,7 @@ public sealed class MarketDataService : IMarketDataService
         }
     }
 
-    private void RaiseLiveCandleTicked(CandleCacheKey key, OHLCV candle)
+    private void RaiseLiveCandleTicked(CandleCacheKey key, Candle candle)
     {
         foreach (var subscriber in GetSubscriptions(key))
         {
@@ -511,13 +446,13 @@ public sealed class MarketDataService : IMarketDataService
         }
     }
 
-    private void RaiseCandleClosed(CandleCacheKey key, OHLCV closed, OHLCV next)
+    private void RaiseCandleClosed(CandleCacheKey key, Candle closed)
     {
         foreach (var subscriber in GetSubscriptions(key))
         {
             try
             {
-                subscriber.RaiseCandleClosed(closed, next);
+                subscriber.RaiseCandleClosed(closed);
             }
             catch (Exception ex)
             {
@@ -557,6 +492,7 @@ public sealed class MarketDataService : IMarketDataService
     /// <summary> Converts timeframe string into milliseconds duration. </summary>
     private static long GetTimeframeMilliseconds(string timeframe)
     {
-        return (long)MarketCatalog.GetTimeframe(timeframe).Duration.TotalMilliseconds;
+        return MarketCatalog.TryGetTimeframe(timeframe, out var definition)
+            ? (long)definition!.Duration.TotalMilliseconds : 0;
     }
 }

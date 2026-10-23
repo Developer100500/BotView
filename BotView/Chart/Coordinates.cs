@@ -34,7 +34,7 @@ public struct Coordinates
 
 /// <summary>
 /// Координаты в виде цены и времени (Chart Coordinates)
-/// Используются для позиционирования свечек согласно OHLCV данным
+/// Используются для позиционирования свечек согласно Candle данным
 /// </summary>
 public struct ChartCoordinates
 {

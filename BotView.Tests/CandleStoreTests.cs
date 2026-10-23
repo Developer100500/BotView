@@ -12,7 +12,7 @@ namespace BotView.Tests
         {
             var store = new CandleStore();
             var key = CreateKey("BTC/USDT");
-            var candles = new List<OHLCV>
+            var candles = new List<Candle>
             {
                 CreateCandle(1000),
                 CreateCandle(2000),
@@ -93,8 +93,8 @@ namespace BotView.Tests
             var result = store.GetRange(key, 2000, 3000);
 
             Assert.Equal(2, result.Count);
-            Assert.Equal(2000, result[0].timestamp.GetValueOrDefault());
-            Assert.Equal(3000, result[1].timestamp.GetValueOrDefault());
+            Assert.Equal(2000, result[0].Timestamp);
+            Assert.Equal(3000, result[1].Timestamp);
         }
 
         /// <summary> Возвращает пустой список, когда границы диапазона некорректны. </summary>
@@ -147,13 +147,13 @@ namespace BotView.Tests
         /// <summary> Создает единый ключ серии для тестов. </summary>
         private static CandleCacheKey CreateKey(string symbol)
         {
-            return new CandleCacheKey("Binance", symbol, "1m", 500);
+            return new CandleCacheKey("Binance", symbol, "1m");
         }
 
         /// <summary> Создает свечу с заданным timestamp и предсказуемыми значениями. </summary>
-        private static OHLCV CreateCandle(long timestamp)
+        private static Candle CreateCandle(long timestamp)
         {
-            return new OHLCV { timestamp = timestamp, open = 1, high = 2, low = 0.5, close = 1.5, volume = 10 };
+            return new Candle { Timestamp = timestamp, Open = 1, High = 2, Low = 0.5, Close = 1.5, Volume = 10 };
         }
     }
 }

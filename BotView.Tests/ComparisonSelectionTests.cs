@@ -241,7 +241,7 @@ public sealed class ComparisonSelectionTests
     private static Mock<IMarketDataSubscription> Subscription(string symbol, string timeframe)
     {
         var mock = new Mock<IMarketDataSubscription>();
-        mock.SetupGet(x => x.Key).Returns(new CandleCacheKey("binance", symbol, timeframe, 250));
+        mock.SetupGet(x => x.Key).Returns(new CandleCacheKey("binance", symbol, timeframe));
         mock.SetupGet(x => x.Series).Returns(new CandleSeries());
         return mock;
     }
@@ -254,6 +254,6 @@ public sealed class ComparisonSelectionTests
     }
 
     /// <summary>Creates a candle at UTC time with all prices set to close.</summary>
-    private static OHLCV Candle(DateTime time, double close) =>
-        new OHLCV { timestamp = ComparisonSeriesMath.ToUnixMilliseconds(time), open = close, high = close, low = close, close = close, volume = 1 };
+    private static Candle Candle(DateTime time, double close) =>
+        new Candle { Timestamp = ComparisonSeriesMath.ToUnixMilliseconds(time), Open = close, High = close, Low = close, Close = close, Volume = 1 };
 }

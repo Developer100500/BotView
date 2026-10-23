@@ -1,4 +1,4 @@
-﻿using System.Configuration;
+using System.Configuration;
 using System.Data;
 using System.Windows;
 using System.Collections.Generic;
@@ -6,6 +6,7 @@ using System.Net.Http;
 using BotView.Configuration;
 using BotView.Services;
 using BotView.Interfaces;
+using BotView.Services.Providers;
 
 namespace BotView
 {
@@ -59,6 +60,7 @@ namespace BotView
 
                 // Создание ExchangeService с настройками из конфигурации и логгером
                 ExchangeService = new ExchangeService(
+                    CcxtMarketDataProvider.CreateDefaults(RealtimePollInterval),
                     logger: ExchangeLogger,
                     cacheExpirationMinutes: cacheSettings.ExpirationMinutes,
                     maxRetryAttempts: connectionSettings.MaxRetryAttempts,
@@ -67,7 +69,7 @@ namespace BotView
                 dataProvider.SetExchangeService(ExchangeService);
 
                 var candleStore = new CandleStore();
-                MarketDataService = new MarketDataService(ExchangeService, candleStore, RealtimePollInterval);
+                MarketDataService = new MarketDataService(ExchangeService, candleStore);
                 QuoteProvider = new YahooFinanceQuoteProvider(QuoteHttpClient);
                 CoinInfoProvider = new CoinGeckoInfoProvider(CoinInfoHttpClient,
                     Environment.GetEnvironmentVariable("COINGECKO_DEMO_API_KEY"));
@@ -104,6 +106,8 @@ namespace BotView
             {
                 MarketDataService.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
+            if (ExchangeService != null)
+                ExchangeService.DisposeAsync().AsTask().GetAwaiter().GetResult();
             QuoteHttpClient.Dispose();
             CoinInfoHttpClient.Dispose();
             

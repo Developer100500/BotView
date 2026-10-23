@@ -19,16 +19,16 @@ public enum LiveCandleChange
 public readonly struct CandleSeriesSnapshot
 {
     // Fixed index of block references captured when this snapshot was created; the last block is Forward.
-    private readonly OHLCV[][] _blocks;
+    private readonly Candle[][] _blocks;
     // Global starting index of each block; the last entry equals the number of candles in sealed blocks.
     private readonly int[] _prefixCounts;
     // Number of closed candles in Forward when this snapshot was created.
     private readonly int _forwardClosedCount;
     // Value copy of the current live candle, so later ticks cannot change this snapshot.
-    private readonly OHLCV? _live;
+    private readonly Candle? _live;
 
     /// <summary>Combines a published block index with the Forward state captured under the series lock.</summary>
-    internal CandleSeriesSnapshot(OHLCV[][] blocks, int[] prefixCounts, int forwardClosedCount, OHLCV? live)
+    internal CandleSeriesSnapshot(Candle[][] blocks, int[] prefixCounts, int forwardClosedCount, Candle? live)
     {
         _blocks = blocks;
         _prefixCounts = prefixCounts;
@@ -39,12 +39,12 @@ public readonly struct CandleSeriesSnapshot
     public int Count => (_prefixCounts?.Length > 0 ? _prefixCounts[^1] : 0)
         + _forwardClosedCount + (_live.HasValue ? 1 : 0);
     public int ClosedCount => Count - (_live.HasValue ? 1 : 0);
-    public OHLCV? Live => _live;
-    public long? OldestTimestamp => Count > 0 ? this[0].timestamp.GetValueOrDefault() : null;
-    public long? NewestClosedTimestamp => ClosedCount > 0 ? this[ClosedCount - 1].timestamp.GetValueOrDefault() : null;
+    public Candle? Live => _live;
+    public long? OldestTimestamp => Count > 0 ? this[0].Timestamp : null;
+    public long? NewestClosedTimestamp => ClosedCount > 0 ? this[ClosedCount - 1].Timestamp : null;
 
     /// <summary>Reads a candle by its index across sealed blocks, Forward, and the live value.</summary>
-    public OHLCV this[int index]
+    public Candle this[int index]
     {
         get
         {
@@ -67,7 +67,7 @@ public readonly struct CandleSeriesSnapshot
     }
 
     /// <summary>Enumerates candles in an inclusive time range with their global indexes.</summary>
-    public IEnumerable<(int Index, OHLCV Candle)> Enumerate(long fromTimestamp, long toTimestamp)
+    public IEnumerable<(int Index, Candle Candle)> Enumerate(long fromTimestamp, long toTimestamp)
     {
         if (fromTimestamp > toTimestamp || _blocks == null)
             yield break;
@@ -78,7 +78,7 @@ public readonly struct CandleSeriesSnapshot
         while (first < end)
         {
             int middle = first + (end - first) / 2;
-            if (_blocks[middle][^1].timestamp.GetValueOrDefault() < fromTimestamp)
+            if (_blocks[middle][^1].Timestamp < fromTimestamp)
                 first = middle + 1;
             else
                 end = middle;
@@ -89,26 +89,26 @@ public readonly struct CandleSeriesSnapshot
         {
             // Forward has spare capacity, so only its closed slots can be read from the array.
             int length = block == _blocks.Length - 1 ? _forwardClosedCount : _blocks[block].Length;
-            if (length == 0 || _blocks[block][length - 1].timestamp.GetValueOrDefault() < fromTimestamp)
+            if (length == 0 || _blocks[block][length - 1].Timestamp < fromTimestamp)
                 continue;
-            if (_blocks[block][0].timestamp.GetValueOrDefault() > toTimestamp)
+            if (_blocks[block][0].Timestamp > toTimestamp)
                 yield break;
 
             int baseIndex = _prefixCounts[block];
             for (int i = 0; i < length; i++)
             {
                 var candle = _blocks[block][i];
-                if (candle.timestamp.GetValueOrDefault() >= fromTimestamp && candle.timestamp.GetValueOrDefault() <= toTimestamp)
+                if (candle.Timestamp >= fromTimestamp && candle.Timestamp <= toTimestamp)
                     yield return (baseIndex + i, candle);
             }
         }
 
         // Forward's live slot is read from the snapshot copy, not from the mutable array.
-        if (_live.HasValue && _live.Value.timestamp.GetValueOrDefault() >= fromTimestamp && _live.Value.timestamp.GetValueOrDefault() <= toTimestamp)
+        if (_live.HasValue && _live.Value.Timestamp >= fromTimestamp && _live.Value.Timestamp <= toTimestamp)
             yield return (Count - 1, _live.Value);
     }
 
-    internal OHLCV[][] BlockReferences => _blocks;
+    internal Candle[][] BlockReferences => _blocks;
 }
 
 /// <summary>Stores one market series in immutable closed blocks and one mutable forward block.</summary>
@@ -120,9 +120,9 @@ public sealed class CandleSeries : ICandleSeriesReader
     // Protects block changes, Forward writes, and snapshot capture.
     private readonly object _sync = new();
     // Blocks in time order; the last array is the active Forward block.
-    private readonly List<OHLCV[]> _blocks = new() { new OHLCV[CandleChunkSize] };
+    private readonly List<Candle[]> _blocks = new() { new Candle[CandleChunkSize] };
     // Published array of block references, rebuilt only when the block list changes.
-    private OHLCV[][] _publishedBlocks = Array.Empty<OHLCV[]>();
+    private Candle[][] _publishedBlocks = Array.Empty<Candle[]>();
     // Starting global index of each published block, including Forward.
     private int[] _prefixCounts = Array.Empty<int>();
     // Number of closed candles in Forward; its live candle occupies the next slot.
@@ -139,17 +139,17 @@ public sealed class CandleSeries : ICandleSeriesReader
         lock (_sync)
         {
             // The published indexes are reused; only the mutable live value is copied here.
-            var live = _hasLive ? _blocks[^1][_forwardClosedCount] : (OHLCV?)null;
+            var live = _hasLive ? _blocks[^1][_forwardClosedCount] : (Candle?)null;
             return new CandleSeriesSnapshot(_publishedBlocks, _prefixCounts, _forwardClosedCount, live);
         }
     }
 
     /// <summary>Replaces the series with sorted, deduplicated candles; the newest candle becomes live.</summary>
-    public void LoadInitial(IEnumerable<OHLCV>? candles)
+    public void LoadInitial(IEnumerable<Candle>? candles)
     {
         // Keep the last value for each timestamp before splitting the batch into blocks.
-        var ordered = (candles ?? Array.Empty<OHLCV>()).OrderBy(c => c.timestamp.GetValueOrDefault())
-            .GroupBy(c => c.timestamp.GetValueOrDefault()).Select(g => g.Last()).ToArray();
+        var ordered = (candles ?? Array.Empty<Candle>()).OrderBy(c => c.Timestamp)
+            .GroupBy(c => c.Timestamp).Select(g => g.Last()).ToArray();
         lock (_sync)
         {
             _blocks.Clear();
@@ -157,7 +157,7 @@ public sealed class CandleSeries : ICandleSeriesReader
             _hasLive = false;
             // All but the newest candle become immutable closed blocks.
             AddSealedBlocks(ordered.AsSpan(0, Math.Max(0, ordered.Length - 1)), atFront: false);
-            _blocks.Add(new OHLCV[CandleChunkSize]);
+            _blocks.Add(new Candle[CandleChunkSize]);
             if (ordered.Length > 0)
             {
                 _blocks[^1][0] = ordered[^1];
@@ -169,20 +169,20 @@ public sealed class CandleSeries : ICandleSeriesReader
     }
 
     /// <summary>Prepends only candles older than the series and returns the number accepted.</summary>
-    public int PrependHistory(IEnumerable<OHLCV>? older)
+    public int PrependHistory(IEnumerable<Candle>? older)
         => PrependHistory(older, out _);
 
     /// <summary>Prepends older candles and returns the exact accepted batch for notifications.</summary>
-    public int PrependHistory(IEnumerable<OHLCV>? older, out OHLCV[] addedCandles)
+    public int PrependHistory(IEnumerable<Candle>? older, out Candle[] addedCandles)
     {
-        var ordered = (older ?? Array.Empty<OHLCV>()).OrderBy(c => c.timestamp.GetValueOrDefault())
-            .GroupBy(c => c.timestamp.GetValueOrDefault()).Select(g => g.Last()).ToArray();
+        var ordered = (older ?? Array.Empty<Candle>()).OrderBy(c => c.Timestamp)
+            .GroupBy(c => c.Timestamp).Select(g => g.Last()).ToArray();
         lock (_sync)
         {
             // Reject overlap with the current oldest candle, including duplicates.
             var oldest = GetOldestTimestampUnsafe();
             var accepted = oldest.HasValue
-                ? ordered.Where(c => c.timestamp.GetValueOrDefault() < oldest.Value).ToArray()
+                ? ordered.Where(c => c.Timestamp < oldest.Value).ToArray()
                 : ordered;
             addedCandles = accepted;
             if (accepted.Length == 0)
@@ -195,10 +195,10 @@ public sealed class CandleSeries : ICandleSeriesReader
     }
 
     /// <summary>Appends missing closed candles while preserving any later live candle.</summary>
-    public int AppendClosed(IEnumerable<OHLCV>? newer)
+    public int AppendClosed(IEnumerable<Candle>? newer)
     {
-        var ordered = (newer ?? Array.Empty<OHLCV>()).OrderBy(c => c.timestamp.GetValueOrDefault())
-            .GroupBy(c => c.timestamp.GetValueOrDefault()).Select(g => g.Last()).ToArray();
+        var ordered = (newer ?? Array.Empty<Candle>()).OrderBy(c => c.Timestamp)
+            .GroupBy(c => c.Timestamp).Select(g => g.Last()).ToArray();
         lock (_sync)
         {
             int added = 0;
@@ -206,11 +206,11 @@ public sealed class CandleSeries : ICandleSeriesReader
             {
                 // A catch-up candle must be newer than closed data but older than the live candle.
                 var newest = GetNewestClosedTimestampUnsafe();
-                if (newest.HasValue && candle.timestamp.GetValueOrDefault() <= newest.Value)
+                if (newest.HasValue && candle.Timestamp <= newest.Value)
                     continue;
-                if (_hasLive && candle.timestamp.GetValueOrDefault() >= _blocks[^1][_forwardClosedCount].timestamp.GetValueOrDefault())
+                if (_hasLive && candle.Timestamp >= _blocks[^1][_forwardClosedCount].Timestamp)
                     continue;
-                OHLCV live = default;
+                Candle live = default;
                 bool hadLive = _hasLive;
                 // Make room before live; appending may also seal a full Forward block.
                 if (hadLive)
@@ -231,7 +231,7 @@ public sealed class CandleSeries : ICandleSeriesReader
     }
 
     /// <summary>Replaces the live slot or closes it and opens the next slot when time advances.</summary>
-    public LiveCandleChange UpdateLive(OHLCV updated, out OHLCV closed)
+    public LiveCandleChange UpdateLive(Candle updated, out Candle closed)
     {
         lock (_sync)
         {
@@ -241,11 +241,11 @@ public sealed class CandleSeries : ICandleSeriesReader
             {
                 // Start a live candle only after the newest closed timestamp.
                 var newest = GetNewestClosedTimestampUnsafe();
-                if (newest.HasValue && updated.timestamp.GetValueOrDefault() <= newest.Value)
+                if (newest.HasValue && updated.Timestamp <= newest.Value)
                     return LiveCandleChange.Stale;
                 if (_forwardClosedCount == CandleChunkSize)
                 {
-                    _blocks.Add(new OHLCV[CandleChunkSize]);
+                    _blocks.Add(new Candle[CandleChunkSize]);
                     _forwardClosedCount = 0;
                     PublishBlockIndex();
                     forward = _blocks[^1];
@@ -256,9 +256,9 @@ public sealed class CandleSeries : ICandleSeriesReader
             }
 
             var current = forward[_forwardClosedCount];
-            if (updated.timestamp.GetValueOrDefault() < current.timestamp.GetValueOrDefault())
+            if (updated.Timestamp < current.Timestamp)
                 return LiveCandleChange.Stale;
-            if (updated.timestamp.GetValueOrDefault() == current.timestamp.GetValueOrDefault())
+            if (updated.Timestamp == current.Timestamp)
             {
                 // A tick changes only the current Forward slot; block indexes stay unchanged.
                 forward[_forwardClosedCount] = updated;
@@ -271,7 +271,7 @@ public sealed class CandleSeries : ICandleSeriesReader
             if (_forwardClosedCount == CandleChunkSize)
             {
                 // The filled array stays in the list by reference; allocate only a new Forward.
-                _blocks.Add(new OHLCV[CandleChunkSize]);
+                _blocks.Add(new Candle[CandleChunkSize]);
                 _forwardClosedCount = 0;
                 PublishBlockIndex();
             }
@@ -280,14 +280,27 @@ public sealed class CandleSeries : ICandleSeriesReader
         }
     }
 
+    /// <summary>Seals the live bar on a provider's explicit close, even during a trading break.</summary>
+    public bool FinalizeLive(long timestamp)
+    {
+        lock (_sync)
+        {
+            if (!_hasLive || _blocks[^1][_forwardClosedCount].Timestamp != timestamp) return false;
+            var candle = _blocks[^1][_forwardClosedCount];
+            _hasLive = false;
+            AppendClosedUnsafe(candle);
+            return true;
+        }
+    }
+
     /// <summary>Appends one closed candle and rolls a full Forward block without copying it; caller holds the lock.</summary>
-    private void AppendClosedUnsafe(OHLCV candle)
+    private void AppendClosedUnsafe(Candle candle)
     {
         _blocks[^1][_forwardClosedCount++] = candle;
         if (_forwardClosedCount == CandleChunkSize)
         {
             // Keep the filled array as a sealed block and start an empty Forward.
-            _blocks.Add(new OHLCV[CandleChunkSize]);
+            _blocks.Add(new Candle[CandleChunkSize]);
             _forwardClosedCount = 0;
             PublishBlockIndex();
         }
@@ -298,24 +311,24 @@ public sealed class CandleSeries : ICandleSeriesReader
     {
         foreach (var block in _blocks)
             if (block != _blocks[^1] && block.Length > 0)
-                return block[0].timestamp.GetValueOrDefault();
+                return block[0].Timestamp;
         if (_forwardClosedCount > 0)
-            return _blocks[^1][0].timestamp.GetValueOrDefault();
-        return _hasLive ? _blocks[^1][0].timestamp.GetValueOrDefault() : null;
+            return _blocks[^1][0].Timestamp;
+        return _hasLive ? _blocks[^1][0].Timestamp : null;
     }
 
     /// <summary>Finds the last closed candle in Forward or a sealed block; caller holds the lock.</summary>
     private long? GetNewestClosedTimestampUnsafe()
     {
         if (_forwardClosedCount > 0)
-            return _blocks[^1][_forwardClosedCount - 1].timestamp.GetValueOrDefault();
-        return _blocks.Count > 1 ? _blocks[^2][^1].timestamp.GetValueOrDefault() : null;
+            return _blocks[^1][_forwardClosedCount - 1].Timestamp;
+        return _blocks.Count > 1 ? _blocks[^2][^1].Timestamp : null;
     }
 
     /// <summary>Splits candles into sealed arrays and inserts their references at the chosen end.</summary>
-    private void AddSealedBlocks(ReadOnlySpan<OHLCV> candles, bool atFront)
+    private void AddSealedBlocks(ReadOnlySpan<Candle> candles, bool atFront)
     {
-        var blocks = new List<OHLCV[]>();
+        var blocks = new List<Candle[]>();
         // The final sealed block may be shorter than CandleChunkSize.
         for (int offset = 0; offset < candles.Length; offset += CandleChunkSize)
             blocks.Add(candles.Slice(offset, Math.Min(CandleChunkSize, candles.Length - offset)).ToArray());

@@ -256,7 +256,7 @@ public class ChartView : FrameworkElement
 	public void BeginToolCreation(TechnicalAnalysisToolType type) => Controller.BeginToolCreation(type);
 	public Task SetSymbolAsync(string symbol) => Controller.SetSymbolAsync(symbol);
 	public void SaveTools() => Controller.SaveTools();
-	public void SetCandles(OHLCV[] candles, string timeframe) => Controller.SetCandles(candles, timeframe);
+	public void SetCandles(Candle[] candles, string timeframe) => Controller.SetCandles(candles, timeframe);
 	public void SetSeries(ICandleSeriesReader series, string timeframe) => Controller.SetSeries(series, timeframe);
 	public void OnHistoryExtended() => Controller.OnHistoryExtended();
 	public void OnLiveCandleUpdated() => Controller.OnLiveCandleUpdated();

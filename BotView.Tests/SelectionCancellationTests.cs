@@ -29,7 +29,7 @@ public sealed class SelectionCancellationTests
 
         var oldSubscription = new Mock<IMarketDataSubscription>();
         oldSubscription.SetupGet(x => x.Key)
-            .Returns(new CandleCacheKey("binance", "BTC/USDT", "1d", CandleSeries.CandleChunkSize));
+            .Returns(new CandleCacheKey("binance", "BTC/USDT", "1d"));
         oldSubscription.SetupGet(x => x.Series).Returns(new CandleSeries());
         var marketData = new Mock<IMarketDataService>();
         marketData.Setup(x => x.SubscribeAsync(It.IsAny<CandleCacheKey>(), It.IsAny<int>(),

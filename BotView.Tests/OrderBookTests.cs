@@ -1,3 +1,4 @@
+using BotView.Services.Providers;
 using System.Collections;
 using System.IO;
 using System.Threading.Channels;
@@ -352,7 +353,8 @@ public sealed class OrderBookTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
         var service = new OrderBookService();
         await using var subscription = await service.SubscribeAsync(exchange, "BTC/USDT", timeout.Token);
-        var candles = new ExchangeService(maxRetryAttempts: 1).FetchOHLCVAsync(exchange, "BTC/USDT", "1m", null, 5, timeout.Token);
+        await using var candleService = new ExchangeService(CcxtMarketDataProvider.CreateDefaults(), maxRetryAttempts: 1);
+        var candles = candleService.GetCandlesAsync(exchange, "BTC/USDT", "1m", null, 5, timeout.Token);
         var lastStatus = "Подключение…";
         try
         {

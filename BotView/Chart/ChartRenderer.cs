@@ -157,7 +157,7 @@ public class ChartRenderer
 		{
 			foreach (var (_, candle) in snapshot.Enumerate(anchor.Timestamp, end))
 			{
-				double projected = ComparisonSeriesMath.ToPrimaryPrice(candle.close.GetValueOrDefault(), anchor);
+				double projected = ComparisonSeriesMath.ToPrimaryPrice(candle.Close, anchor);
 				if (!double.IsFinite(projected) || projected <= 0)
 				{
 					DrawSmoothSegment(context, points);
@@ -166,15 +166,15 @@ public class ChartRenderer
 					continue;
 				}
 				if (previousTimestamp != 0 &&
-					!ComparisonSeriesMath.IsContinuous(previousTimestamp, candle.timestamp.GetValueOrDefault(), timeframe))
+					!ComparisonSeriesMath.IsContinuous(previousTimestamp, candle.Timestamp, timeframe))
 				{
 					DrawSmoothSegment(context, points);
 					points.Clear();
 				}
 				var time = candle.GetDateTime();
 				points.Add(new Point(frame.Transform.TimeToViewX(time), frame.Transform.PriceToViewY(projected)));
-				previousTimestamp = candle.timestamp.GetValueOrDefault();
-				lastVisibleClose = candle.close.GetValueOrDefault();
+				previousTimestamp = candle.Timestamp;
+				lastVisibleClose = candle.Close;
 			}
 			DrawSmoothSegment(context, points);
 		}
@@ -185,10 +185,10 @@ public class ChartRenderer
 			: string.Empty;
 		var legend = CreateLabelText($"Compare · {frame.ComparisonSymbol}{value}", Brushes.MediumPurple, 11);
 		context.DrawText(legend, new Point(frame.Left + 8, frame.Top + 5));
-		if (snapshot.Count > 0 && snapshot[snapshot.Count - 1].timestamp.GetValueOrDefault() >= anchor.Timestamp &&
-			snapshot[snapshot.Count - 1].timestamp.GetValueOrDefault() <= end)
+		if (snapshot.Count > 0 && snapshot[snapshot.Count - 1].Timestamp >= anchor.Timestamp &&
+			snapshot[snapshot.Count - 1].Timestamp <= end)
 		{
-			double last = ComparisonSeriesMath.ToPrimaryPrice(snapshot[snapshot.Count - 1].close.GetValueOrDefault(), anchor);
+			double last = ComparisonSeriesMath.ToPrimaryPrice(snapshot[snapshot.Count - 1].Close, anchor);
 			if (double.IsFinite(last) && last >= frame.Viewport.minPrice && last <= frame.Viewport.maxPrice)
 				DrawPriceScaleLabel(context, frame, last, Brushes.MediumPurple);
 		}
@@ -262,10 +262,10 @@ public class ChartRenderer
 			long toTimestamp = new DateTimeOffset(DateTime.SpecifyKind(viewportMaxTime, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
 			foreach (var (i, candle) in candles.Enumerate(fromTimestamp, toTimestamp))
 			{
-				if (candle.low.GetValueOrDefault() > viewportMaxPrice || candle.high.GetValueOrDefault() < viewportMinPrice)
+				if (candle.Low > viewportMaxPrice || candle.High < viewportMinPrice)
 					continue;
 
-				DateTime candleTime = candle.timestamp.GetValueOrDefault() > 0 ? candle.GetDateTime() : frame.GetCandleTime(i);
+				DateTime candleTime = candle.Timestamp > 0 ? candle.GetDateTime() : frame.GetCandleTime(i);
 				if (candleTime < viewportMinTime || candleTime > viewportMaxTime)
 					continue;
 
@@ -275,12 +275,12 @@ public class ChartRenderer
 				if (candleRight < viewportLeft || candleLeft > viewportRight)
 					continue;
 
-				double highY = frame.Transform.PriceToViewY(candle.high.GetValueOrDefault());
-				double lowY = frame.Transform.PriceToViewY(candle.low.GetValueOrDefault());
-				double openY = frame.Transform.PriceToViewY(candle.open.GetValueOrDefault());
-				double closeY = frame.Transform.PriceToViewY(candle.close.GetValueOrDefault());
+				double highY = frame.Transform.PriceToViewY(candle.High);
+				double lowY = frame.Transform.PriceToViewY(candle.Low);
+				double openY = frame.Transform.PriceToViewY(candle.Open);
+				double closeY = frame.Transform.PriceToViewY(candle.Close);
 
-				bool isBullish = candle.close.GetValueOrDefault() > candle.open.GetValueOrDefault();
+				bool isBullish = candle.Close > candle.Open;
 				Brush bodyBrush = isBullish ? Brushes.LightGreen : Brushes.LightCoral;
 				Pen bodyPen = isBullish ? BullishBodyPen : BearishBodyPen;
 
@@ -383,8 +383,8 @@ public class ChartRenderer
 			return;
 
 		int lastIndex = candles.Count - 1;
-		OHLCV currentCandle = candles[lastIndex];
-		double currentPrice = currentCandle.close.GetValueOrDefault();
+		Candle currentCandle = candles[lastIndex];
+		double currentPrice = currentCandle.Close;
 		if (!double.IsFinite(currentPrice) ||
 			currentPrice < frame.Viewport.minPrice ||
 			currentPrice > frame.Viewport.maxPrice)
@@ -392,7 +392,7 @@ public class ChartRenderer
 			return;
 		}
 
-		DateTime candleTime = currentCandle.timestamp.GetValueOrDefault() > 0
+		DateTime candleTime = currentCandle.Timestamp > 0
 			? currentCandle.GetDateTime()
 			: frame.GetCandleTime(lastIndex);
 		double priceY = frame.Transform.PriceToViewY(currentPrice);
@@ -401,7 +401,7 @@ public class ChartRenderer
 		double candleRight = candleX + frame.CandleWidthPixels / 2;
 		double lineStartX = Math.Max(frame.Left, candleRight);
 
-		Brush indicatorBrush = currentCandle.close.GetValueOrDefault() >= currentCandle.open.GetValueOrDefault()
+		Brush indicatorBrush = currentCandle.Close >= currentCandle.Open
 			? Brushes.Green
 			: Brushes.Red;
 
@@ -455,9 +455,9 @@ public class ChartRenderer
 	private bool TryGetCurrentPriceLabelRect(ChartRenderFrame frame, out Rect labelRect)
 	{
 		var candles = frame.Candles;
-		if (candles.Count > 0 && IsPriceVisible(frame, candles[candles.Count - 1].close.GetValueOrDefault()))
+		if (candles.Count > 0 && IsPriceVisible(frame, candles[candles.Count - 1].Close))
 		{
-			labelRect = GetPriceScaleLabelRect(frame, candles[candles.Count - 1].close.GetValueOrDefault());
+			labelRect = GetPriceScaleLabelRect(frame, candles[candles.Count - 1].Close);
 			return true;
 		}
 

@@ -238,10 +238,10 @@ public partial class ChartController : INotifyPropertyChanged
 		state.TimeRangeInViewport = ParseTimeframe(state.Timeframe) * 100;
 		var last = candles[candles.Count - 1];
 		state.WorldOriginTime = candles[0].GetDateTime();
-		state.WorldOriginPrice = last.close.GetValueOrDefault();
+		state.WorldOriginPrice = last.Close;
 		var center = last.GetDateTime().Subtract(TimeSpan.FromTicks(state.TimeRangeInViewport.Ticks / 2));
 		state.CameraPosition = new Coordinates((center - state.WorldOriginTime).TotalSeconds, 0);
-		state.PriceRangeInViewport = Math.Clamp(Math.Abs(last.close.GetValueOrDefault()) * 0.20, 1e-8, 1000000);
+		state.PriceRangeInViewport = Math.Clamp(Math.Abs(last.Close) * 0.20, 1e-8, 1000000);
 		state.IsInitialized = true;
 		UpdateViewportFromCamera();
 	}
@@ -561,10 +561,10 @@ public partial class ChartController : INotifyPropertyChanged
 	// === PUBLIC API METHODS ===
 
 	///<summary> Устанавливает новые данные свечей </summary>
-	public void SetCandles(OHLCV[] candles, string timeframe)
+	public void SetCandles(Candle[] candles, string timeframe)
 	{
 		var series = new CandleSeries();
-		series.LoadInitial(candles ?? Array.Empty<OHLCV>());
+		series.LoadInitial(candles ?? Array.Empty<Candle>());
 		SetSeries(series, timeframe);
 	}
 
@@ -647,7 +647,7 @@ public partial class ChartController : INotifyPropertyChanged
 		DateTime lastCandleTime = candles[candles.Count - 1].GetDateTime();
 		TimeSpan halfRange = TimeSpan.FromTicks(state.TimeRangeInViewport.Ticks / 2);
 		DateTime centerTime = lastCandleTime.Subtract(halfRange);
-		double centerPrice = candles[candles.Count - 1].close.GetValueOrDefault();
+		double centerPrice = candles[candles.Count - 1].Close;
 
 		ChartCoordinates centerChart = new ChartCoordinates(centerTime, centerPrice);
 		state.CameraPosition = ChartToWorld(centerChart);
@@ -668,7 +668,7 @@ public partial class ChartController : INotifyPropertyChanged
 		if (candles.Count == 0)
 			return;
 
-		double currentPrice = candles[candles.Count - 1].close.GetValueOrDefault();
+		double currentPrice = candles[candles.Count - 1].Close;
 		if (!double.IsFinite(currentPrice) || Math.Abs(currentPrice) < double.Epsilon)
 			return;
 
@@ -733,7 +733,7 @@ public partial class ChartController : INotifyPropertyChanged
 		double targetOffsetSeconds = halfViewportSeconds - candleHalfWidthSeconds;
 
 		var lastCandle = candles[lastIndex];
-		Coordinates lastCandleWorld = ChartToWorld(new ChartCoordinates(lastCandleTime, lastCandle.close.GetValueOrDefault()));
+		Coordinates lastCandleWorld = ChartToWorld(new ChartCoordinates(lastCandleTime, lastCandle.Close));
 
 		state.CameraPosition = new Coordinates(
 			lastCandleWorld.x - targetOffsetSeconds,
@@ -747,7 +747,7 @@ public partial class ChartController : INotifyPropertyChanged
 
 	/// <summary>
 	/// Получает время свечи на основе индекса и timeframe
-	/// Uses timestamp from OHLCV data when available, falls back to calculation for backward compatibility
+	/// Uses timestamp from Candle data when available, falls back to calculation for backward compatibility
 	/// </summary>
 	public DateTime GetCandleTime(int candleIndex) =>
 		CandleTime.Get(state.Series.GetSnapshot(), candleIndex, ParseTimeframe(state.Timeframe));

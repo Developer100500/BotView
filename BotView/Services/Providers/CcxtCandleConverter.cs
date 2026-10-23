@@ -4,13 +4,13 @@ using System.Linq;
 using BotView.Models;
 using BotView.Exceptions;
 
-namespace BotView.Services
+namespace BotView.Services.Providers
 {
-    /// <summary>Validates CCXT candle batches and adapts legacy object rows to the same CCXT type.</summary>
-    public static class CandlestickDataConverter
+    /// <summary>Converts CCXT data into application candle values at the provider boundary.</summary>
+    public static class CcxtCandleConverter
     {
         /// <summary>Copies a validated CCXT batch to an array, preserving the existing fallback for missing numeric values.</summary>
-        public static OHLCV[] ConvertFromCCXT(List<ccxt.OHLCV> ccxtData, string timeframe)
+        public static Candle[] ConvertFromCCXT(List<ccxt.OHLCV> ccxtData, string timeframe)
         {
 			if (ccxtData == null || ccxtData.Count == 0)
 			{
@@ -24,7 +24,7 @@ namespace BotView.Services
 
 			try
             {
-				var candles = new OHLCV[ccxtData.Count];
+				var candles = new Candle[ccxtData.Count];
 
 				for (int i = 0; i < ccxtData.Count; i++)
 				{
@@ -40,8 +40,8 @@ namespace BotView.Services
 					bool valid =
 						timestamp > 0 &&
 						high >= low &&
-						open >= 0 && high >= 0 &&
-						low >= 0 && close >= 0 &&
+						double.IsFinite(open) && double.IsFinite(high) &&
+                        double.IsFinite(low) && double.IsFinite(close) && double.IsFinite(volume) &&
 						volume >= 0;
 
 					if (!valid)
@@ -49,10 +49,10 @@ namespace BotView.Services
 							$"Invalid candle data at index {i}", DataConversionErrorType.InvalidFormat, i
 					    );
 
-					candles[i] = new OHLCV { timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume };
+					candles[i] = new Candle { Timestamp = timestamp, Open = open, High = high, Low = low, Close = close, Volume = volume };
 				}
 
-				//ValidateEndpointTimestamps(candles);
+				ValidateEndpointTimestamps(candles);
 				return candles;
 			}
             catch (DataConversionException)
@@ -67,7 +67,7 @@ namespace BotView.Services
         }
 
         /// <summary>Converts legacy CCXT object rows to typed CCXT candles.</summary>
-        public static OHLCV[] ConvertFromCCXT(object[][] ccxtData, string timeframe)
+        public static Candle[] ConvertFromCCXT(object[][] ccxtData, string timeframe)
         {
             try
             {
@@ -86,7 +86,7 @@ namespace BotView.Services
                     throw new DataConversionException("Invalid CCXT data format", DataConversionErrorType.InvalidFormat);
                 }
 
-                var candles = new OHLCV[ccxtData.Length];
+                var candles = new Candle[ccxtData.Length];
                 for (int i = 0; i < ccxtData.Length; i++)
                 {
                     try
@@ -115,7 +115,7 @@ namespace BotView.Services
         }
 
         // Keep the timestamp validation previously performed when constructing batch time bounds.
-        private static void ValidateEndpointTimestamps(OHLCV[] candles)
+        private static void ValidateEndpointTimestamps(Candle[] candles)
         {
             if (candles.Length == 0)
                 return;
@@ -123,8 +123,8 @@ namespace BotView.Services
             _ = candles[^1].GetDateTime();
         }
 
-        /// <summary> Converts a single CCXT candle row to OHLCV. </summary>
-        public static OHLCV ConvertCCXTCandle(object[] candleData)
+        /// <summary> Converts a single CCXT candle row to Candle. </summary>
+        public static Candle ConvertCCXTCandle(object[] candleData)
         {
             if (candleData == null)
             {
@@ -157,9 +157,9 @@ namespace BotView.Services
                         DataConversionErrorType.InvalidPriceData);
                 }
 
-                if (open < 0 || high < 0 || low < 0 || close < 0)
+                if (!double.IsFinite(open) || !double.IsFinite(high) || !double.IsFinite(low) || !double.IsFinite(close) || !double.IsFinite(volume))
                 {
-                    throw new DataConversionException("Invalid price data: prices cannot be negative",
+                    throw new DataConversionException("Candle values must be finite",
                         DataConversionErrorType.InvalidPriceData);
                 }
 
@@ -169,7 +169,7 @@ namespace BotView.Services
                         DataConversionErrorType.InvalidVolume);
                 }
 
-                return new OHLCV { timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume };
+                return new Candle { Timestamp = timestamp, Open = open, High = high, Low = low, Close = close, Volume = volume };
             }
             catch (InvalidCastException ex)
             {
@@ -235,7 +235,7 @@ namespace BotView.Services
 
                 return timestamp > 0 &&
                        high >= low &&
-                       open >= 0 && high >= 0 && low >= 0 && close >= 0 &&
+                       double.IsFinite(open) && double.IsFinite(high) && double.IsFinite(low) && double.IsFinite(close) && double.IsFinite(volume) &&
                        volume >= 0;
             }
             catch

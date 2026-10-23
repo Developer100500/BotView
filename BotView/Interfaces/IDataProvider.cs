@@ -6,9 +6,9 @@ namespace BotView.Interfaces
     public interface IDataProvider
     {
         /// <summary> Loads candlestick data from the configured exchange service. </summary>
-        Task<OHLCV[]?> LoadDataAsync(string exchange, string symbol, string timeframe, int limit = 500);
+        Task<Candle[]?> LoadDataAsync(string exchange, string symbol, string timeframe, int limit = 500);
 
         /// <summary> Loads generated demo candlestick data for the specified timeframe. </summary>
-        OHLCV[] LoadDemoData(string timeframe);
+        Candle[] LoadDemoData(string timeframe);
     }
 }
