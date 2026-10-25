@@ -63,7 +63,32 @@ namespace BotView.Services
                 }
 
                 symbols.Add(normalizedSymbol);
-                symbols.Sort(StringComparer.OrdinalIgnoreCase);
+                //symbols.Sort(StringComparer.OrdinalIgnoreCase);
+                SaveDocument(document);
+            }
+        }
+
+        public void SetOrder(string exchange, IEnumerable<string> symbols)
+        {
+            string exchangeKey = NormalizeExchange(exchange);
+            var ordered = symbols
+                .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+                .Select(NormalizeSymbol)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            lock (_syncRoot)
+            {
+                var document = LoadDocument();
+                if (ordered.Count == 0)
+                {
+                    document.Exchanges.Remove(exchangeKey);
+                }
+                else
+                {
+                    document.Exchanges[exchangeKey] = ordered;
+                }
+
                 SaveDocument(document);
             }
         }
@@ -120,7 +145,7 @@ namespace BotView.Services
                     .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
                     .Select(NormalizeSymbol)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
+                    //.OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
                     .ToList();
             }
 

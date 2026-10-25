@@ -1,13 +1,15 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using BotView.Chart;
 using BotView.Chart.TechnicalAnalysis;
 using BotView.Database;
 using BotView.Models;
 using BotView.Services;
 using BotView.ViewModels;
+using System.Windows.Threading;
 
 namespace BotView
 {
@@ -15,9 +17,11 @@ namespace BotView
     public partial class MainWindow : Window
     {
         private readonly MainWindowViewModel _viewModel;
-        private readonly System.Windows.Threading.DispatcherTimer _renderTimeUpdateTimer;
-        private readonly System.Windows.Threading.DispatcherTimer _quoteUpdateTimer;
+        private readonly DispatcherTimer _renderTimeUpdateTimer;
+        private readonly DispatcherTimer _quoteUpdateTimer;
         private ContextMenu? _pairContextMenu;
+        private Point _favoriteDragStart;
+        private TradingPairModel? _draggedFavorite;
         private readonly Dictionary<(string Exchange, string Symbol), Views.OrderBookWindow> _orderBooks = new();
         private readonly List<Task> _orderBookCleanup = new();
 
@@ -204,6 +208,104 @@ namespace BotView
                 _viewModel.SelectSearchResultCommand.Execute(symbol);
                 e.Handled = true;
             }
+        }
+
+        private void lstTradingPairs_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _draggedFavorite = null;
+            if (e.OriginalSource is not DependencyObject source || FindAncestor<Button>(source) != null)
+            {
+                return;
+            }
+
+            var item = ItemsControl.ContainerFromElement(lstTradingPairs, source) as ListBoxItem;
+            if (item?.DataContext is not TradingPairModel pair)
+            {
+                return;
+            }
+
+            _favoriteDragStart = e.GetPosition(null);
+            _draggedFavorite = pair;
+        }
+
+        private void lstTradingPairs_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || _draggedFavorite is null)
+            {
+                return;
+            }
+
+            Point position = e.GetPosition(null);
+            if (Math.Abs(position.Y - _favoriteDragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            TradingPairModel dragged = _draggedFavorite;
+            _draggedFavorite = null;
+            DragDrop.DoDragDrop(lstTradingPairs, dragged, DragDropEffects.Move);
+        }
+
+        private void lstTradingPairs_DragOver(object sender, DragEventArgs e)
+        {
+            e.Effects = e.Data.GetDataPresent(typeof(TradingPairModel))
+                ? DragDropEffects.Move
+                : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void lstTradingPairs_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetData(typeof(TradingPairModel)) is not TradingPairModel dragged)
+            {
+                return;
+            }
+
+            int oldIndex = _viewModel.favTradingPairs.IndexOf(dragged);
+            if (oldIndex < 0)
+            {
+                return;
+            }
+
+            int insertIndex = _viewModel.favTradingPairs.Count;
+            if (e.OriginalSource is DependencyObject source &&
+                ItemsControl.ContainerFromElement(lstTradingPairs, source) is ListBoxItem container &&
+                container.DataContext is TradingPairModel target)
+            {
+                insertIndex = _viewModel.favTradingPairs.IndexOf(target);
+                if (e.GetPosition(container).Y > container.ActualHeight / 2)
+                {
+                    insertIndex++;
+                }
+            }
+
+            if (oldIndex < insertIndex)
+            {
+                insertIndex--;
+            }
+
+            insertIndex = Math.Clamp(insertIndex, 0, _viewModel.favTradingPairs.Count - 1);
+            if (oldIndex != insertIndex)
+            {
+                _viewModel.MoveFavorite(oldIndex, insertIndex);
+            }
+
+            e.Handled = true;
+        }
+
+        private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
+        {
+            while (current != null)
+            {
+                if (current is T match)
+                {
+                    return match;
+                }
+
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            return null;
         }
 
         private void Pair_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)

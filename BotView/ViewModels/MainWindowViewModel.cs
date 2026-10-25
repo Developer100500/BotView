@@ -111,7 +111,7 @@ namespace BotView.ViewModels
             Timeframes = new ObservableCollection<string>(
                 _exchangeDefinitions.First(d => d.Id == _selectedExchange).SupportedTimeframes);
 
-            TradingPairs = new ObservableCollection<TradingPairModel>();
+            favTradingPairs = new ObservableCollection<TradingPairModel>();
             SearchResults = new ObservableCollection<string>();
             ComparisonSearchResults = new ObservableCollection<string>();
 
@@ -146,7 +146,7 @@ namespace BotView.ViewModels
 
         public ObservableCollection<ExchangeOption> Exchanges { get; }
         public ObservableCollection<string> Timeframes { get; }
-        public ObservableCollection<TradingPairModel> TradingPairs { get; }
+        public ObservableCollection<TradingPairModel> favTradingPairs { get; }
         public ObservableCollection<string> SearchResults { get; }
         public ObservableCollection<string> ComparisonSearchResults { get; }
         public FuturesQuoteViewModel? FuturesQuote { get; }
@@ -576,15 +576,12 @@ namespace BotView.ViewModels
         {
             try
             {
-                _favoriteSymbols = _favoritePairsStore
-                    .GetFavorites(SelectedExchange)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                TradingPairs.Clear();
-                foreach (var symbol in _favoriteSymbols.OrderBy(
-                             value => value,
-                             StringComparer.OrdinalIgnoreCase))
+                favTradingPairs.Clear();
+                _favoriteSymbols = _favoritePairsStore.GetFavorites(SelectedExchange)
+                                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (string symbol in _favoriteSymbols)
                 {
-                    TradingPairs.Add(new TradingPairModel(symbol));
+                    favTradingPairs.Add(new TradingPairModel(symbol));
                 }
 
                 OnPropertyChanged(nameof(IsCurrentPairFavorite));
@@ -619,6 +616,29 @@ namespace BotView.ViewModels
                 ErrorOccurred?.Invoke(
                     "Ошибка избранного",
                     $"Не удалось сохранить избранное.\n\n{ex.Message}");
+            }
+        }
+
+        /// <summary>Moves a favorite to a new index and stores that order for the selected exchange.</summary>
+        public void MoveFavorite(int oldIndex, int newIndex)
+        {
+            if (oldIndex < 0 || newIndex < 0 ||
+                oldIndex >= favTradingPairs.Count || newIndex >= favTradingPairs.Count ||
+                oldIndex == newIndex)
+            {
+                return;
+            }
+
+            favTradingPairs.Move(oldIndex, newIndex);
+            try
+            {
+                _favoritePairsStore.SetOrder(SelectedExchange, favTradingPairs.Select(pair => pair.Symbol));
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(
+                    "Ошибка избранного",
+                    $"Не удалось сохранить порядок избранного.\n\n{ex.Message}");
             }
         }
 
