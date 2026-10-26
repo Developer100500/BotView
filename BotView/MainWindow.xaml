@@ -1,4 +1,4 @@
-<Window x:Class="BotView.MainWindow"
+﻿<Window x:Class="BotView.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -461,9 +461,14 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
-                                    <ListBox Name="lstTradingPairs" ItemsSource="{Binding TradingPairs}"
-  SelectedValuePath="Symbol" SelectedValue="{Binding SelectedSymbol, Mode=TwoWay}"
-  Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextPrimaryBrush}">
+                                    <ListBox Name="lstTradingPairs" ItemsSource="{Binding favTradingPairs}"
+                                            SelectedValuePath="Symbol" SelectedValue="{Binding SelectedSymbol, Mode=TwoWay}"
+                                            Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextPrimaryBrush}"
+                                            AllowDrop="True"
+                                            PreviewMouseLeftButtonDown="lstTradingPairs_PreviewMouseLeftButtonDown"
+                                            PreviewMouseMove="lstTradingPairs_PreviewMouseMove"
+                                            DragOver="lstTradingPairs_DragOver"
+                                            Drop="lstTradingPairs_Drop">
                                         <ListBox.ItemContainerStyle>
                                             <Style TargetType="ListBoxItem">
                                                 <EventSetter Event="PreviewMouseRightButtonDown" Handler="Pair_PreviewMouseRightButtonDown"/>
@@ -489,10 +494,10 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                                                     <TextBlock Text="★" Foreground="#FBBF24" Margin="0,0,8,0"/>
                                                     <TextBlock Grid.Column="1" Text="{Binding Symbol}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                     <Button Grid.Column="2" Content="×" Width="25" Height="25" Padding="0" Margin="5,0,0,0"
-                 Background="Transparent" Foreground="#475569"
-                 BorderThickness="0" Cursor="Hand" ToolTip="Удалить из избранного"
-                 Command="{Binding DataContext.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                 CommandParameter="{Binding}"/>
+                                                        Background="Transparent" Foreground="#475569"
+                                                        BorderThickness="0" Cursor="Hand" ToolTip="Удалить из избранного"
+                                                        Command="{Binding DataContext.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
                                                 </Grid>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
