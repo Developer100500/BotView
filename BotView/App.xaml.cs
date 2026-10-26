@@ -21,6 +21,9 @@ namespace BotView
         public static IQuoteProvider QuoteProvider { get; private set; } = null!;
         public static ICoinInfoProvider CoinInfoProvider { get; private set; } = null!;
         public static IOrderBookService OrderBookService { get; } = new OrderBookService();
+        public static ITradingAccountStore TradingAccounts { get; } = new TradingAccountStore();
+        public static ICredentialStore TradingCredentials { get; } = new InMemoryCredentialStore();
+        public static IAccountConnectionVerifier AccountVerifier { get; } = new AccountConnectionVerifier();
         private static readonly HttpClient QuoteHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
         private static readonly HttpClient CoinInfoHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         public static TimeSpan RealtimePollInterval { get; set; } = TimeSpan.FromSeconds(1);
@@ -100,6 +103,7 @@ namespace BotView
 
         protected override void OnExit(ExitEventArgs e)
         {
+            TradingCredentials.Dispose();
             // Логирование завершения приложения
             System.Diagnostics.Debug.WriteLine("Application shutting down");
 

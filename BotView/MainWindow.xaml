@@ -259,10 +259,13 @@
                     </Popup>
 
                 </Grid>
-                <Button Grid.Column="4" Style="{StaticResource FavoriteButtonStyle}"
+                <StackPanel Grid.Column="4" VerticalAlignment="Bottom">
+                <Button Content="Торговые счета" Click="OpenTradingAccounts" Padding="10,4" Margin="0,0,0,5"/>
+                <Button Style="{StaticResource FavoriteButtonStyle}"
                         Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}"
                         Content="{Binding FavoriteActionText}" Command="{Binding ToggleFavoriteCommand}"
                         ToolTip="{Binding FavoritesFilePath}" VerticalAlignment="Bottom"/>
+                </StackPanel>
             </Grid>
         </Border>
 

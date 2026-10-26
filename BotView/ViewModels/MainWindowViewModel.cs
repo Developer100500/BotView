@@ -181,7 +181,7 @@ namespace BotView.ViewModels
                 OnPropertyChanged(nameof(FavoriteActionText));
                 if (_isReady)
                 {
-                    if (IsInstrumentCatalogMode) TradingPairs.Clear();
+                    if (IsInstrumentCatalogMode) favTradingPairs.Clear();
                     else LoadFavoriteTradingPairs();
                     _ = MarketMovers.SetExchangeAsync(_selectedExchange);
                 }

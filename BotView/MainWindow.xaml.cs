@@ -24,6 +24,7 @@ namespace BotView
         private TradingPairModel? _draggedFavorite;
         private readonly Dictionary<(string Exchange, string Symbol), Views.OrderBookWindow> _orderBooks = new();
         private readonly List<Task> _orderBookCleanup = new();
+        private Views.TradingAccountsWindow? _tradingAccountsWindow;
 
         public MainWindow()
         {
@@ -74,6 +75,20 @@ namespace BotView
             chartView.VisibleTimeRangeChanged += _viewModel.RequestComparisonHistory;
             chartView.AddIndicator(new Chart.IndicatorPane.RSIIndicator());
             Loaded += MainWindow_Loaded;
+        }
+
+        private void OpenTradingAccounts(object sender, RoutedEventArgs e)
+        {
+            if (_tradingAccountsWindow is not null)
+            {
+                if (_tradingAccountsWindow.WindowState == WindowState.Minimized) _tradingAccountsWindow.WindowState = WindowState.Normal;
+                _tradingAccountsWindow.Activate();
+                return;
+            }
+            var window = new Views.TradingAccountsWindow(App.TradingAccounts, App.TradingCredentials, App.AccountVerifier) { Owner = this };
+            _tradingAccountsWindow = window;
+            window.Closed += (_, _) => _tradingAccountsWindow = null;
+            window.Show();
         }
 
         /// <summary>Connects view model updates to the chart through the UI dispatcher and rejects stale series versions.</summary>
