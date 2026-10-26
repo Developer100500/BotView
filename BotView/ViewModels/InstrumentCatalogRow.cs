@@ -9,9 +9,9 @@ public sealed record InstrumentCatalogRow(Instrument Instrument)
     public string ClassCode => Instrument.Key.Board;
     public string Type => Instrument.Key.Market switch
     {
-        "shares" => "Акции",
-        "bonds" => "Облигации",
-        "futures" => "Фьючерсы",
+        "shares" => "Shares",
+        "bonds" => "Bonds",
+        "futures" => "Futures",
         _ => Instrument.Key.Market
     };
     public decimal? LotSize => Instrument.LotSize > 0 ? Instrument.LotSize : null;

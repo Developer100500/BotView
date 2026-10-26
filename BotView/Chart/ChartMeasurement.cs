@@ -88,10 +88,10 @@ internal static class MeasurementMath
     public static string FormatDuration(TimeSpan duration)
     {
         var parts = new List<string>();
-        if (duration.Days != 0) parts.Add($"{duration.Days} д");
-        if (duration.Hours != 0) parts.Add($"{duration.Hours} ч");
-        if (duration.Minutes != 0) parts.Add($"{duration.Minutes} мин");
-        if (duration.Seconds != 0) parts.Add($"{duration.Seconds} с");
-        return parts.Count == 0 ? "0 с" : string.Join(" ", parts);
+        if (duration.Days != 0) parts.Add($"{duration.Days} d");
+        if (duration.Hours != 0) parts.Add($"{duration.Hours} h");
+        if (duration.Minutes != 0) parts.Add($"{duration.Minutes} min");
+        if (duration.Seconds != 0) parts.Add($"{duration.Seconds} s");
+        return parts.Count == 0 ? "0 s" : string.Join(" ", parts);
     }
 }

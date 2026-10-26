@@ -35,7 +35,7 @@
                 <TextBlock Text="{Binding Symbol}" FontSize="19" FontWeight="SemiBold"/>
                 <TextBlock Text="{Binding Exchange}" Foreground="#94A3B8"/>
             </StackPanel>
-            <Button Grid.Column="1" Content="К рынку" Command="{Binding CenterCommand}" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="Center on market" Command="{Binding CenterCommand}" VerticalAlignment="Center"/>
         </Grid>
         <StackPanel Grid.Row="1">
         <Grid Margin="0,0,0,8">
@@ -43,7 +43,7 @@
             
             <TextBlock Grid.Column="1" Text="{Binding StepText}" VerticalAlignment="Center" Margin="4,0,8,0" FontSize="11"/>
             <ComboBox Grid.Column="2" ItemsSource="{Binding Multipliers}" SelectedItem="{Binding Multiplier}" VerticalContentAlignment="Center"
-                      ToolTip="Множитель биржевого шага цены">
+                      ToolTip="Exchange price step multiplier">
                 <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding StringFormat=×{0}}"/></DataTemplate></ComboBox.ItemTemplate>
             </ComboBox>
         </Grid>
@@ -54,10 +54,10 @@
                 <TextBlock Text="{Binding MaxVolumeHeader}" FontSize="10" Margin="0,0,0,2"/>
                 <ComboBox x:Name="VolumeCurrencySelector" ItemsSource="{Binding VolumeCurrencyOptions}"
                           SelectedValuePath="Currency" DisplayMemberPath="Label" SelectedValue="{Binding VolumeCurrency}"
-                          MinHeight="24" VerticalContentAlignment="Center" ToolTip="Валюта расчета полос объема и порога заполнения"/>
+                          MinHeight="24" VerticalContentAlignment="Center" ToolTip="Currency used for volume bars and the fill threshold"/>
             </StackPanel>
             <TextBox x:Name="MaxVolumeInput" Grid.Column="1" Text="{Binding MaxVolumeText, UpdateSourceTrigger=PropertyChanged}"
-                     VerticalAlignment="Center" ToolTip="Объем в выбранной валюте для полной ширины полосы. Пустое поле — автоматический масштаб.">
+                     VerticalAlignment="Center" ToolTip="Volume in the selected currency for a full-width bar. Leave blank for automatic scaling.">
                 <TextBox.Style>
                     <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                         <Style.Triggers>
@@ -75,16 +75,16 @@
         <Grid Grid.Row="2" Background="#182235" Height="26">
             <Grid.ColumnDefinitions><ColumnDefinition Width="34*"/><ColumnDefinition Width="34*"/><ColumnDefinition Width="32*"/></Grid.ColumnDefinitions>
             <TextBlock Text="{Binding BaseHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
-            <TextBlock Grid.Column="1" Text="Цена" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+            <TextBlock Grid.Column="1" Text="Price" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
             <TextBlock Grid.Column="2" Text="{Binding QuoteHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
         </Grid>
-        <local:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Колесо — прокрутка цен. Клик — выбор цены заявки. «—» — вне загруженной глубины; объем неизвестен."/>
+        <local:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Scroll to browse prices. Click to select an order price. An em dash means the level is outside the loaded depth; volume is unknown."/>
         <TextBlock Grid.Row="4" Text="{Binding StatusText}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap" MaxHeight="44" Margin="0,6"/>
         <Grid Grid.Row="5">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
-            <TextBlock Text="Цена заявки" Foreground="#94A3B8" FontSize="11"/>
-            <TextBlock Grid.Column="2" Text="Объем" Foreground="#94A3B8" FontSize="11"/>
+            <TextBlock Text="Order price" Foreground="#94A3B8" FontSize="11"/>
+            <TextBlock Grid.Column="2" Text="Volume" Foreground="#94A3B8" FontSize="11"/>
             <TextBox x:Name="PriceInput" Grid.Row="1" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
             <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
             <Button Grid.Row="2" Content="Buy" Command="{Binding BuyCommand}" Background="#22613B"/>

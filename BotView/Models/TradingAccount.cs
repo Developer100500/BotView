@@ -7,7 +7,7 @@ public enum TradingEnvironment { Testnet, Production }
 
 public sealed record TradingAccountProfile(Guid Id, string Name, string Exchange, TradingEnvironment Environment)
 {
-    public string DisplayName => $"{Name} · {Exchange} · {(Environment == TradingEnvironment.Testnet ? "Testnet" : "Основная сеть")}";
+    public string DisplayName => $"{Name} · {Exchange} · {(Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet")}";
 }
 
 public sealed record TradingAccountsSettings(

@@ -6,19 +6,19 @@ public sealed partial class MainWindowViewModel
 {
     private IReadOnlyList<Instrument> _catalogInstruments = [];
     private IReadOnlyList<InstrumentCatalogRow> _catalogRows = [];
-    private string _selectedCatalogCategory = "Все";
+    private string _selectedCatalogCategory = "All";
     private string _catalogErrorText = "";
     private bool _isCatalogLoading;
 
     public bool IsInstrumentCatalogMode =>
         _exchangeDefinitions.FirstOrDefault(d => d.Id == SelectedExchange)?.SupportedTimeframes.Count == 0;
     public bool IsChartMode => !IsInstrumentCatalogMode;
-    public string SearchPlaceholder => IsInstrumentCatalogMode ? "Поиск по тикеру или названию" : "Поиск пары, например BTC/USDT";
+    public string SearchPlaceholder => IsInstrumentCatalogMode ? "Search by ticker or name" : "Search for a pair, e.g. BTC/USDT";
     public bool IsBlockingBusy => IsBusy && IsChartMode;
-    public IReadOnlyList<string> CatalogCategories { get; } = ["Все", "Акции", "Облигации", "Фьючерсы"];
+    public IReadOnlyList<string> CatalogCategories { get; } = ["All", "Shares", "Bonds", "Futures"];
     public RelayCommand RefreshCatalogCommand { get; }
     public IReadOnlyList<InstrumentCatalogRow> CatalogRows => _catalogRows;
-    public string CatalogCountText => $"Найдено: {_catalogRows.Count} из {_catalogInstruments.Count}";
+    public string CatalogCountText => $"Found: {_catalogRows.Count} of {_catalogInstruments.Count}";
     public string CatalogErrorText
     {
         get => _catalogErrorText;
@@ -53,7 +53,7 @@ public sealed partial class MainWindowViewModel
     {
         _catalogInstruments = [];
         _catalogRows = [];
-        _selectedCatalogCategory = "Все";
+        _selectedCatalogCategory = "All";
         CatalogErrorText = "";
         IsCatalogLoading = false;
         OnPropertyChanged(nameof(SelectedCatalogCategory));
@@ -65,7 +65,7 @@ public sealed partial class MainWindowViewModel
     {
         var query = SearchText.Trim();
         _catalogRows = _catalogInstruments.Select(i => new InstrumentCatalogRow(i))
-            .Where(row => (SelectedCatalogCategory == "Все" || row.Type == SelectedCatalogCategory) &&
+            .Where(row => (SelectedCatalogCategory == "All" || row.Type == SelectedCatalogCategory) &&
                 (query.Length == 0 || row.Ticker.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                  row.Name.Contains(query, StringComparison.OrdinalIgnoreCase)))
             .ToArray();

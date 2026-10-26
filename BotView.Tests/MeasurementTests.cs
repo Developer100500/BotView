@@ -46,7 +46,7 @@ public sealed class MeasurementTests
         Assert.Null(same.Percent);
         Assert.Contains("—", same.PriceText);
         Assert.Equal(0, same.Bars);
-        Assert.Equal("0 bars, 0 с", same.TimeText);
+        Assert.Equal("0 bars, 0 s", same.TimeText);
     }
 
     /// <summary>Verifies snaps to nearest candle with earlier ties and clamped edges.</summary>
@@ -62,10 +62,10 @@ public sealed class MeasurementTests
 
     /// <summary>Checks that a duration of seconds formats as expected without zero components.</summary>
     [Theory]
-    [InlineData(0, "0 с")]
-    [InlineData(3600, "1 ч")]
-    [InlineData(172920, "2 д 2 мин")]
-    [InlineData(10820, "3 ч 20 с")]
+    [InlineData(0, "0 s")]
+    [InlineData(3600, "1 h")]
+    [InlineData(172920, "2 d 2 min")]
+    [InlineData(10820, "3 h 20 s")]
     public void FormatsDurationWithoutZeroComponents(int seconds, string expected) =>
         Assert.Equal(expected, MeasurementMath.FormatDuration(TimeSpan.FromSeconds(seconds)));
 

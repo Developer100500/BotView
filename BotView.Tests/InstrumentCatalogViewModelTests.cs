@@ -14,9 +14,9 @@ public sealed class InstrumentCatalogViewModelTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private static readonly Instrument[] Instruments =
     [
-        new(new("MOEX", "shares", "TQBR", "SBER"), "TQBR:SBER", "Сбербанк", LotSize: 10, PriceStep: 0.01m),
-        new(new("MOEX", "bonds", "TQOB", "SU26238RMFS4"), "TQOB:SU26238RMFS4", "ОФЗ 26238"),
-        new(new("MOEX", "futures", "SPBFUT", "SiZ6"), "SPBFUT:SiZ6", "Доллар декабрь")
+        new(new("MOEX", "shares", "TQBR", "SBER"), "TQBR:SBER", "Sberbank", LotSize: 10, PriceStep: 0.01m),
+        new(new("MOEX", "bonds", "TQOB", "SU26238RMFS4"), "TQOB:SU26238RMFS4", "OFZ 26238"),
+        new(new("MOEX", "futures", "SPBFUT", "SiZ6"), "SPBFUT:SiZ6", "Dollar December")
     ];
 
     [Fact]
@@ -38,17 +38,17 @@ public sealed class InstrumentCatalogViewModelTests
         Assert.Null(vm.CurrentSeries);
         Assert.Empty(errors);
         Assert.Equal(3, vm.CatalogRows.Count);
-        Assert.Equal("Все", vm.SelectedCatalogCategory);
-        vm.SelectedCatalogCategory = "Облигации";
+        Assert.Equal("All", vm.SelectedCatalogCategory);
+        vm.SelectedCatalogCategory = "Bonds";
         Assert.Equal("SU26238RMFS4", Assert.Single(vm.CatalogRows).Ticker);
-        vm.SelectedCatalogCategory = "Все";
-        vm.SearchText = "сБеР";
+        vm.SelectedCatalogCategory = "All";
+        vm.SearchText = "sBeR";
         Assert.Equal("SBER", Assert.Single(vm.CatalogRows).Ticker);
         vm.SearchText = "siz6";
-        Assert.Equal("Фьючерсы", Assert.Single(vm.CatalogRows).Type);
-        vm.SearchText = "не существует";
+        Assert.Equal("Futures", Assert.Single(vm.CatalogRows).Type);
+        vm.SearchText = "does not exist";
         Assert.Empty(vm.CatalogRows);
-        Assert.Equal("Найдено: 0 из 3", vm.CatalogCountText);
+        Assert.Equal("Found: 0 of 3", vm.CatalogCountText);
         vm.IsSearchDropdownOpen = true;
         Assert.False(vm.IsSearchDropdownOpen);
         Assert.Equal(1, provider.Requests);
@@ -67,13 +67,13 @@ public sealed class InstrumentCatalogViewModelTests
         vm.ErrorOccurred += (_, _) => modalErrors++;
         await vm.StartAsync();
         var original = vm.CatalogRows;
-        provider.Load = _ => throw new TimeoutException("QUIK недоступен");
+        provider.Load = _ => throw new TimeoutException("QUIK unavailable");
 
         await vm.RefreshCatalogAsync();
 
         Assert.Same(original, vm.CatalogRows);
-        Assert.Contains("Список не обновлён", vm.CatalogErrorText);
-        Assert.Contains("QUIK недоступен", vm.CatalogErrorText);
+        Assert.Contains("List was not refreshed", vm.CatalogErrorText);
+        Assert.Contains("QUIK unavailable", vm.CatalogErrorText);
         Assert.Equal(0, modalErrors);
         Assert.False(vm.IsCatalogLoading);
         provider.Load = _ => Task.FromResult<IReadOnlyList<Instrument>>([]);
@@ -85,7 +85,7 @@ public sealed class InstrumentCatalogViewModelTests
     [Fact]
     public async Task FailedInitialLoadIsInlineAndCanBeRetried()
     {
-        var provider = new CatalogProvider { Load = _ => throw new InvalidOperationException("Запустите Lua") };
+        var provider = new CatalogProvider { Load = _ => throw new InvalidOperationException("Start Lua") };
         await using var exchange = new ExchangeService([provider], maxRetryAttempts: 1);
         await using var data = new MarketDataService(exchange);
         using var vm = Create(exchange, data);
@@ -93,7 +93,7 @@ public sealed class InstrumentCatalogViewModelTests
         vm.ErrorOccurred += (_, _) => errors++;
         await vm.StartAsync();
         Assert.Empty(vm.CatalogRows);
-        Assert.Contains("Запустите Lua", vm.CatalogErrorText);
+        Assert.Contains("Start Lua", vm.CatalogErrorText);
         Assert.False(vm.IsBlockingBusy);
         Assert.True(vm.RefreshCatalogCommand.CanExecute(null));
         Assert.Equal(0, errors);
@@ -175,7 +175,7 @@ public sealed class InstrumentCatalogViewModelTests
 
     private sealed class CatalogProvider : IInstrumentProvider
     {
-        public ExchangeDefinition Definition { get; } = new("quik", "QUIK / Мосбиржа", "", true, [], "quiksharp", "MOEX");
+        public ExchangeDefinition Definition { get; } = new("quik", "QUIK / MOEX", "", true, [], "quiksharp", "MOEX");
         public Func<CancellationToken, Task<IReadOnlyList<Instrument>>> Load { get; set; } =
             _ => Task.FromResult<IReadOnlyList<Instrument>>(Instruments);
         public int Requests { get; private set; }

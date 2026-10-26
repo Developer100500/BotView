@@ -17,7 +17,7 @@ public sealed class TradingAccountTests
     private static TradingAccountProfile Profile(string exchange = "binance", TradingEnvironment environment = TradingEnvironment.Testnet) =>
         new(Guid.NewGuid(), "Test account", exchange, environment);
     private static AccountCredentials Keys(string suffix = "") => new("test-api-key" + suffix, "test-secret" + suffix);
-    private static readonly AccountVerificationResult Success = new(true, new(true, false), "Доступ подтвержден.");
+    private static readonly AccountVerificationResult Success = new(true, new(true, false), "Access confirmed.");
 
     [Fact]
     public void MemoryCredentialsAreCopiedReplacedRemovedAndNotSerialized()
@@ -65,14 +65,14 @@ public sealed class TradingAccountTests
             using var nextProcessMemory = new InMemoryCredentialStore();
             using var vm = new TradingAccountsViewModel(new TradingAccountStore(path), nextProcessMemory, new FakeVerifier());
             Assert.True(Assert.Single(vm.Profiles).IsActive);
-            Assert.Equal("Нужны ключи", vm.SelectedAccount!.Status);
+            Assert.Equal("Keys required", vm.SelectedAccount!.Status);
             Assert.False(vm.VerifyCommand.CanExecute(null));
             File.WriteAllText(path, "{invalid json");
             using var invalidVm = new TradingAccountsViewModel(store, memory, new FakeVerifier());
             invalidVm.Name = "Do not overwrite";
             invalidVm.SetCredentialInputState(true, true);
             Assert.False(invalidVm.CanSave);
-            Assert.Contains("Сохранение отключено", invalidVm.Message);
+            Assert.Contains("Saving is disabled", invalidVm.Message);
             Assert.Equal("{invalid json", File.ReadAllText(path));
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
@@ -135,7 +135,7 @@ public sealed class TradingAccountTests
         Assert.Equal(profile.Name, vm.SelectedAccount!.Profile.Name);
         using var stillOriginal = memory.Read(profile.Id)!;
         Assert.Equal("test-api-key", stillOriginal.ApiKey);
-        Assert.Contains("Не удалось сохранить", vm.Message);
+        Assert.Contains("Could not save", vm.Message);
     }
 
     [Fact]
@@ -179,12 +179,12 @@ public sealed class TradingAccountTests
         var verifier = new FakeVerifier { Verify = (_, _, _) => Task.FromResult(new AccountVerificationResult(true, new(false, false), "Read access")) };
         using var vm = new TradingAccountsViewModel(store, memory, verifier);
         await vm.VerifySelectedAsync();
-        Assert.Equal("Подключено", vm.SelectedAccount!.Status);
-        Assert.Contains("Торговля: запрещено", vm.SelectedPermissions);
+        Assert.Equal("Connected", vm.SelectedAccount!.Status);
+        Assert.Contains("Trading: denied", vm.SelectedPermissions);
         vm.SetCredentialInputState(true, true);
         using (var keys = Keys("-replacement")) vm.Save(keys);
         Assert.Null(vm.SelectedAccount.Result);
-        Assert.Contains("Торговля: неизвестно", vm.SelectedPermissions);
+        Assert.Contains("Trading: unknown", vm.SelectedPermissions);
     }
 
     [Fact]
@@ -197,7 +197,7 @@ public sealed class TradingAccountTests
         var verifier = new FakeVerifier { Verify = (_, _, _) => throw new InvalidOperationException("test-secret test-api-key") };
         using var vm = new TradingAccountsViewModel(store, memory, verifier);
         await vm.VerifySelectedAsync();
-        Assert.Equal("Ошибка", vm.SelectedAccount!.Status);
+        Assert.Equal("Error", vm.SelectedAccount!.Status);
         Assert.DoesNotContain("test-secret", vm.Message);
         Assert.DoesNotContain("test-api-key", vm.Message);
     }
@@ -218,7 +218,7 @@ public sealed class TradingAccountTests
         result = await verifier.VerifyAsync(Profile(), keys, TestContext.Current.CancellationToken);
         Assert.True(result.Connected);
         Assert.Null(result.Permissions.CanTrade);
-        Assert.Contains("не проверены", result.Message);
+        Assert.Contains("have not been verified", result.Message);
         Assert.DoesNotContain("test-secret", result.Message);
     }
 
@@ -231,7 +231,7 @@ public sealed class TradingAccountTests
         var result = await verifier.VerifyAsync(Profile(), keys, TestContext.Current.CancellationToken);
         Assert.False(result.Connected);
         Assert.True(client.Disposed);
-        Assert.Contains("время", result.Message);
+        Assert.Contains("time", result.Message);
         client = new FakeClient { Access = async ct => { await Task.Delay(Timeout.Infinite, ct); return true; } };
         using var cancel = new CancellationTokenSource();
         var task = verifier.VerifyAsync(Profile(), keys, cancel.Token);
@@ -240,7 +240,7 @@ public sealed class TradingAccountTests
         var message = AccountConnectionVerifier.SafeError(new AggregateException(new ccxt.AuthenticationError("test-api-key test-secret")));
         Assert.DoesNotContain("test-api-key", message);
         Assert.DoesNotContain("test-secret", message);
-        Assert.Contains("авторизоваться", message);
+        Assert.Contains("authenticate", message);
     }
 
     [Theory]
@@ -305,7 +305,7 @@ public sealed class TradingAccountTests
             secret.Password = " ";
             ((Button)window.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Empty(vm.Profiles);
-            Assert.Contains("пробелов", vm.Message);
+            Assert.Contains("whitespace", vm.Message);
             secret.Clear();
             key.Password = "test-api-key";
             Assert.False(vm.CanSave);

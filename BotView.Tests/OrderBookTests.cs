@@ -221,14 +221,14 @@ public sealed class OrderBookTests
     [Fact]
     public async Task UnsupportedPairDoesNotRetry()
     {
-        var client = new FakeClient { LoadError = new NotSupportedException("Пара недоступна") };
+        var client = new FakeClient { LoadError = new NotSupportedException("Pair unavailable") };
         var creates = 0;
         var service = new OrderBookService(_ => { Interlocked.Increment(ref creates); return client; });
         await using var subscription = await service.SubscribeAsync("binance", "BTC/USDT", TestContext.Current.CancellationToken);
         await Until(() => client.Disposed);
         Assert.Equal(1, creates);
         Assert.Equal(OrderBookConnection.Error, subscription.Current.Connection);
-        Assert.Contains("недоступна", subscription.Current.Message);
+        Assert.Contains("unavailable", subscription.Current.Message);
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public sealed class OrderBookTests
         var scrolled = vm.GetRows(11);
         Assert.False(vm.IsFollowing);
         Assert.Equal(.03m, scrolled[0].Price - initial[0].Price);
-        subscription.Current = new(Book(105, 105.03m), OrderBookConnection.Live, "Подключено");
+        subscription.Current = new(Book(105, 105.03m), OrderBookConnection.Live, "Connected");
         Assert.Equal(initial.Count, vm.GetRows(11).Count);
         vm.Refresh();
         Assert.Equal(scrolled[0].Price, vm.GetRows(11)[0].Price);
@@ -269,7 +269,7 @@ public sealed class OrderBookTests
         if (valid)
         {
             vm.SellCommand.Execute(null);
-            Assert.Contains("Торговля пока не подключена", vm.TradeStatus);
+            Assert.Contains("Trading is not yet enabled", vm.TradeStatus);
             Assert.Contains("Sell", vm.TradeStatus);
             Assert.Contains(price, vm.TradeStatus);
         }
@@ -355,7 +355,7 @@ public sealed class OrderBookTests
         await using var subscription = await service.SubscribeAsync(exchange, "BTC/USDT", timeout.Token);
         await using var candleService = new ExchangeService(CcxtMarketDataProvider.CreateDefaults(), maxRetryAttempts: 1);
         var candles = candleService.GetCandlesAsync(exchange, "BTC/USDT", "1m", null, 5, timeout.Token);
-        var lastStatus = "Подключение…";
+        var lastStatus = "Connecting…";
         try
         {
             while (subscription.Current.Connection != OrderBookConnection.Live)
@@ -420,7 +420,7 @@ public sealed class OrderBookTests
 
     private sealed class FakeSubscription(OrderBookSnapshot snapshot) : IOrderBookSubscription
     {
-        public OrderBookUpdate Current { get; set; } = new(snapshot, OrderBookConnection.Live, "Подключено");
+        public OrderBookUpdate Current { get; set; } = new(snapshot, OrderBookConnection.Live, "Connected");
         public bool Disposed;
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     }

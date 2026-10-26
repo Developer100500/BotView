@@ -15,7 +15,7 @@ public sealed record QuikConnectionOptions
         var options = File.Exists(path)
             ? JsonSerializer.Deserialize<QuikConnectionOptions>(File.ReadAllText(path),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                ?? throw new InvalidDataException("Файл quik.json не содержит настроек подключения.")
+                ?? throw new InvalidDataException("The quik.json file contains no connection settings.")
             : new QuikConnectionOptions();
         options.Validate();
         return options;
@@ -24,6 +24,6 @@ public sealed record QuikConnectionOptions
     internal void Validate()
     {
         if (string.IsNullOrWhiteSpace(Host) || Port is < 1 or > 65534 || RequestTimeoutSeconds is < 1 or > 300)
-            throw new InvalidDataException("Проверьте quik.json: Host не должен быть пустым, Port — от 1 до 65534, RequestTimeoutSeconds — от 1 до 300.");
+            throw new InvalidDataException("Check quik.json: Host must not be empty, Port must be between 1 and 65534, and RequestTimeoutSeconds between 1 and 300.");
     }
 }

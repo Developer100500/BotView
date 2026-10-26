@@ -41,12 +41,13 @@ public sealed class CoinInfoTests
     }
 
     [Fact]
-    public async Task DetailsPreferRussianStripHtmlAndCacheById()
+    // Verifies English description selection, HTML cleanup, and caching; takes no parameters.
+    public async Task DetailsPreferEnglishStripHtmlAndCacheById()
     {
         var json = JsonSerializer.Serialize(new
         {
             id = "ethena", name = "Ethena", symbol = "ena",
-            description = new { ru = "<p>Протокол &amp; токен.</p><p>Вторая строка<br>Ещё строка.</p><script>bad()</script>", en = "English" },
+            description = new { ru = "Other language", en = "<p>Protocol &amp; token.</p><p>Second line<br>Another line.</p><script>bad()</script>" },
             links = new { homepage = new[] { "", "javascript:bad()", "https://ethena.fi/" } },
             categories = new[] { "DeFi", "Ethereum Ecosystem" }
         });
@@ -57,8 +58,8 @@ public sealed class CoinInfoTests
         var info = await provider.GetInfoAsync("ethena", TestContext.Current.CancellationToken);
         var again = await provider.GetInfoAsync("ethena", TestContext.Current.CancellationToken);
 
-        Assert.Equal("ru", info.Language);
-        Assert.Equal("Протокол & токен.\n\nВторая строка\n\nЕщё строка.", info.Description);
+        Assert.Equal("en", info.Language);
+        Assert.Equal("Protocol & token.\n\nSecond line\n\nAnother line.", info.Description);
         Assert.Equal("https://ethena.fi/", info.WebsiteUrl);
         Assert.Equal(2, info.Categories.Count);
         Assert.Equal("https://www.coingecko.com/en/coins/ethena", info.SourceUrl);
@@ -68,7 +69,8 @@ public sealed class CoinInfoTests
     }
 
     [Fact]
-    public async Task DetailsFallBackToEnglishAndHandleMissingOptionalMetadata()
+    // Verifies English metadata when optional fields are missing; takes no parameters.
+    public async Task DetailsUseEnglishAndHandleMissingOptionalMetadata()
     {
         const string json = """{"id":"ethena","name":"Ethena","symbol":"ena","description":{"ru":"","en":"English &amp; text."},"links":null,"categories":null}""";
         using var client = new HttpClient(new StubHandler(_ => new(HttpStatusCode.OK) { Content = new StringContent(json) }));
@@ -81,9 +83,9 @@ public sealed class CoinInfoTests
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.TooManyRequests, "Лимит")]
+    [InlineData(HttpStatusCode.TooManyRequests, "rate limit")]
     [InlineData(HttpStatusCode.Unauthorized, "Demo API key")]
-    [InlineData(HttpStatusCode.NotFound, "не найдена")]
+    [InlineData(HttpStatusCode.NotFound, "not found")]
     public async Task ApiErrorsAreReadableAndCanBeRetried(HttpStatusCode code, string message)
     {
         var handler = new StubHandler(_ => new(code));
@@ -109,7 +111,7 @@ public sealed class CoinInfoTests
         provider.Verify(p => p.GetInfoAsync("ethena", It.IsAny<CancellationToken>()), Times.Once);
         Assert.True(vm.HasInfo);
         Assert.Equal("Ethena", vm.Name);
-        Assert.Equal("Описание", vm.Description);
+        Assert.Equal("Description", vm.Description);
         Assert.False(vm.IsLoading);
         Assert.False(vm.HasChoices);
     }
@@ -178,13 +180,13 @@ public sealed class CoinInfoTests
         var provider = Provider([]);
         using var vm = new CoinInfoViewModel("ENA/USDT", provider.Object);
         await vm.LoadAsync();
-        Assert.Contains("не найдена", vm.StatusText);
+        Assert.Contains("not found", vm.StatusText);
 
         provider.Setup(p => p.SearchAsync("ENA", It.IsAny<CancellationToken>())).ReturnsAsync([new("ethena", "Ethena", "ENA", 39)]);
         provider.Setup(p => p.GetInfoAsync("ethena", It.IsAny<CancellationToken>())).ReturnsAsync(Info("ethena") with { Description = "", Language = "" });
         await vm.LoadAsync();
         Assert.True(vm.HasInfo);
-        Assert.Contains("нет описания", vm.Description);
+        Assert.Contains("no description", vm.Description);
     }
 
     [Fact]
@@ -195,7 +197,7 @@ public sealed class CoinInfoTests
         using var vm = new CoinInfoViewModel("ENA/USDT", provider.Object);
         await vm.LoadAsync();
         Assert.False(vm.HasInfo);
-        Assert.Contains("другой монеты", vm.StatusText);
+        Assert.Contains("a different coin", vm.StatusText);
     }
 
     [Fact]
@@ -216,7 +218,7 @@ public sealed class CoinInfoTests
                 item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 Assert.Equal("ENA/USDT", openedPair);
                 var bookItem = Assert.IsType<MenuItem>(menu.Items[1]);
-                Assert.Equal("Стакан", bookItem.Header);
+                Assert.Equal("Order book", bookItem.Header);
                 bookItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 Assert.Equal("ENA/USDT", bookPair);
             }
@@ -231,7 +233,7 @@ public sealed class CoinInfoTests
             var provider = Provider([new("ethena", "Ethena", "ENA", 39)]);
             provider.Setup(p => p.GetInfoAsync("ethena", It.IsAny<CancellationToken>())).ReturnsAsync(Info("ethena") with
             {
-                Description = string.Join("\n\n", Enumerable.Repeat("Длинное описание проекта с подробностями о назначении токена и протоколе.", 40))
+                Description = string.Join("\n\n", Enumerable.Repeat("A long project description with details about the token purpose and protocol.", 40))
             });
             var window = new CoinInfoWindow("ENA/USDT", provider.Object);
             using var vm = (CoinInfoViewModel)window.DataContext;
@@ -270,7 +272,7 @@ public sealed class CoinInfoTests
         return provider;
     }
 
-    private static CoinInfo Info(string id) => new(id, "Ethena", "ENA", "Описание", "ru", "https://ethena.fi/", ["DeFi"]);
+    private static CoinInfo Info(string id) => new(id, "Ethena", "ENA", "Description", "en", "https://ethena.fi/", ["DeFi"]);
 
     private static void OnStaThread(Action action)
     {

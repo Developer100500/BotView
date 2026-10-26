@@ -28,18 +28,18 @@ public sealed class AccountConnectionVerifier : IAccountConnectionVerifier
                 timeout.Token.ThrowIfCancellationRequested();
                 client = _create(profile, copy);
                 if (!await WaitAsync(client.VerifyAccessAsync(timeout.Token), timeout.Token).ConfigureAwait(false))
-                    return Failure("Не удалось подтвердить доступ к счету.");
+                    return Failure("Could not confirm account access.");
                 var permissions = new AccountPermissions();
                 try { permissions = await WaitAsync(client.GetPermissionsAsync(timeout.Token), timeout.Token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception) { /* Authentication succeeded; unavailable permission endpoints are not proof of rights. */ }
                 timeout.Token.ThrowIfCancellationRequested();
                 return new AccountVerificationResult(true, permissions,
-                    permissions.CanTrade is null ? "Доступ подтвержден; права торговли не проверены."
-                        : permissions.CanTrade.Value ? "Доступ к счету подтвержден." : "Доступ подтвержден; торговля запрещена для этого ключа.");
+                    permissions.CanTrade is null ? "Access confirmed; trading permissions have not been verified."
+                        : permissions.CanTrade.Value ? "Account access confirmed." : "Access confirmed; trading is denied for this key.");
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (OperationCanceledException) { return Failure("Истекло время проверки подключения (15 секунд)."); }
+            catch (OperationCanceledException) { return Failure("Connection verification timed out (15 seconds)."); }
             catch (Exception ex) { return Failure(SafeError(ex)); }
             finally
             {
@@ -59,14 +59,14 @@ public sealed class AccountConnectionVerifier : IAccountConnectionVerifier
         ex = ex.GetBaseException();
         return ex switch
         {
-            ccxt.PermissionDenied => "Недостаточно разрешений API или доступ ограничен по IP.",
-            ccxt.InvalidNonce => "Проверьте дату и время компьютера.",
-            ccxt.AuthenticationError => "Не удалось авторизоваться. Проверьте ключи, ограничения IP и выбранную сеть.",
-            ccxt.RateLimitExceeded => "Биржа ограничила частоту запросов. Повторите проверку позже.",
-            ccxt.RequestTimeout => "Истекло время ожидания ответа биржи.",
-            ccxt.NetworkError => "Биржа недоступна. Проверьте сеть и повторите проверку.",
-            NotSupportedException => "Биржа или среда не поддерживается для подключения счета.",
-            _ => "Не удалось проверить подключение к счету. Проверьте настройки и повторите попытку."
+            ccxt.PermissionDenied => "Insufficient API permissions or access is restricted by IP.",
+            ccxt.InvalidNonce => "Check the computer date and time.",
+            ccxt.AuthenticationError => "Could not authenticate. Check keys, IP restrictions, and the selected network.",
+            ccxt.RateLimitExceeded => "The exchange rate limit was reached. Try verification again later.",
+            ccxt.RequestTimeout => "The exchange response timed out.",
+            ccxt.NetworkError => "The exchange is unavailable. Check the network and try verification again.",
+            NotSupportedException => "The exchange or environment is not supported for account connections.",
+            _ => "Could not verify the account connection. Check settings and try again."
         };
     }
 

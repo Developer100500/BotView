@@ -462,7 +462,7 @@ namespace BotView
         {
             var saveFileDialog = new Microsoft.Win32.SaveFileDialog
             {
-                Title = "Экспорт метрик производительности",
+                Title = "Export performance metrics",
                 Filter = "CSV files (*.csv)|*.csv|Text files (*.txt)|*.txt|All files (*.*)|*.*",
                 DefaultExt = "csv",
                 FileName = $"performance_metrics_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
@@ -475,8 +475,8 @@ namespace BotView
 
             System.IO.File.WriteAllText(saveFileDialog.FileName, csvData);
             MessageBox.Show(
-                $"Метрики производительности успешно экспортированы в файл:\n{saveFileDialog.FileName}",
-                "Экспорт завершен",
+                $"Performance metrics successfully exported to:\n{saveFileDialog.FileName}",
+                "Export complete",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
         }
@@ -484,7 +484,7 @@ namespace BotView
         private void OnErrorOccurred(string title, string message)
         {
             void Show() => MessageBox.Show(message, title, MessageBoxButton.OK,
-                title.Contains("бирж", StringComparison.OrdinalIgnoreCase)
+                title.Contains("exchange", StringComparison.OrdinalIgnoreCase)
                     ? MessageBoxImage.Warning
                     : MessageBoxImage.Error);
 

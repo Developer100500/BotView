@@ -20,7 +20,7 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
     internal QuikInstrumentProvider(Func<IQuikCatalogClient> clientFactory) => _clientFactory = clientFactory;
 
     public ExchangeDefinition Definition { get; } = new(
-        "quik", "QUIK / Мосбиржа", "", true, [], "quiksharp", "MOEX");
+        "quik", "QUIK / MOEX", "", true, [], "quiksharp", "MOEX");
 
     public async Task<IReadOnlyList<Instrument>> GetInstrumentsAsync(CancellationToken ct = default)
     {
@@ -33,7 +33,7 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
             token.ThrowIfCancellationRequested();
             var client = _client ??= _clientFactory();
             if (!await client.IsConnectedAsync(token).ConfigureAwait(false))
-                throw new InvalidOperationException("Терминал QUIK не подключён к брокеру. Выполните вход в QUIK и нажмите «Обновить».");
+                throw new InvalidOperationException("The QUIK terminal is not connected to the broker. Sign in to QUIK and click Refresh.");
             var classes = (await client.GetClassesAsync(token).ConfigureAwait(false))
                 .Select(c => c.Trim()).ToHashSet(StringComparer.Ordinal);
             var instruments = new List<Instrument>();
@@ -51,7 +51,7 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
                         var name = !string.IsNullOrWhiteSpace(info.ShortName) ? info.ShortName.Trim()
                             : !string.IsNullOrWhiteSpace(info.Name) ? info.Name.Trim() : code;
                         if (info.LotSize < 0 || !double.IsFinite(info.PriceStep) || info.PriceStep < 0)
-                            throw new InvalidOperationException($"Некорректное описание инструмента {classCode}:{code}.");
+                            throw new InvalidOperationException($"Invalid instrument description {classCode}:{code}.");
                         return new Instrument(new("MOEX", market, classCode, code), $"{classCode}:{code}", name,
                             LotSize: info.LotSize, PriceStep: info.PriceStep > 0 ? (decimal)info.PriceStep : null);
                     })).ConfigureAwait(false);
@@ -59,7 +59,7 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
                 }
             }
             if (!await client.IsConnectedAsync(token).ConfigureAwait(false))
-                throw new InvalidOperationException("Соединение QUIK с брокером потеряно во время загрузки каталога.");
+                throw new InvalidOperationException("The QUIK broker connection was lost while loading the catalog.");
             token.ThrowIfCancellationRequested();
             return instruments.OrderBy(i => i.Key.Market, StringComparer.Ordinal)
                 .ThenBy(i => i.Key.SecurityId, StringComparer.OrdinalIgnoreCase).ToArray();
@@ -69,7 +69,7 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
             await CloseClientAsync().ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             if (ex is TimeoutException)
-                throw new TimeoutException("QUIK не ответил вовремя. Проверьте запуск QuikSharp.lua, адрес и порты в quik.json.", ex);
+                throw new TimeoutException("QUIK timed out. Check that QuikSharp.lua is running and verify the address and ports in quik.json.", ex);
             throw;
         }
         finally { _loadGate.Release(); }

@@ -21,7 +21,7 @@
             <TextBlock Text="{Binding CategoriesText}" Foreground="#94A3B8" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
         </StackPanel>
         <StackPanel Grid.Row="1" Visibility="{Binding HasChoices, Converter={StaticResource BoolToVis}}" Margin="0,0,0,14">
-            <TextBlock Text="Выберите проект с нужным тикером" Foreground="#94A3B8" Margin="0,0,0,6"/>
+            <TextBlock Text="Select the project with the matching ticker" Foreground="#94A3B8" Margin="0,0,0,6"/>
             <ComboBox ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}"
                       DisplayMemberPath="DisplayName" MinHeight="32" Foreground="#111827"/>
         </StackPanel>
@@ -51,13 +51,13 @@
             </Grid.ColumnDefinitions>
             <StackPanel VerticalAlignment="Center">
                 <TextBlock Visibility="{Binding HasInfo, Converter={StaticResource BoolToVis}}">
-                    <Hyperlink NavigateUri="{Binding SourceUrl}" RequestNavigate="OpenLink" Foreground="#60A5FA">Источник: CoinGecko</Hyperlink>
+                    <Hyperlink NavigateUri="{Binding SourceUrl}" RequestNavigate="OpenLink" Foreground="#60A5FA">Source: CoinGecko</Hyperlink>
                 </TextBlock>
                 <TextBlock Visibility="{Binding HasWebsite, Converter={StaticResource BoolToVis}}" Margin="0,6,0,0">
-                    <Hyperlink NavigateUri="{Binding WebsiteUrl}" RequestNavigate="OpenLink" Foreground="#60A5FA">Сайт проекта</Hyperlink>
+                    <Hyperlink NavigateUri="{Binding WebsiteUrl}" RequestNavigate="OpenLink" Foreground="#60A5FA">Project website</Hyperlink>
                 </TextBlock>
             </StackPanel>
-            <Button Grid.Column="1" Content="Повторить" Command="{Binding RetryCommand}" Padding="14,8" Margin="12,0,0,0"/>
+            <Button Grid.Column="1" Content="Retry" Command="{Binding RetryCommand}" Padding="14,8" Margin="12,0,0,0"/>
         </Grid>
     </Grid>
 </Window>

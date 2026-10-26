@@ -9,20 +9,25 @@ public sealed record TradingEnvironmentOption(TradingEnvironment Environment, st
 
 public sealed class TradingAccountItem : INotifyPropertyChanged
 {
-    public TradingAccountItem(TradingAccountProfile profile, bool hasCredentials) { Profile = profile; HasCredentials = hasCredentials; }
+    public TradingAccountItem(TradingAccountProfile profile, bool hasCredentials)
+    {
+        Profile = profile;
+        HasCredentials = hasCredentials;
+        IsActive = profile.Environment == TradingEnvironment.Testnet;
+    }
     public TradingAccountProfile Profile { get; private set; }
     public bool HasCredentials { get; private set; }
     public bool IsActive { get; private set; }
     public bool IsChecking { get; private set; }
     public AccountVerificationResult? Result { get; private set; }
     public string DisplayName => Profile.DisplayName;
-    public string EnvironmentText => Profile.Environment == TradingEnvironment.Testnet ? "Testnet" : "Основная сеть";
-    public string Status => IsChecking ? "Проверка…" : !HasCredentials ? "Нужны ключи"
-        : Result is null ? "Не проверено" : Result.Connected ? "Подключено" : "Ошибка";
-    public string ActiveText => IsActive ? "Выбран для биржи" : "";
-    public string PermissionText => $"Торговля: {Permission(Result?.Permissions.CanTrade)} · Вывод: {Permission(Result?.Permissions.CanWithdraw)}";
+    public string EnvironmentText => Profile.Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet";
+    public string Status => IsChecking ? "Verifying…" : !HasCredentials ? "Keys required"
+        : Result is null ? "Not verified" : Result.Connected ? "Connected" : "Error";
+    public string ActiveText => IsActive ? "Selected for exchange" : "";
+    public string PermissionText => $"Trading: {Permission(Result?.Permissions.CanTrade)} · Withdrawals: {Permission(Result?.Permissions.CanWithdraw)}";
     public event PropertyChangedEventHandler? PropertyChanged;
-    private static string Permission(bool? value) => value switch { true => "разрешено", false => "запрещено", _ => "неизвестно" };
+    private static string Permission(bool? value) => value switch { true => "allowed", false => "denied", _ => "unknown" };
     internal void Update(TradingAccountProfile profile, bool hasCredentials, bool reset)
     {
         Profile = profile;
@@ -51,7 +56,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     private string _name = "";
     private string _exchange = "binance";
     private TradingEnvironment _environment = TradingEnvironment.Testnet;
-    private string _message = "Добавьте профиль счета или выберите существующий.";
+    private string _message = "Add an account profile or select an existing one.";
     private bool _hasCredentialInput;
     private bool _hasCompleteCredentials;
 
@@ -63,12 +68,14 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         NewCommand = new RelayCommand(BeginNew);
         DeleteCommand = new RelayCommand(_ => DeleteSelected(), _ => CanModifySelected);
         ActivateCommand = new RelayCommand(_ => ActivateSelected(), _ => CanModifySelected);
-        VerifyCommand = new RelayCommand(_ => VerifySelectedAsync(), _ => !_disposed && _request is null && _selected?.HasCredentials == true);
+        VerifyCommand = new RelayCommand(_ => VerifySelectedAsync(),
+                _ => !_disposed && _request is null && _selected?.HasCredentials == true);
         CancelCommand = new RelayCommand(_ => CancelVerification(), _ => _request is not null);
         try
         {
             var settings = _store.Load();
-            _active = new(settings.ActiveProfiles);
+            _active = new Dictionary<string, Guid>(settings.ActiveProfiles);
+
             foreach (var profile in settings.Profiles)
             {
                 var item = new TradingAccountItem(profile, _credentials.Contains(profile.Id));
@@ -80,14 +87,16 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         catch (Exception)
         {
             _storageAvailable = false;
-            _message = "Не удалось прочитать профили счетов. Сохранение отключено, чтобы не перезаписать настройки.";
+            _message = "Could not read account profiles. Saving is disabled to avoid overwriting settings.";
         }
     }
 
     public ObservableCollection<TradingAccountItem> Profiles { get; } = new();
     public ExchangeOption[] Exchanges { get; } = [new("binance", "Binance"), new("bybit", "Bybit")];
-    public TradingEnvironmentOption[] Environments { get; } =
-        [new(TradingEnvironment.Testnet, "Testnet"), new(TradingEnvironment.Production, "Основная сеть")];
+    public TradingEnvironmentOption[] Environments { get; } = [
+        new(TradingEnvironment.Testnet, "Testnet"),
+        new(TradingEnvironment.Production, "Mainnet")
+    ];
     public TradingAccountItem? SelectedAccount
     {
         get => _selected;
@@ -100,7 +109,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             _exchange = value?.Profile.Exchange ?? "binance";
             _environment = value?.Profile.Environment ?? TradingEnvironment.Testnet;
             ResetEditor();
-            _message = value is null ? "Новый профиль счета." : value.Result?.Message ?? "Профиль выбран. Проверка подключения выполняется вручную.";
+            _message = value is null ? "New account profile." : value.Result?.Message ?? "Profile selected. Verify the connection manually.";
             Notify();
         }
     }
@@ -119,12 +128,12 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     public bool CanReplaceCredentials => !_disposed && !IsBusy && _selected is not null;
     public string Message => _message;
     public string CredentialStatus => _selected?.HasCredentials == true
-        ? "Ключи сохранены в ОЗУ. Для замены введите оба значения."
-        : "Введите API key и secret. После перезапуска их нужно ввести заново.";
-    public string EnvironmentText => Environment == TradingEnvironment.Testnet ? "Testnet — тестовая сеть" : "ОСНОВНАЯ СЕТЬ — реальный счет";
-    public string SelectedPermissions => _selected?.PermissionText ?? "Торговля: неизвестно · Вывод: неизвестно";
+        ? "Keys are stored in memory. Enter both values to replace them."
+        : "Enter the API key and secret. You must enter them again after restarting.";
+    public string EnvironmentText => Environment == TradingEnvironment.Testnet ? "Testnet — test network" : "MAINNET — live account";
+    public string SelectedPermissions => _selected?.PermissionText ?? "Trading: unknown · Withdrawals: unknown";
     public string WithdrawalNotice => _selected?.Result?.Permissions.CanWithdraw == true
-        ? "У ключа есть право вывода. Для торговли создайте отдельный ключ без этого разрешения." : "";
+        ? "This key has withdrawal permission. Create a separate key without this permission for trading." : "";
     public RelayCommand NewCommand { get; }
     public RelayCommand DeleteCommand { get; }
     public RelayCommand ActivateCommand { get; }
@@ -142,7 +151,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
 
     public void ReportInvalidCredentials()
     {
-        _message = "API key и API secret не должны быть пустыми или состоять только из пробелов.";
+        _message = "API key and API secret must not be empty or contain only whitespace.";
         Notify();
     }
 
@@ -154,7 +163,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         _name = "";
         _exchange = "binance";
         _environment = TradingEnvironment.Testnet;
-        _message = "Новый профиль счета.";
+        _message = "New account profile.";
         ResetEditor();
         Notify();
     }
@@ -182,9 +191,9 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
                 _selected.Update(profile, _credentials.Contains(profile.Id), replacement is not null);
                 ResetEditor();
             }
-            _message = replacement is null ? "Профиль сохранен." : "Профиль сохранен. Ключи доступны только до закрытия приложения.";
+            _message = replacement is null ? "Profile saved." : "Profile saved. Keys are available only until the app closes.";
         }
-        catch (Exception) { _message = "Не удалось сохранить профиль. Проверьте доступ к папке настроек."; }
+        catch (Exception) { _message = "Could not save the profile. Check access to the settings folder."; }
         Notify();
     }
 
@@ -201,9 +210,9 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             _active = active;
             Profiles.Remove(item);
             BeginNew();
-            _message = "Профиль и ключи удалены.";
+            _message = "Profile and keys deleted.";
         }
-        catch (Exception) { _message = "Не удалось удалить профиль. Настройки не изменены."; }
+        catch (Exception) { _message = "Could not delete the profile. Settings are unchanged."; }
         Notify();
     }
 
@@ -217,24 +226,29 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             _store.Save(new(Profiles.Select(p => p.Profile).ToArray(), active));
             _active = active;
             foreach (var item in Profiles) item.SetActive(active.GetValueOrDefault(item.Profile.Exchange) == item.Profile.Id);
-            _message = "Профиль выбран для биржи. Торговля пока не подключена.";
+            _message = "Profile selected for the exchange. Trading is not yet enabled.";
         }
-        catch (Exception) { _message = "Не удалось сохранить выбор счета."; }
+        catch (Exception) { _message = "Could not save the selected account."; }
         Notify();
     }
 
     public async Task VerifySelectedAsync()
     {
         if (_disposed || _request is not null || _selected is null) return;
+        
         var item = _selected;
         using var credentials = _credentials.Read(item.Profile.Id);
-        if (credentials is null) { _message = "Ключи отсутствуют в ОЗУ. Введите и сохраните их заново."; Notify(); return; }
+
+        if (credentials is null) {
+            _message = "Keys are missing from memory. Enter and save them again."; Notify(); return;
+        }
+
         using var request = new CancellationTokenSource();
         var version = ++_requestVersion;
         _request = request;
         _checkingItem = item;
         item.SetChecking(true);
-        _message = "Проверка доступа к счету…";
+        _message = "Verifying account access…";
         Notify();
         try
         {
@@ -250,7 +264,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         {
             if (!_disposed && version == _requestVersion)
             {
-                var result = new AccountVerificationResult(false, new(), "Не удалось проверить подключение к счету.");
+                var result = new AccountVerificationResult(false, new(), "Could not verify the account connection.");
                 item.SetResult(result);
                 _message = result.Message;
             }
@@ -275,7 +289,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         _checkingItem?.SetChecking(false);
         _checkingItem = null;
         request?.Cancel();
-        if (request is not null) _message = "Проверка отменена.";
+        if (request is not null) _message = "Verification canceled.";
         if (!_disposed) Notify();
     }
 

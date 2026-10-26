@@ -79,7 +79,7 @@ public class FuturesQuoteTests
 
         await widget.RefreshAsync();
 
-        Assert.Equal("+9,75 п. (+0,13%)", widget.ChangeText);
+        Assert.Equal("+9,75 pts. (+0,13%)", widget.ChangeText);
         Assert.Equal("Yahoo Finance", widget.StatusText);
     }
 
@@ -93,7 +93,7 @@ public class FuturesQuoteTests
 
         await widget.RefreshAsync();
 
-        Assert.Equal("+6,50 п. (+0,08%)", widget.ChangeText);
+        Assert.Equal("+6,50 pts. (+0,08%)", widget.ChangeText);
         Assert.Equal("Yahoo Finance", widget.StatusText);
     }
 

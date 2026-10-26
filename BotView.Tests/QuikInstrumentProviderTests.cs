@@ -28,11 +28,11 @@ public sealed class QuikInstrumentProviderTests
         var share = Assert.Single(instruments, i => i.Key.Market == "shares");
         Assert.Equal(new("MOEX", "shares", "TQBR", "SAME"), share.Key);
         Assert.Equal("TQBR:SAME", share.Symbol);
-        Assert.Equal("Сбербанк", share.Name);
+        Assert.Equal("Sberbank", share.Name);
         Assert.Equal(10m, share.LotSize);
         Assert.Equal(0.01m, share.PriceStep);
         Assert.Equal(3, instruments.Select(i => i.Symbol).Distinct().Count());
-        Assert.Equal("Полное название облигации", Assert.Single(instruments, i => i.Key.Market == "bonds").Name);
+        Assert.Equal("Full bond name", Assert.Single(instruments, i => i.Key.Market == "bonds").Name);
         Assert.Equal("SAME", Assert.Single(instruments, i => i.Key.Market == "futures").Name);
         Assert.False(client.Disposed);
     }
@@ -56,13 +56,13 @@ public sealed class QuikInstrumentProviderTests
         var client = new FakeQuikClient { Connected = false };
         await using var provider = new QuikInstrumentProvider(() => client);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetInstrumentsAsync(Ct));
-        Assert.Contains("не подключён", error.Message);
+        Assert.Contains("not connected", error.Message);
         Assert.Empty(client.RequestedClasses);
         Assert.True(client.Disposed);
 
         client = new FakeQuikClient { DisconnectAfterCatalog = true };
         error = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetInstrumentsAsync(Ct));
-        Assert.Contains("потеряно", error.Message);
+        Assert.Contains("lost", error.Message);
         Assert.True(client.Disposed);
     }
 
@@ -181,8 +181,8 @@ public sealed class QuikInstrumentProviderTests
             return Task.FromResult(new[] { "SAME", "SAME", "" });
         }
         public Task<QuikSecurityDescription> GetSecurityAsync(string classCode, string code, CancellationToken ct) =>
-            Task.FromResult(new QuikSecurityDescription(classCode == "TQBR" ? "Сбербанк" : "",
-                classCode == "TQOB" ? "Полное название облигации" : "", 10, 0.01));
+            Task.FromResult(new QuikSecurityDescription(classCode == "TQBR" ? "Sberbank" : "",
+                classCode == "TQOB" ? "Full bond name" : "", 10, 0.01));
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     }
 }

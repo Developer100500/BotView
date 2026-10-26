@@ -127,15 +127,15 @@ internal sealed class ChartContextMenu
 	private StackMenuWidget BuildWidgets()
 	{
 		var root = new StackMenuWidget(Orientation.Vertical, 6, new Thickness(10));
-		root.Add(new MenuLabelWidget("Контур", new Size(214, 18)));
+		root.Add(new MenuLabelWidget("Outline", new Size(214, 18)));
 		var toolbar = new StackMenuWidget(Orientation.Horizontal, 8);
-		toolbar.Add(new MenuButtonWidget(new Size(66, 36), () => Toggle(Section.Color), "Цвет",
+		toolbar.Add(new MenuButtonWidget(new Size(66, 36), () => Toggle(Section.Color), "Color",
 			preview: (dc, rect) => DrawSwatch(dc, rect, CurrentColor))
 		{ IsSelected = section == Section.Color });
 		toolbar.Add(new MenuButtonWidget(new Size(66, 36), () => Toggle(Section.Thickness),
 			$"{outline!.Thickness:G} px", preview: (dc, rect) => DrawLine(dc, rect, LineStyle.Solid, 2))
 		{ IsSelected = section == Section.Thickness });
-		toolbar.Add(new MenuButtonWidget(new Size(66, 36), () => Toggle(Section.Style), "Тип",
+		toolbar.Add(new MenuButtonWidget(new Size(66, 36), () => Toggle(Section.Style), "Type",
 			preview: (dc, rect) => DrawLine(dc, rect, outline!.Style, 2))
 		{ IsSelected = section == Section.Style });
 		root.Add(toolbar);
@@ -189,9 +189,9 @@ internal sealed class ChartContextMenu
 	{
 		foreach (var (style, label) in new[]
 		{
-			(LineStyle.Solid, "Сплошная"),
-			(LineStyle.Dashed, "Штриховая"),
-			(LineStyle.Dotted, "Пунктирная")
+			(LineStyle.Solid, "Solid"),
+			(LineStyle.Dashed, "Dashed"),
+			(LineStyle.Dotted, "Dotted")
 		})
 		{
 			root.Add(new MenuButtonWidget(new Size(214, 32),

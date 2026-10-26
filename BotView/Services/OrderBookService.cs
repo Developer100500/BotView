@@ -34,7 +34,7 @@ public sealed class OrderBookService : IOrderBookService
         private readonly Task _worker;
         private readonly object _disposeSync = new();
         private Task? _disposeTask;
-        private OrderBookUpdate _current = new(null, OrderBookConnection.Connecting, "Подключение…");
+        private OrderBookUpdate _current = new(null, OrderBookConnection.Connecting, "Connecting…");
         public OrderBookUpdate Current => Volatile.Read(ref _current);
 
         public Subscription(string exchange, string symbol, Func<string, IOrderBookClient> create,
@@ -65,7 +65,7 @@ public sealed class OrderBookService : IOrderBookService
                         {
                             var snapshot = await client.WatchAsync(market, ct).ConfigureAwait(false);
                             ct.ThrowIfCancellationRequested();
-                            Publish(OrderBookConnection.Live, "Подключено", snapshot);
+                            Publish(OrderBookConnection.Live, "Connected", snapshot);
                             retry = 1;
                         }
                     }
@@ -77,7 +77,7 @@ public sealed class OrderBookService : IOrderBookService
                     }
                     catch (Exception ex)
                     {
-                        Publish(OrderBookConnection.Reconnecting, $"Данные устарели. Переподключение: {ex.Message}");
+                        Publish(OrderBookConnection.Reconnecting, $"Data is stale. Reconnecting: {ex.Message}");
                     }
                     finally
                     {
@@ -95,7 +95,7 @@ public sealed class OrderBookService : IOrderBookService
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
             finally
             {
-                if (ct.IsCancellationRequested) Publish(OrderBookConnection.Closed, "Отключено");
+                if (ct.IsCancellationRequested) Publish(OrderBookConnection.Closed, "Disconnected");
             }
         }
 
@@ -135,7 +135,7 @@ internal sealed class ProOrderBookClient : IOrderBookClient
             "bybit" => new ccxt.pro.bybit(settings),
             "okx" => new ccxt.pro.okx(settings),
             "kraken" => new ccxt.pro.kraken(settings),
-            _ => throw new NotSupportedException($"Стакан биржи {id} не поддерживается.")
+            _ => throw new NotSupportedException($"Order books for exchange {id} are not supported.")
         };
     }
 
@@ -154,10 +154,10 @@ internal sealed class ProOrderBookClient : IOrderBookClient
     public async Task<OrderBookMarket> LoadMarketAsync(string symbol, CancellationToken ct)
     {
         if (!_client.has.TryGetValue("watchOrderBook", out var supported) || supported is not true)
-            throw new NotSupportedException("Биржа не поддерживает потоковый стакан.");
+            throw new NotSupportedException("The exchange does not support streaming order books.");
         var markets = await AwaitAsync(_client.LoadMarkets(), ct).ConfigureAwait(false);
         if (!markets.TryGetValue(symbol, out var market) || market.spot != true || market.active == false)
-            throw new NotSupportedException($"Спотовая пара {symbol} недоступна на этой бирже.");
+            throw new NotSupportedException($"Spot pair {symbol} is unavailable on this exchange.");
         var precision = market.precision?.price;
         var tick = GetTickSize(precision, Convert.ToInt32(_client.precisionMode, CultureInfo.InvariantCulture));
         return new(symbol, market.baseCurrency ?? symbol.Split('/')[0], market.quote ?? symbol.Split('/').Last(), tick);
@@ -166,16 +166,16 @@ internal sealed class ProOrderBookClient : IOrderBookClient
     internal static decimal GetTickSize(double? precision, int precisionMode)
     {
         if (precision is null || !double.IsFinite(precision.Value))
-            throw new NotSupportedException("Биржа не предоставила шаг цены.");
+            throw new NotSupportedException("The exchange did not provide a price step.");
         // CCXT: DECIMAL_PLACES = 2, TICK_SIZE = 4. Significant digits do not define a fixed ladder tick.
         decimal tick = precisionMode switch
         {
             4 => Convert.ToDecimal(precision.Value, CultureInfo.InvariantCulture),
             2 when precision.Value == Math.Truncate(precision.Value) && precision.Value is >= -28 and <= 28 =>
                 DecimalPower(-(int)precision.Value),
-            _ => throw new NotSupportedException("Режим точности рынка не задает постоянный шаг цены.")
+            _ => throw new NotSupportedException("The market precision mode does not define a constant price step.")
         };
-        return tick > 0 ? tick : throw new NotSupportedException("Некорректный шаг цены биржи.");
+        return tick > 0 ? tick : throw new NotSupportedException("Invalid exchange price step.");
     }
 
     private static decimal DecimalPower(int exponent)

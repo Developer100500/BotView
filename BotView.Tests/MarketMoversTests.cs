@@ -85,7 +85,7 @@ public sealed class MarketMoversTests
         Assert.True(oldToken.IsCancellationRequested);
         Assert.Empty(viewModel.Losers);
         Assert.Equal("NEW/USDT", Assert.Single(viewModel.Gainers).Symbol);
-        Assert.StartsWith("Обновлено", viewModel.StatusText);
+        Assert.StartsWith("Updated", viewModel.StatusText);
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public sealed class MarketMoversTests
         await viewModel.RefreshAsync();
 
         Assert.Single(viewModel.Gainers);
-        Assert.Contains("Данные устарели", viewModel.StatusText);
+        Assert.Contains("Data is stale", viewModel.StatusText);
     }
 
     [Fact]

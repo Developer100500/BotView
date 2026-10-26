@@ -352,8 +352,8 @@ namespace BotView.ViewModels
             _favoriteSymbols.Contains(SelectedSymbol);
 
         public string FavoriteActionText => IsCurrentPairFavorite
-            ? "★ В избранном"
-            : "☆ В избранное";
+            ? "★ In favorites"
+            : "☆ Add to favorites";
 
         public string FavoritesFilePath => _favoritePairsStore.FilePath;
 
@@ -437,8 +437,8 @@ namespace BotView.ViewModels
             catch (Exception ex)
             {
                 Debug.WriteLine($"Database initialization failed: {ex.Message}");
-                ErrorOccurred?.Invoke("Ошибка БД",
-                    $"Не удалось инициализировать базу данных.\n\n{ex.Message}");
+                ErrorOccurred?.Invoke("Database error",
+                    $"Could not initialize the database.\n\n{ex.Message}");
             }
 
             LoadFavoriteTradingPairs();
@@ -495,7 +495,7 @@ namespace BotView.ViewModels
             var ct = source.Token;
             var exchange = SelectedExchange;
             var catalogMode = IsInstrumentCatalogMode;
-            SetBusy(!catalogMode, catalogMode ? "" : $"Загрузка {SelectedSymbol}...");
+            SetBusy(!catalogMode, catalogMode ? "" : $"Loading {SelectedSymbol}...");
             try
             {
                 ct.ThrowIfCancellationRequested();
@@ -524,8 +524,8 @@ namespace BotView.ViewModels
                 if (_isReady && ReferenceEquals(_selectionLoadCts, source))
                 {
                     if (catalogMode)
-                        CatalogErrorText = (_catalogInstruments.Count > 0 ? "Список не обновлён. " : "") + ex.Message;
-                    else ErrorOccurred?.Invoke("Ошибка загрузки", $"Не удалось загрузить выбранный рынок.\n\n{ex.Message}");
+                        CatalogErrorText = (_catalogInstruments.Count > 0 ? "List was not refreshed. " : "") + ex.Message;
+                    else ErrorOccurred?.Invoke("Loading error", $"Could not load the selected market.\n\n{ex.Message}");
                 }
             }
             finally
@@ -615,8 +615,8 @@ namespace BotView.ViewModels
             {
                 Debug.WriteLine($"Failed to load favorites: {ex.Message}");
                 ErrorOccurred?.Invoke(
-                    "Ошибка избранного",
-                    $"Не удалось прочитать файл избранного.\n\n{ex.Message}");
+                    "Favorites error",
+                    $"Could not read the favorites file.\n\n{ex.Message}");
             }
         }
 
@@ -639,8 +639,8 @@ namespace BotView.ViewModels
             catch (Exception ex)
             {
                 ErrorOccurred?.Invoke(
-                    "Ошибка избранного",
-                    $"Не удалось сохранить избранное.\n\n{ex.Message}");
+                    "Favorites error",
+                    $"Could not save favorites.\n\n{ex.Message}");
             }
         }
 
@@ -662,8 +662,8 @@ namespace BotView.ViewModels
             catch (Exception ex)
             {
                 ErrorOccurred?.Invoke(
-                    "Ошибка избранного",
-                    $"Не удалось сохранить порядок избранного.\n\n{ex.Message}");
+                    "Favorites error",
+                    $"Could not save the favorites order.\n\n{ex.Message}");
             }
         }
 
@@ -689,8 +689,8 @@ namespace BotView.ViewModels
             catch (Exception ex)
             {
                 ErrorOccurred?.Invoke(
-                    "Ошибка избранного",
-                    $"Не удалось удалить пару из избранного.\n\n{ex.Message}");
+                    "Favorites error",
+                    $"Could not remove the pair from favorites.\n\n{ex.Message}");
             }
         }
 
@@ -699,7 +699,7 @@ namespace BotView.ViewModels
             try
             {
                 ct.ThrowIfCancellationRequested();
-                SetBusy(true, $"Загрузка рынков {exchange}...");
+                SetBusy(true, $"Loading markets for {exchange}...");
                 var symbols = await _exchangeService.GetAvailableSymbolsAsync(exchange, ct);
                 ct.ThrowIfCancellationRequested();
 
@@ -753,8 +753,8 @@ namespace BotView.ViewModels
 
                 Debug.WriteLine($"Failed to load markets for {exchange}: {ex.Message}");
                 ErrorOccurred?.Invoke(
-                    "Ошибка загрузки рынков",
-                    $"Не удалось загрузить торговые пары с биржи {exchange}:\n\n{ex.Message}");
+                    "Market loading error",
+                    $"Could not load trading pairs from exchange {exchange}:\n\n{ex.Message}");
             }
         }
 
@@ -889,7 +889,7 @@ namespace BotView.ViewModels
             _comparisonSessionCts = source;
             var token = source.Token;
             int version = CurrentComparisonVersion;
-            ComparisonStatusText = $"Загрузка {symbol}...";
+            ComparisonStatusText = $"Loading {symbol}...";
             try
             {
                 var sub = await _marketDataService.SubscribeAsync(key, HistoryBatchSize, token);
@@ -913,7 +913,7 @@ namespace BotView.ViewModels
             catch (Exception ex)
             {
                 if (!source.IsCancellationRequested && version == CurrentComparisonVersion)
-                    ComparisonStatusText = $"Не удалось загрузить {symbol}: {ex.Message}";
+                    ComparisonStatusText = $"Could not load {symbol}: {ex.Message}";
             }
         }
 
@@ -965,7 +965,7 @@ namespace BotView.ViewModels
                 if (ReferenceEquals(sub, _comparisonSubscription))
                 {
                     _comparisonHistoryExhausted = true;
-                    ComparisonStatusText = $"Не удалось загрузить историю сравнения: {ex.Message}";
+                    ComparisonStatusText = $"Could not load comparison history: {ex.Message}";
                 }
             }
             finally
@@ -988,7 +988,7 @@ namespace BotView.ViewModels
             try
             {
                 ct.ThrowIfCancellationRequested();
-                SetBusy(true, $"Загрузка {SelectedSymbol}...");
+                SetBusy(true, $"Loading {SelectedSymbol}...");
 
                 _currentKey = key;
 
@@ -1039,8 +1039,8 @@ namespace BotView.ViewModels
                 CurrentSeries = null;
 
                 ErrorOccurred?.Invoke(
-                    "Ошибка подключения к бирже",
-                    $"Ошибка загрузки данных с биржи {SelectedExchange}:\n\n{ex.Message}\n\nБудут загружены демонстрационные данные.");
+                    "Exchange connection error",
+                    $"Could not load data from exchange {SelectedExchange}:\n\n{ex.Message}\n\nDemo data will be loaded.");
 
                 var demoData = _dataProvider.LoadDemoData(key.Timeframe);
                 var demoSeries = new CandleSeries();
@@ -1048,7 +1048,7 @@ namespace BotView.ViewModels
                 CurrentSeries = demoSeries;
                 ChartSeriesReady?.Invoke(demoSeries, key.Timeframe, false, seriesVersion);
                 if (ComparisonSymbol != null)
-                    ComparisonStatusText = "Сравнение недоступно для демонстрационных данных.";
+                    ComparisonStatusText = "Comparison is unavailable for demo data.";
             }
         }
 
@@ -1066,8 +1066,8 @@ namespace BotView.ViewModels
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke("Ошибка",
-                    $"Ошибка при получении метрик производительности:\n\n{ex.Message}");
+                ErrorOccurred?.Invoke("Error",
+                    $"Could not retrieve performance metrics:\n\n{ex.Message}");
             }
         }
 
@@ -1079,8 +1079,8 @@ namespace BotView.ViewModels
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke("Ошибка экспорта",
-                    $"Ошибка при экспорте метрик производительности:\n\n{ex.Message}");
+                ErrorOccurred?.Invoke("Export error",
+                    $"Could not export performance metrics:\n\n{ex.Message}");
             }
         }
 

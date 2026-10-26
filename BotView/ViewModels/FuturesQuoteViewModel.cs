@@ -17,9 +17,9 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
     private int _refreshing;
     private bool _disposed;
     private string _priceText = "—";
-    private string _directionText = "Загрузка…";
+    private string _directionText = "Loading…";
     private string _changeText = "—";
-    private string _statusText = "Загрузка котировки…";
+    private string _statusText = "Loading quote…";
     private string _changeColor = "#94A3B8";
 
     public FuturesQuoteViewModel(IQuoteProvider provider) =>
@@ -54,7 +54,7 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
                 : null);
             if (movement is null)
             {
-                StatusText = $"{quote.Source} (Нет цены сравнения)";
+                StatusText = $"{quote.Source} (No reference price)";
                 ChangeText = "—";
                 ChangeColor = "#94A3B8";
             }
@@ -62,12 +62,12 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
             {
                 ChangeColor = movement.ChangePoints > 0 ? "#22C55E" :
                     movement.ChangePoints < 0 ? "#EF4444" : "#94A3B8";
-                ChangeText = $"{movement.ChangePoints.ToString("+0.00;-0.00;0.00", DisplayCulture)} п. " +
+                ChangeText = $"{movement.ChangePoints.ToString("+0.00;-0.00;0.00", DisplayCulture)} pts. " +
                     $"({movement.ChangePercent.ToString("+0.00;-0.00;0.00", DisplayCulture)}%)";
             }
 
             //var localTime = quote.AsOf.ToLocalTime().ToString("dd.MM HH:mm", DisplayCulture);
-            var source = quote.IsDelayed ? $"{quote.Source} (с задержкой)" : quote.Source;
+            var source = quote.IsDelayed ? $"{quote.Source} (delayed)" : quote.Source;
             //var reference = morningMovement is not null
             //    ? $"От 09:30 NY {movement!.ReferencePrice.ToString("N2", DisplayCulture)}"
             //    : movement is not null
@@ -86,7 +86,7 @@ public sealed class FuturesQuoteViewModel : INotifyPropertyChanged, IDisposable
             //DirectionText = "Котировка недоступна";
             ChangeText = "—";
             ChangeColor = "#94A3B8";
-            StatusText = $"Ошибка получения котировки: {ex.Message}";
+            StatusText = $"Could not retrieve quote: {ex.Message}";
         }
         finally
         {

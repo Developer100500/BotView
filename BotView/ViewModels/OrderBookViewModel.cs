@@ -34,8 +34,8 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
         Symbol = symbol;
         VolumeCurrencyOptions =
         [
-            new(OrderBookVolumeCurrency.Base, $"Базовая ({symbol.Split('/')[0]})"),
-            new(OrderBookVolumeCurrency.Quote, $"Котирования ({symbol.Split('/').Last()})")
+            new(OrderBookVolumeCurrency.Base, $"Base ({symbol.Split('/')[0]})"),
+            new(OrderBookVolumeCurrency.Quote, $"Quote ({symbol.Split('/').Last()})")
         ];
         _service = service;
         BuyCommand = new RelayCommand(_ => Trade("Buy"), _ => CanTrade);
@@ -45,9 +45,9 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
 
     public string Exchange { get; }
     public string Symbol { get; }
-    public string Title => $"Стакан · {Symbol} · {Exchange}";
-    public string BaseHeader => $"Объем ({_update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]})";
-    public string QuoteHeader => $"Сумма ({_update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last()})";
+    public string Title => $"Order book · {Symbol} · {Exchange}";
+    public string BaseHeader => $"Volume ({_update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]})";
+    public string QuoteHeader => $"Total ({_update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last()})";
     public OrderBookVolumeOption[] VolumeCurrencyOptions { get; }
     public OrderBookVolumeCurrency VolumeCurrency
     {
@@ -59,7 +59,7 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
             Changed();
         }
     }
-    public string MaxVolumeHeader => $"Объем для 100% ({(VolumeCurrency == OrderBookVolumeCurrency.Base
+    public string MaxVolumeHeader => $"Volume for 100% ({(VolumeCurrency == OrderBookVolumeCurrency.Base
         ? _update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]
         : _update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last())})";
     public string MaxVolumeText
@@ -75,9 +75,9 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     }
     public bool HasVolumeScaleError => !string.IsNullOrWhiteSpace(MaxVolumeText) && !TryPositive(MaxVolumeText, out _);
     public string VolumeScaleHint => HasVolumeScaleError
-        ? "Введите число больше нуля; сохранен предыдущий масштаб."
-        : string.IsNullOrWhiteSpace(MaxVolumeText) ? "Пусто — авто по видимому максимуму."
-        : "Объемы выше порога заполняют полосу на 100%.";
+        ? "Enter a number greater than zero; the previous scale is retained."
+        : string.IsNullOrWhiteSpace(MaxVolumeText) ? "Blank uses the maximum visible volume for automatic scaling."
+        : "Volumes above the threshold fill the bar to 100%.";
     public int[] Multipliers { get; } = [1, 5, 10];
     public int Multiplier
     {
@@ -85,20 +85,20 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
         set { if (Multipliers.Contains(value)) { _multiplier = value; Changed(); } }
     }
     public bool IsFollowing => _followMarket;
-    public string FollowText => _followMarket ? "Слежение за рынком" : "Ручная прокрутка";
+    public string FollowText => _followMarket ? "Following market" : "Manual scrolling";
     public string StatusText
     {
         get
         {
-            if (_update is null) return "Подключение…";
+            if (_update is null) return "Connecting…";
             var snapshot = _update.Snapshot;
             var age = snapshot is null ? "" : $" · {snapshot.ReceivedAt.ToLocalTime():HH:mm:ss.fff}";
             bool stale = snapshot is not null && DateTimeOffset.UtcNow - snapshot.ReceivedAt > TimeSpan.FromSeconds(10);
-            return _update.Message + (stale && _update.Connection == OrderBookConnection.Live ? " · Нет свежих данных" : "") + age;
+            return _update.Message + (stale && _update.Connection == OrderBookConnection.Live ? " · No recent data" : "") + age;
         }
     }
 
-    public string StepText => _update?.Snapshot is { } b ? $"Шаг: {Format(b.Market.TickSize * Multiplier)}" : "Шаг: —";
+    public string StepText => _update?.Snapshot is { } b ? $"Step: {Format(b.Market.TickSize * Multiplier)}" : "Step: —";
     public string PriceText { get => _priceText; set { _priceText = value; Changed(); } }
     public string AmountText { get => _amountText; set { _amountText = value; Changed(); } }
     public string TradeStatus => _tradeStatus;
@@ -155,7 +155,7 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     private void Trade(string side)
     {
         if (!CanTrade) return;
-        _tradeStatus = $"Торговля пока не подключена. {side}: {AmountText} {Symbol.Split('/')[0]} по {PriceText}.";
+        _tradeStatus = $"Trading is not yet enabled. {side}: {AmountText} {Symbol.Split('/')[0]} at {PriceText}.";
         Changed();
     }
 

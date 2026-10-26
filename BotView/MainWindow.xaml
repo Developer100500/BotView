@@ -126,9 +126,9 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <TextBlock Text="ТОП-10 · ЗА ПОСЛЕДНИЕ 24 ЧАСА"
+                <TextBlock Text="TOP 10 · LAST 24 HOURS"
                            Style="{StaticResource SectionTitleStyle}" Margin="2,12,0,10"/>
-                <TextBlock Grid.Row="1" Text="Нет монет в этой категории"
+                <TextBlock Grid.Row="1" Text="No coins in this category"
                            Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"
                            HorizontalAlignment="Center" VerticalAlignment="Center">
                     <TextBlock.Style>
@@ -156,7 +156,7 @@
                             <Button Style="{StaticResource ToolbarButtonStyle}"
                                     PreviewMouseRightButtonDown="Pair_PreviewMouseRightButtonDown"
                                     HorizontalContentAlignment="Stretch" Padding="8,10" Margin="0,0,0,5"
-                                    ToolTip="Открыть график"
+                                    ToolTip="Open chart"
                                     Command="{Binding DataContext.SelectSearchResultCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                     CommandParameter="{Binding Symbol}">
                                 <Grid>
@@ -198,7 +198,7 @@
                     <TextBlock Text="MARKET TERMINAL" FontSize="9" Foreground="{StaticResource AccentBrush}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,0,10,0">
-                    <TextBlock Text="ИСТОЧНИК" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
+                    <TextBlock Text="SOURCE" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
                     <ComboBox Name="cmbExchange" Width="180" ItemsSource="{Binding Exchanges}"
                               
                               DisplayMemberPath="DisplayName" SelectedValuePath="Id"
@@ -209,7 +209,7 @@
                     </ComboBox>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Margin="0,0,14,0" Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}">
-                    <TextBlock Text="ТАЙМФРЕЙМ" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
+                    <TextBlock Text="TIMEFRAME" Style="{StaticResource SectionTitleStyle}" Margin="2,0,0,3"/>
                     <ComboBox Name="cmbTimeframe" Width="105" FontWeight="SemiBold"
                               ItemsSource="{Binding Timeframes}"
                               SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}" Foreground="#FF2F4B84">
@@ -259,8 +259,11 @@
                     </Popup>
 
                 </Grid>
-                <StackPanel Grid.Column="4" VerticalAlignment="Bottom">
-                <Button Content="Торговые счета" Click="OpenTradingAccounts" Padding="10,4" Margin="0,0,0,5"/>
+                <StackPanel Grid.Column="4" Orientation="Horizontal"
+                        HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                <Button Content="Trading accounts" Click="OpenTradingAccounts"
+                        VerticalAlignment="Bottom" Margin="0,0,0,5"
+                        FontSize="14" Padding="10,4"/>
                 <Button Style="{StaticResource FavoriteButtonStyle}"
                         Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}"
                         Content="{Binding FavoriteActionText}" Command="{Binding ToggleFavoriteCommand}"
@@ -279,7 +282,7 @@
                     <ColumnDefinition Width="120"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="S&amp;P 500 · ФЬЮЧЕРС ES=F"
+                <TextBlock Grid.Column="0" Text="S&amp;P 500 · FUTURES ES=F"
                            FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
                 <TextBlock Grid.Column="1" Text="{Binding PriceText}" FontSize="17" FontWeight="Bold"
                            VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
@@ -301,27 +304,27 @@
             <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0,0,10,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
-                    <TextBlock Text="ГРАФИК" Style="{StaticResource SectionTitleStyle}"/>
-                    <Button Name="btnSnapLastToRight" Content="Прижать вправо"
+                    <TextBlock Text="CHART" Style="{StaticResource SectionTitleStyle}"/>
+                    <Button Name="btnSnapLastToRight" Content="Align to right"
                             Style="{StaticResource ToolbarButtonStyle}" Command="{Binding SnapLastToRightCommand}"/>
-                    <Button Content="Сбросить масштаб Y" Style="{StaticResource ToolbarButtonStyle}"
+                    <Button Content="Reset Y scale" Style="{StaticResource ToolbarButtonStyle}"
                             Command="{Binding ResetVerticalScaleCommand}"/>
-                    <CheckBox Name="chkCandleOutline" Content="Обводка свечей"
+                    <CheckBox Name="chkCandleOutline" Content="Candle outlines"
                               IsChecked="{Binding ShowCandleOutlines, ElementName=chartView, Mode=TwoWay}"
                               Foreground="{StaticResource TextPrimaryBrush}" Margin="2,0,0,10"
-                              ToolTip="Включить или отключить контур тел свечей"/>
-                    <TextBlock Text="ИНДИКАТОРЫ" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
-                    <Button Name="btnAddRsi" Content="Добавить RSI" Style="{StaticResource ToolbarButtonStyle}"
+                              ToolTip="Show or hide candle body outlines"/>
+                    <TextBlock Text="INDICATORS" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
+                    <Button Name="btnAddRsi" Content="Add RSI" Style="{StaticResource ToolbarButtonStyle}"
                             Command="{Binding Controller.ShowRsiCommand, ElementName=chartView}"
-                            ToolTip="Открыть панель индикаторов с RSI"/>
-                    <TextBlock Text="СРАВНЕНИЕ" Style="{StaticResource SectionTitleStyle}" Margin="2,8,0,6"/>
+                            ToolTip="Open indicator pane with RSI"/>
+                    <TextBlock Text="COMPARISON" Style="{StaticResource SectionTitleStyle}" Margin="2,8,0,6"/>
                     <Grid>
                         <TextBox x:Name="txtComparisonSearch" Width="148" HorizontalAlignment="Left"
                                  Text="{Binding ComparisonSearchText, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Найти пару для сравнения"
+                                 ToolTip="Find a pair to compare"
                                  GotFocus="TxtComparisonSearch_GotFocus"
                                  LostFocus="TxtComparisonSearch_LostFocus"/>
-                        <TextBlock Text="Найти пару" Foreground="{StaticResource TextMutedBrush}"
+                        <TextBlock Text="Find a pair" Foreground="{StaticResource TextMutedBrush}"
                                    IsHitTestVisible="False" VerticalAlignment="Center" Margin="10,0,0,0">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
@@ -353,18 +356,18 @@
                             </Border>
                         </Popup>
                     </Grid>
-                    <TextBlock Text="{Binding ComparisonSymbol, StringFormat=Линия: {0}}"
+                    <TextBlock Text="{Binding ComparisonSymbol, StringFormat=Line: {0}}"
                                Foreground="#A78BFA" Margin="2,7,0,0" TextTrimming="CharacterEllipsis"
                                Visibility="{Binding HasComparison, Converter={StaticResource BoolToVis}}"/>
-                    <Button Content="Убрать сравнение" Style="{StaticResource ToolbarButtonStyle}"
+                    <Button Content="Remove comparison" Style="{StaticResource ToolbarButtonStyle}"
                             Command="{Binding RemoveComparisonCommand}"
                             Visibility="{Binding HasComparison, Converter={StaticResource BoolToVis}}"/>
                     <TextBlock Text="{Binding ComparisonStatusText}" Foreground="#FBBF24"
                                TextWrapping="Wrap" FontSize="10" Margin="2,0,0,4"/>
-                    <TextBlock Text="ИНСТРУМЕНТЫ" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
+                    <TextBlock Text="TOOLS" Style="{StaticResource SectionTitleStyle}" Margin="2,10,0,6"/>
                     <WrapPanel Orientation="Horizontal">
                         <Button Name="btnHorizontalLine" Style="{StaticResource IconButtonStyle}"
-                                Command="{Binding StartHorizontalLineCommand}" ToolTip="Горизонтальная линия">
+                                Command="{Binding StartHorizontalLineCommand}" ToolTip="Horizontal line">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M5.13,31 L58.87,31" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
@@ -373,7 +376,7 @@
                             </Viewbox>
                         </Button>
                         <Button Name="btnHorizontalRay" Style="{StaticResource IconButtonStyle}"
-                                Command="{Binding StartHorizontalRayCommand}" ToolTip="Горизонтальный луч">
+                                Command="{Binding StartHorizontalRayCommand}" ToolTip="Horizontal ray">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M13.5,32 L58.87,32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
@@ -382,7 +385,7 @@
                             </Viewbox>
                         </Button>
                         <Button Name="btnTrendLine" Style="{StaticResource IconButtonStyle}"
-                                Command="{Binding StartTrendLineCommand}" ToolTip="Трендовая линия">
+                                Command="{Binding StartTrendLineCommand}" ToolTip="Trend line">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M14,50 L52,12" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
@@ -392,7 +395,7 @@
                             </Viewbox>
                         </Button>
                         <Button Name="btnTrendChannel" Style="{StaticResource IconButtonStyle}"
-                                Command="{Binding StartTrendChannelCommand}" ToolTip="Трендовый канал">
+                                Command="{Binding StartTrendChannelCommand}" ToolTip="Trend channel">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M12,52 L54,22 M10,39 L52,9" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2"/>
@@ -402,7 +405,7 @@
                             </Viewbox>
                         </Button>
                         <Button Name="btnRectangle" Style="{StaticResource IconButtonStyle}"
-                                Command="{Binding StartRectangleCommand}" ToolTip="Прямоугольник">
+                                Command="{Binding StartRectangleCommand}" ToolTip="Rectangle">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Rectangle Canvas.Left="10" Canvas.Top="16" Width="44" Height="32" Stroke="{StaticResource TextPrimaryBrush}" StrokeThickness="2" Fill="Transparent"/>
@@ -410,7 +413,7 @@
                             </Viewbox>
                         </Button>
                         <Button Name="btnMeasure" Style="{StaticResource IconButtonStyle}"
-                                Command="{Binding StartMeasureCommand}" ToolTip="Линейка">
+                                Command="{Binding StartMeasureCommand}" ToolTip="Measure">
                             <Viewbox Width="24" Height="24">
                                 <Canvas Width="64" Height="64">
                                     <Path Data="M8,42 L42,8 L56,22 L22,56 Z M17,33 L24,40 M25,25 L32,32 M33,17 L40,24"
@@ -420,10 +423,10 @@
                         </Button>
                     </WrapPanel>
                     <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,14"/>
-                    <TextBlock Text="ДИАГНОСТИКА" Style="{StaticResource SectionTitleStyle}"/>
-                    <Button Name="btnShowMetrics" Content="Показать метрики"
+                    <TextBlock Text="DIAGNOSTICS" Style="{StaticResource SectionTitleStyle}"/>
+                    <Button Name="btnShowMetrics" Content="Show metrics"
                             Style="{StaticResource ToolbarButtonStyle}" Command="{Binding ShowMetricsCommand}"/>
-                    <Button Name="btnExportMetrics" Content="Экспорт метрик"
+                    <Button Name="btnExportMetrics" Content="Export metrics"
                             Style="{StaticResource ToolbarButtonStyle}" Command="{Binding ExportMetricsCommand}"/>
                 </StackPanel>
                 </ScrollViewer>
@@ -444,13 +447,13 @@
 
                     <TabControl Grid.RowSpan="3" Background="Transparent" BorderThickness="0"
                                 ItemContainerStyle="{StaticResource MarketTabStyle}" Padding="0">
-                        <TabItem Header="Избранное">
+                        <TabItem Header="Favorites">
                             <StackPanel Orientation="Vertical">
                                 
-                                <TextBlock Grid.Row="1" Text="Список для выбранной биржи"
+                                <TextBlock Grid.Row="1" Text="List for the selected exchange"
 Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                                 <Grid Grid.Row="2">
-                                    <TextBlock Text="Добавьте текущую пару кнопкой ★"
+                                    <TextBlock Text="Add the current pair using ★"
     Foreground="{StaticResource TextMutedBrush}" TextAlignment="Center"
     TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="150">
                                         <TextBlock.Style>
@@ -498,7 +501,7 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                                                     <TextBlock Grid.Column="1" Text="{Binding Symbol}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                     <Button Grid.Column="2" Content="×" Width="25" Height="25" Padding="0" Margin="5,0,0,0"
                                                         Background="Transparent" Foreground="#475569"
-                                                        BorderThickness="0" Cursor="Hand" ToolTip="Удалить из избранного"
+                                                        BorderThickness="0" Cursor="Hand" ToolTip="Remove from favorites"
                                                         Command="{Binding DataContext.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                         CommandParameter="{Binding}"/>
                                                 </Grid>
@@ -509,24 +512,24 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                             </StackPanel>
                             
                         </TabItem>
-                        <TabItem Header="Упавшие">
+                        <TabItem Header="Losers">
                             <DockPanel LastChildFill="True">
                                 <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
                                     <TextBlock Text="{Binding MarketMovers.StatusText}" ToolTip="{Binding MarketMovers.StatusText}"
                                                Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/>
-                                    <Button Content="Обновить" Style="{StaticResource ToolbarButtonStyle}" Margin="0,8,0,0"
+                                    <Button Content="Refresh" Style="{StaticResource ToolbarButtonStyle}" Margin="0,8,0,0"
                                             Command="{Binding MarketMovers.RefreshCommand}"/>
                                 </StackPanel>
                                 <ContentControl Content="{Binding MarketMovers.Losers}" ContentTemplate="{StaticResource MoversListTemplate}"
                                                 HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                             </DockPanel>
                         </TabItem>
-                        <TabItem Header="Выросшие">
+                        <TabItem Header="Gainers">
                             <DockPanel LastChildFill="True">
                                 <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
                                     <TextBlock Text="{Binding MarketMovers.StatusText}" ToolTip="{Binding MarketMovers.StatusText}"
                                                Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/>
-                                    <Button Content="Обновить" Style="{StaticResource ToolbarButtonStyle}" Margin="0,8,0,0"
+                                    <Button Content="Refresh" Style="{StaticResource ToolbarButtonStyle}" Margin="0,8,0,0"
                                             Command="{Binding MarketMovers.RefreshCommand}"/>
                                 </StackPanel>
                                 <ContentControl Content="{Binding MarketMovers.Gainers}" ContentTemplate="{StaticResource MoversListTemplate}"
@@ -549,17 +552,17 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <DockPanel Margin="0,0,0,10" LastChildFill="False">
-                    <TextBlock Text="ИНСТРУМЕНТЫ МОСБИРЖИ" Style="{StaticResource SectionTitleStyle}"
+                    <TextBlock Text="MOEX INSTRUMENTS" Style="{StaticResource SectionTitleStyle}"
                                VerticalAlignment="Center" Margin="0,0,20,0"/>
                     <ComboBox Width="155" ItemsSource="{Binding CatalogCategories}"
                               SelectedItem="{Binding SelectedCatalogCategory}"/>
-                    <Button DockPanel.Dock="Right" Content="Обновить" Command="{Binding RefreshCatalogCommand}"
+                    <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshCatalogCommand}"
                             Style="{StaticResource ToolbarButtonStyle}" Margin="10,0,0,0"/>
                 </DockPanel>
                 <StackPanel Grid.Row="1" Margin="0,0,0,10">
                     <ProgressBar IsIndeterminate="True" Height="4" Margin="0,0,0,8"
                                  Visibility="{Binding IsCatalogLoading, Converter={StaticResource BoolToVis}}"/>
-                    <TextBlock Text="Загрузка каталога QUIK…" Foreground="{StaticResource TextMutedBrush}"
+                    <TextBlock Text="Loading QUIK catalog…" Foreground="{StaticResource TextMutedBrush}"
                                Visibility="{Binding IsCatalogLoading, Converter={StaticResource BoolToVis}}"/>
                     <TextBlock Text="{Binding CatalogErrorText}" Foreground="#FBBF24" TextWrapping="Wrap"/>
                 </StackPanel>
@@ -587,17 +590,17 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                         </Style>
                     </DataGrid.CellStyle>
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Тип" Binding="{Binding Type}" Width="120"/>
-                        <DataGridTextColumn Header="Тикер" Binding="{Binding Ticker}" Width="150"/>
-                        <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="*" MinWidth="200"/>
-                        <DataGridTextColumn Header="Класс" Binding="{Binding ClassCode}" Width="100"/>
-                        <DataGridTextColumn Header="Лот" Binding="{Binding LotSize, TargetNullValue=—}" Width="90"/>
-                        <DataGridTextColumn Header="Шаг цены" Binding="{Binding PriceStep, TargetNullValue=—}" Width="120"/>
+                        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="120"/>
+                        <DataGridTextColumn Header="Ticker" Binding="{Binding Ticker}" Width="150"/>
+                        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" MinWidth="200"/>
+                        <DataGridTextColumn Header="Class" Binding="{Binding ClassCode}" Width="100"/>
+                        <DataGridTextColumn Header="Lot" Binding="{Binding LotSize, TargetNullValue=—}" Width="90"/>
+                        <DataGridTextColumn Header="Price step" Binding="{Binding PriceStep, TargetNullValue=—}" Width="120"/>
                     </DataGrid.Columns>
                 </DataGrid>
                 <DockPanel Grid.Row="3" Margin="0,10,0,0">
                     <TextBlock Text="{Binding CatalogCountText}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                    <TextBlock Text="Каталог терминала · Графики и торговые операции пока недоступны"
+                    <TextBlock Text="Terminal catalog · Charts and trading are not yet available"
                                Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
                 </DockPanel>
             </Grid>
@@ -608,7 +611,7 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
             <DockPanel>
                 <TextBlock Text="●  LIVE" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold"
                            Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}"/>
-                <TextBlock Text="КАТАЛОГ ИНСТРУМЕНТОВ" Foreground="{StaticResource TextMutedBrush}" FontSize="11"
+                <TextBlock Text="INSTRUMENT CATALOG" Foreground="{StaticResource TextMutedBrush}" FontSize="11"
                            Visibility="{Binding IsInstrumentCatalogMode, Converter={StaticResource BoolToVis}}"/>
                 <TextBlock Text="{Binding RenderTimeText}" Foreground="{StaticResource TextMutedBrush}"
                            Visibility="{Binding IsChartMode, Converter={StaticResource BoolToVis}}"

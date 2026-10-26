@@ -36,8 +36,8 @@ public sealed class CoinInfoViewModel : INotifyPropertyChanged, IDisposable
     public string Name => _info?.Name ?? BaseSymbol;
     public string Symbol => _info?.Symbol ?? BaseSymbol;
     public string Description => _info is null ? "" : string.IsNullOrWhiteSpace(_info.Description)
-        ? "В CoinGecko пока нет описания этой монеты." : _info.Description;
-    public string LanguageText => _info?.Language switch { "ru" => "Описание на русском", "en" => "Описание на английском", _ => "" };
+        ? "CoinGecko has no description for this coin yet." : _info.Description;
+    public string LanguageText => _info?.Language switch { "ru" => "Description in Russian", "en" => "Description in English", _ => "" };
     public string CategoriesText => _info is null ? "" : string.Join(" · ", _info.Categories);
     public string? WebsiteUrl => _info?.WebsiteUrl;
     public string? SourceUrl => _info?.SourceUrl;
@@ -65,14 +65,14 @@ public sealed class CoinInfoViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(SelectedCandidate));
         Candidates.Clear();
         OnPropertyChanged(nameof(HasChoices));
-        StatusText = $"Поиск {BaseSymbol} в CoinGecko…";
+        StatusText = $"Searching CoinGecko for {BaseSymbol}…";
         var matches = await _provider.SearchAsync(BaseSymbol, ct);
         ct.ThrowIfCancellationRequested();
         foreach (var match in matches) Candidates.Add(match);
         OnPropertyChanged(nameof(HasChoices));
         if (matches.Count == 0)
         {
-            StatusText = $"Монета {BaseSymbol} не найдена в CoinGecko.";
+            StatusText = $"Coin {BaseSymbol} was not found on CoinGecko.";
         }
         else if (matches.Count == 1)
         {
@@ -82,7 +82,7 @@ public sealed class CoinInfoViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            StatusText = "Этот тикер используют несколько проектов. Выберите монету.";
+            StatusText = "Several projects use this ticker. Select a coin.";
         }
     });
 
@@ -94,14 +94,14 @@ public sealed class CoinInfoViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task FetchInfoAsync(CoinSearchResult candidate, CancellationToken ct)
     {
-        StatusText = $"Загрузка описания {candidate.Name}…";
+        StatusText = $"Loading description for {candidate.Name}…";
         var info = await _provider.GetInfoAsync(candidate.Id, ct);
         ct.ThrowIfCancellationRequested();
         if (info.Id != candidate.Id || !info.Symbol.Equals(BaseSymbol, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("CoinGecko вернул данные другой монеты.");
+            throw new InvalidDataException("CoinGecko returned data for a different coin.");
         _info = info;
         NotifyInfoChanged();
-        StatusText = "Источник: CoinGecko";
+        StatusText = "Source: CoinGecko";
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> action)
@@ -118,7 +118,7 @@ public sealed class CoinInfoViewModel : INotifyPropertyChanged, IDisposable
         {
             if (!_disposed && ReferenceEquals(_request, source))
                 StatusText = ex is OperationCanceledException
-                    ? "CoinGecko не ответил вовремя. Повторите попытку." : $"Не удалось загрузить описание. {ex.Message}";
+                    ? "CoinGecko timed out. Please try again." : $"Could not load the description. {ex.Message}";
         }
         finally
         {

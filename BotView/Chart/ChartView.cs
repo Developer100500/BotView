@@ -100,10 +100,10 @@ public class ChartView : FrameworkElement
 				Background = Brushes.WhiteSmoke, Foreground = Brushes.DimGray,
 				BorderBrush = Brushes.LightGray, BorderThickness = new Thickness(1),
 				Cursor = Cursors.Hand, Focusable = false,
-				ToolTip = "Закрыть панель индикаторов",
+				ToolTip = "Close indicator pane",
 				Command = Controller.CloseIndicatorPaneCommand
 			};
-			System.Windows.Automation.AutomationProperties.SetName(indicatorCloseButton, "Закрыть панель индикаторов");
+			System.Windows.Automation.AutomationProperties.SetName(indicatorCloseButton, "Close indicator pane");
 			AddVisualChild(indicatorCloseButton);
 			AddLogicalChild(indicatorCloseButton);
 		}

@@ -27,7 +27,7 @@ public partial class CoinInfoWindow : Window
         try { Process.Start(new ProcessStartInfo(e.Uri!.AbsoluteUri) { UseShellExecute = true }); }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Не удалось открыть ссылку. {ex.Message}", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, $"Could not open the link. {ex.Message}", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 }

@@ -30,7 +30,7 @@ internal static class CoinInfoContextMenu
         var info = new MenuItem { Header = "Info" };
         info.Click += (_, _) => openInfo(pair);
         menu.Items.Add(info);
-        var orderBook = new MenuItem { Header = "Стакан" };
+        var orderBook = new MenuItem { Header = "Order book" };
         orderBook.Click += (_, _) => openOrderBook(pair);
         menu.Items.Add(orderBook);
         return menu;

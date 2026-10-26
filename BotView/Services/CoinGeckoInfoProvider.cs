@@ -34,7 +34,7 @@ public sealed class CoinGeckoInfoProvider : ICoinInfoProvider
 
         using var json = await GetJsonAsync($"search?query={Uri.EscapeDataString(symbol)}", ct);
         if (!json.RootElement.TryGetProperty("coins", out var coins) || coins.ValueKind != JsonValueKind.Array)
-            throw new InvalidDataException("CoinGecko вернул некорректные результаты поиска.");
+            throw new InvalidDataException("CoinGecko returned invalid search results.");
 
         var matches = new List<CoinSearchResult>();
         foreach (var coin in coins.EnumerateArray())
@@ -53,6 +53,7 @@ public sealed class CoinGeckoInfoProvider : ICoinInfoProvider
         return result;
     }
 
+    /// <summary>Loads English metadata for the coin identified by id; ct cancels the request.</summary>
     public async Task<CoinInfo> GetInfoAsync(string id, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
@@ -63,13 +64,13 @@ public sealed class CoinGeckoInfoProvider : ICoinInfoProvider
         using var json = await GetJsonAsync($"coins/{Uri.EscapeDataString(id)}?localization=true&tickers=false&market_data=false", ct);
         var root = json.RootElement;
         if (GetString(root, "id") != id || string.IsNullOrWhiteSpace(GetString(root, "symbol")))
-            throw new InvalidDataException("CoinGecko вернул данные другой монеты.");
+            throw new InvalidDataException("CoinGecko returned data for a different coin.");
 
         var description = "";
         var language = "";
         if (root.TryGetProperty("description", out var descriptions) && descriptions.ValueKind == JsonValueKind.Object)
         {
-            foreach (var locale in new[] { "ru", "en" })
+            foreach (var locale in new[] { "en" })
             {
                 description = ToPlainText(GetString(descriptions, locale) ?? "");
                 if (description.Length == 0) continue;
@@ -102,11 +103,11 @@ public sealed class CoinGeckoInfoProvider : ICoinInfoProvider
             request.Headers.TryAddWithoutValidation("x-cg-demo-api-key", _demoApiKey);
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            throw new HttpRequestException("Лимит запросов CoinGecko исчерпан. Повторите попытку позже.");
+            throw new HttpRequestException("CoinGecko rate limit reached. Please try again later.");
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-            throw new HttpRequestException("CoinGecko отклонил доступ. Проверьте Demo API key (COINGECKO_DEMO_API_KEY) и перезапустите BotView.");
+            throw new HttpRequestException("CoinGecko denied access. Check the Demo API key (COINGECKO_DEMO_API_KEY) and restart BotView.");
         if (response.StatusCode == HttpStatusCode.NotFound)
-            throw new HttpRequestException("Монета не найдена в CoinGecko.");
+            throw new HttpRequestException("Coin was not found on CoinGecko.");
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         return await JsonDocument.ParseAsync(stream, cancellationToken: ct);

@@ -53,7 +53,7 @@ public sealed class MarketMoversViewModel : INotifyPropertyChanged, IDisposable
         var source = new CancellationTokenSource();
         var ct = source.Token;
         _request = source;
-        StatusText = "Загрузка топ-10…";
+        StatusText = "Loading top 10…";
         try
         {
             var movers = await _service.GetMarketMoversAsync(_exchange, ct);
@@ -66,14 +66,14 @@ public sealed class MarketMoversViewModel : INotifyPropertyChanged, IDisposable
             foreach (var mover in movers.Where(m => m.ChangePercent > 0)
                          .OrderByDescending(m => m.ChangePercent).ThenBy(m => m.Symbol, StringComparer.OrdinalIgnoreCase).Take(10))
                 Gainers.Add(mover);
-            StatusText = $"Обновлено {DateTime.Now:HH:mm} · USDT";
+            StatusText = $"Updated {DateTime.Now:HH:mm} · USDT";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception ex)
         {
             if (!_disposed && ReferenceEquals(_request, source))
-                StatusText = (Losers.Count + Gainers.Count > 0 ? "Данные устарели. " : "") +
-                    $"Ошибка загрузки: {ex.Message}";
+                StatusText = (Losers.Count + Gainers.Count > 0 ? "Data is stale. " : "") +
+                    $"Loading error: {ex.Message}";
         }
         finally
         {

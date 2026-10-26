@@ -1,7 +1,7 @@
 <Window x:Class="BotView.Views.MetricsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Метрики производительности" 
+        Title="Performance metrics"
         Width="600" 
         Height="400"
         WindowStartupLocation="CenterOwner">
