@@ -62,6 +62,11 @@ public sealed class OrderBookLadderControl : FrameworkElement
                     new Rect(0, y + 1, ActualWidth * row.VolumeFraction, RowHeight - 2));
             if (row.IsBest && ActualWidth > 1)
                 dc.DrawRectangle(null, BestPen, new Rect(.5, y + .5, ActualWidth - 1, RowHeight - 1));
+            if (row.OwnOrderCount > 0)
+            {
+                dc.DrawRectangle(Brushes.DarkOrange, null, new Rect(0, y, 4, RowHeight));
+                Text(dc, $"●{row.OwnOrderCount}", 4, y, 36, Brushes.DarkOrange, true, dpi);
+            }
             var brush = spread ? Brushes.LightGray : row.HasDepth ? Ink : MutedInk;
             Text(dc, OrderBookViewModel.Format(row.Price), ActualWidth * .34, y, ActualWidth * .34, brush, row.IsBest, dpi);
             if (!spread)

@@ -248,7 +248,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             _store.Save(new(Profiles.Select(p => p.Profile).ToArray(), active));
             _active = active;
             foreach (var item in Profiles) item.SetActive(active.GetValueOrDefault(item.Profile.Exchange) == item.Profile.Id);
-            _message = "Profile selected for the exchange. Trading is not yet enabled.";
+            _message = "Profile selected. New order books use this account's network.";
         }
         catch (Exception) { _message = "Could not save the selected account."; }
         Notify();

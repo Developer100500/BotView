@@ -32,7 +32,7 @@ public sealed record OrderReference(InstrumentKey Instrument, string ExchangeOrd
 public sealed record OrderSnapshot(
     OrderReference Reference, string? ClientOrderId, OrderSide Side, OrderType Type, OrderState State,
     decimal Quantity, decimal? FilledQuantity, decimal? RemainingQuantity, decimal? Price,
-    decimal? AverageFillPrice, DateTimeOffset? CreatedAt, DateTimeOffset UpdatedAt);
+    decimal? AverageFillPrice, DateTimeOffset? CreatedAt, DateTimeOffset UpdatedAt, string? StatusReason = null);
 
 /// <summary>Sanitized application error. Never include raw provider responses or credentials.</summary>
 public sealed record TradingError(string Code, string Message);

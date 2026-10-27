@@ -28,6 +28,17 @@ public sealed class OrderBookService : IOrderBookService
         return Task.FromResult<IOrderBookSubscription>(new Subscription(id, symbol, _create, _delay, ct));
     }
 
+    /// <summary>Creates public depth in the account's network, independently of the chart connection.</summary>
+    public Task<IOrderBookSubscription> SubscribeAsync(string exchange, string symbol, TradingEnvironment environment, CancellationToken ct = default)
+    {
+        if (!Enum.IsDefined(environment)) throw new ArgumentOutOfRangeException(nameof(environment));
+        if (environment == TradingEnvironment.Production) return SubscribeAsync(exchange, symbol, ct);
+        var id = MarketCatalog.GetExchange(exchange).Id;
+        if (id is not ("binance" or "bybit")) throw new NotSupportedException("Testnet depth supports Binance and Bybit only.");
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult<IOrderBookSubscription>(new Subscription(id, symbol, value => new ProOrderBookClient(value, environment), _delay, ct));
+    }
+
     private sealed class Subscription : IOrderBookSubscription
     {
         private readonly CancellationTokenSource _stop;
@@ -124,7 +135,7 @@ internal sealed class ProOrderBookClient : IOrderBookClient
     private readonly ccxt.Exchange _client;
     private readonly int _subscriptionDepth;
 
-    public ProOrderBookClient(string id)
+    public ProOrderBookClient(string id, TradingEnvironment environment = TradingEnvironment.Production)
     {
         var settings = CreateSettings();
         // Bybit spot streams accept 1/50/200/1000, so receive 200 and retain the nearest 100.
@@ -137,6 +148,7 @@ internal sealed class ProOrderBookClient : IOrderBookClient
             "kraken" => new ccxt.pro.kraken(settings),
             _ => throw new NotSupportedException($"Order books for exchange {id} are not supported.")
         };
+        if (environment == TradingEnvironment.Testnet) _client.setSandboxMode(true);
     }
 
     internal static Dictionary<string, object> CreateSettings() =>
@@ -147,6 +159,8 @@ internal sealed class ProOrderBookClient : IOrderBookClient
             ["options"] = new Dictionary<string, object>
             {
                 ["defaultType"] = "spot",
+                ["fetchCurrencies"] = false,
+                ["maxRetriesOnFailure"] = 0,
                 ["fetchMarkets"] = new Dictionary<string, object> { ["types"] = new List<object> { "spot" } }
             }
         };

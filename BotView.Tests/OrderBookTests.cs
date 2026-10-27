@@ -259,20 +259,13 @@ public sealed class OrderBookTests
     [InlineData("100", "-1", false)]
     [InlineData("NaN", "1", false)]
     [InlineData("100.01", "0,25", true)]
-    public async Task TradeStubsValidateInputAndReportSelectedSide(string price, string amount, bool valid)
+    public async Task TradingRequiresAnAccountEvenWithPositiveInput(string price, string amount, bool valid)
     {
         await using var vm = new OrderBookViewModel("binance", "BTC/USDT", new FakeService(new FakeSubscription(Book())));
         vm.PriceText = price;
         vm.AmountText = amount;
-        Assert.Equal(valid, vm.BuyCommand.CanExecute(null));
-        Assert.Equal(valid, vm.SellCommand.CanExecute(null));
-        if (valid)
-        {
-            vm.SellCommand.Execute(null);
-            Assert.Contains("Trading is not yet enabled", vm.TradeStatus);
-            Assert.Contains("Sell", vm.TradeStatus);
-            Assert.Contains(price, vm.TradeStatus);
-        }
+        Assert.False(vm.BuyCommand.CanExecute(null));
+        Assert.False(vm.SellCommand.CanExecute(null));
     }
 
     [Fact]

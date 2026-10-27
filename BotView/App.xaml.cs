@@ -24,6 +24,7 @@ namespace BotView
         public static ITradingAccountStore TradingAccounts { get; } = new TradingAccountStore();
         public static ICredentialStore TradingCredentials { get; } = new InMemoryCredentialStore();
         public static IAccountConnectionVerifier AccountVerifier { get; } = new AccountConnectionVerifier();
+        public static TradingSessionManager TradingSessions { get; } = new(TradingAccounts, TradingCredentials);
         private static readonly HttpClient QuoteHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
         private static readonly HttpClient CoinInfoHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         public static TimeSpan RealtimePollInterval { get; set; } = TimeSpan.FromSeconds(1);
@@ -101,8 +102,10 @@ namespace BotView
             }
         }
 
+        /// <summary>Stops account supervision before erasing RAM-only keys; exchange orders remain active.</summary>
         protected override void OnExit(ExitEventArgs e)
         {
+            TradingSessions.DisposeAsync().AsTask().GetAwaiter().GetResult();
             TradingCredentials.Dispose();
             // Логирование завершения приложения
             System.Diagnostics.Debug.WriteLine("Application shutting down");

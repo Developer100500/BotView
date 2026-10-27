@@ -2,6 +2,10 @@ using BotView.Models;
 
 namespace BotView.Interfaces;
 
+/// <summary>Optional change notification implemented by the application stores.</summary>
+public interface ITradingProfileNotifications { event Action? Changed; }
+public interface ICredentialNotifications { event Action<Guid>? CredentialsChanged; }
+
 public interface ITradingAccountStore
 {
     TradingAccountsSettings Load();

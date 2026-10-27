@@ -25,19 +25,28 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="*" MinHeight="80"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="1.1*" MinHeight="190"/>
         </Grid.RowDefinitions>
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="{Binding Symbol}" FontSize="19" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding Exchange}" Foreground="#94A3B8"/>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Exchange}" Foreground="#94A3B8" FontSize="11"/>
+                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontWeight="Bold" FontSize="11" Margin="5,0,0,0"/>
+                </StackPanel>
+                <TextBlock Text="{Binding SelectedAccount.Name}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis">
+                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                        <DataTrigger Binding="{Binding SelectedAccount}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                    </Style.Triggers></Style></TextBlock.Style>
+                </TextBlock>
             </StackPanel>
             <Button Grid.Column="1" Content="Center on market" Command="{Binding CenterCommand}" VerticalAlignment="Center"/>
         </Grid>
-        <StackPanel Grid.Row="1">
+        <Expander Grid.Row="1" Header="Depth display settings" Foreground="#94A3B8" Margin="0,0,0,5">
+        <StackPanel>
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="65"/></Grid.ColumnDefinitions>
             
@@ -72,6 +81,7 @@
                        TextWrapping="Wrap" Margin="0,3,0,0"/>
         </Grid>
         </StackPanel>
+        </Expander>
         <Grid Grid.Row="2" Background="#182235" Height="26">
             <Grid.ColumnDefinitions><ColumnDefinition Width="34*"/><ColumnDefinition Width="34*"/><ColumnDefinition Width="32*"/></Grid.ColumnDefinitions>
             <TextBlock Text="{Binding BaseHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
@@ -81,15 +91,66 @@
         <local:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Scroll to browse prices. Click to select an order price. An em dash means depth or monetary valuation data is unavailable."/>
         <TextBlock Grid.Row="4" Text="{Binding StatusText}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap" MaxHeight="44" Margin="0,6"/>
         <Grid Grid.Row="5">
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
+        <ComboBox ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}" DisplayMemberPath="DisplayName"
+                  IsEnabled="{Binding IsTradeEditable}" ToolTip="Accounts for this exchange and network" Margin="0,0,0,4"/>
+        <TextBlock Text="{Binding AccountStatus}" FontSize="10" TextWrapping="Wrap" Foreground="#94A3B8"/>
+        <Button Content="Reconnect account" Command="{Binding ReconnectCommand}" HorizontalAlignment="Left" Padding="5,2" Margin="0,3"/>
+        <TextBlock Text="{Binding AccountIdentity}" FontSize="10" Foreground="#94A3B8"/>
+        <TextBlock Text="{Binding BalanceText}" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,5"/>
+        <Grid IsEnabled="{Binding IsTradeEditable}">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
             <TextBlock Text="Order price" Foreground="#94A3B8" FontSize="11"/>
-            <TextBlock Grid.Column="2" Text="Volume" Foreground="#94A3B8" FontSize="11"/>
+            <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Foreground="#94A3B8" FontSize="11"/>
             <TextBox x:Name="PriceInput" Grid.Row="1" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
             <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
-            <Button Grid.Row="2" Content="Buy" Command="{Binding BuyCommand}" Background="#22613B"/>
-            <Button Grid.Row="2" Grid.Column="2" Content="Sell" Command="{Binding SellCommand}" Background="#873C43"/>
-            <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding TradeStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="0,6,0,0" MaxHeight="48"/>
+            <CheckBox Grid.Row="2" Content="Post-only" IsChecked="{Binding PostOnly}" Foreground="#E5E7EB" ToolTip="Unchecked: ordinary GTC limit order"/>
+            <ComboBox Grid.Row="2" Grid.Column="2" ItemsSource="{Binding QuantityCurrencies}" SelectedItem="{Binding QuantityCurrency}" ToolTip="Order quantity unit; independent of depth volume bars"/>
+            <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding OrderPreview}" FontSize="10" TextWrapping="Wrap" Margin="0,4"/>
+        </Grid>
+        <TextBlock Text="{Binding PendingStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11"/>
+        <TextBlock Text="{Binding TradeStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="0,4"/>
+        <TextBlock Text="Account orders for this pair" FontSize="11" Margin="0,5"/>
+        <DataGrid ItemsSource="{Binding Orders}" SelectedItem="{Binding SelectedOrder}" IsReadOnly="True" AutoGenerateColumns="False"
+                  MaxHeight="150" MinHeight="55" Background="#182235" Foreground="#172033" SelectionMode="Single"
+                  CanUserAddRows="False" HeadersVisibility="Column" HorizontalScrollBarVisibility="Auto">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Side" Binding="{Binding Side}"/>
+                <DataGridTextColumn Header="Price" Binding="{Binding Price}"/>
+                <DataGridTextColumn Header="Quantity" Binding="{Binding Quantity}"/>
+                <DataGridTextColumn Header="Filled" Binding="{Binding FilledQuantity}"/>
+                <DataGridTextColumn Header="Remaining" Binding="{Binding RemainingQuantity}"/>
+                <DataGridTextColumn Header="State" Binding="{Binding State}"/>
+                <DataGridTextColumn Header="Reason" Binding="{Binding StatusReason}"/>
+                <DataGridTextColumn Header="Order ID" Binding="{Binding Reference.ExchangeOrderId}"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <WrapPanel Margin="0,5">
+            <Button Content="Cancel selected" Command="{Binding CancelSelectedCommand}" Margin="0,0,5,0"/>
+            <Button Content="Cancel all for pair" Command="{Binding CancelAllCommand}"/>
+        </WrapPanel>
+        <TextBlock Text="Recent executions" FontSize="11" Margin="0,5"/>
+        <ItemsControl ItemsSource="{Binding Executions}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock FontSize="10" TextWrapping="Wrap">
+                        <Run Text="{Binding ExecutedAt, StringFormat=HH:mm:ss}"/><Run Text=" "/>
+                        <Run Text="{Binding Side}"/><Run Text=" "/><Run Text="{Binding Quantity}"/><Run Text=" @ "/><Run Text="{Binding Price}"/>
+                        <Run Text=" · Fee: "/><Run Text="{Binding Fee.Amount}"/><Run Text=" "/><Run Text="{Binding Fee.Currency}"/>
+                    </TextBlock>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        </StackPanel>
+        </ScrollViewer>
+        <Grid Grid.Row="1" Margin="0,4,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Button Content="Buy" Command="{Binding BuyCommand}" Background="#22613B"/>
+            <Button Grid.Column="2" Content="Sell" Command="{Binding SellCommand}" Background="#873C43"/>
+        </Grid>
         </Grid>
     </Grid>
 </Window>

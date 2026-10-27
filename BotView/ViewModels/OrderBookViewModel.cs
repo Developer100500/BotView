@@ -8,7 +8,7 @@ namespace BotView.ViewModels;
 
 public sealed record OrderBookVolumeOption(OrderBookVolumeCurrency Currency, string Label);
 
-public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposable
+public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
     private readonly IOrderBookService _service;
     private readonly CancellationTokenSource _stop = new();
@@ -28,7 +28,9 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     private decimal? _center;
     private bool _followMarket = true;
 
-    public OrderBookViewModel(string exchange, string symbol, IOrderBookService service)
+    /// <summary>Creates a book fixed to one network; trading sessions are owned by the application manager.</summary>
+    public OrderBookViewModel(string exchange, string symbol, IOrderBookService service,
+        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production)
     {
         Exchange = exchange;
         Symbol = symbol;
@@ -38,14 +40,15 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
             new(OrderBookVolumeCurrency.Quote, $"Quote ({symbol.Split('/').Last()})")
         ];
         _service = service;
-        BuyCommand = new RelayCommand(_ => Trade("Buy"), _ => CanTrade);
-        SellCommand = new RelayCommand(_ => Trade("Sell"), _ => CanTrade);
+        BuyCommand = new RelayCommand(_ => TradeAsync(OrderSide.Buy), _ => CanTrade);
+        SellCommand = new RelayCommand(_ => TradeAsync(OrderSide.Sell), _ => CanTrade);
         CenterCommand = new RelayCommand(() => { _followMarket = true; _center = null; Changed(); });
+        InitializeTrading(trading, environment);
     }
 
     public string Exchange { get; }
     public string Symbol { get; }
-    public string Title => $"Order book · {Symbol} · {Exchange}";
+    public string Title => $"Order book · {Symbol} · {Exchange} · {EnvironmentText}";
     public string BaseHeader => $"Volume ({_update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]})";
     public string QuoteHeader => $"Total ({_update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last()})";
     public OrderBookVolumeOption[] VolumeCurrencyOptions { get; }
@@ -102,7 +105,8 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     public string PriceText { get => _priceText; set { _priceText = value; Changed(); } }
     public string AmountText { get => _amountText; set { _amountText = value; Changed(); } }
     public string TradeStatus => _tradeStatus;
-    public bool CanTrade => !_disposed && TryPositive(PriceText, out _) && TryPositive(AmountText, out _);
+    public bool CanTrade => !_disposed && !_tradeBusy && !_bindingAccount && _trading?.IsReady(TradingInstrument) == true
+        && TradingInputValid && !_trading.Current.Pending.Any(o => o.Request.Instrument == TradingInstrument);
     public RelayCommand BuyCommand { get; }
     public RelayCommand SellCommand { get; }
     public RelayCommand CenterCommand { get; }
@@ -114,7 +118,9 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     {
         try
         {
-            var subscription = await _service.SubscribeAsync(Exchange, Symbol, _stop.Token).ConfigureAwait(false);
+            var subscription = Environment == TradingEnvironment.Production
+                ? await _service.SubscribeAsync(Exchange, Symbol, _stop.Token).ConfigureAwait(false)
+                : await _service.SubscribeAsync(Exchange, Symbol, Environment, _stop.Token).ConfigureAwait(false);
             _subscription = subscription;
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
@@ -126,6 +132,7 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     {
         if (_disposed) return;
         if (_subscription is not null) _update = _subscription.Current;
+        RefreshTrading();
         Changed();
     }
 
@@ -137,7 +144,10 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
             : book.BestBid ?? book.BestAsk;
         if (marketCenter is null) return [];
         if (_followMarket || _center is null) _center = marketCenter;
-        return OrderBookLadder.Build(book, Multiplier, _center.Value, count, _maxVolumes[(int)VolumeCurrency], VolumeCurrency);
+        var rows = OrderBookLadder.Build(book, Multiplier, _center.Value, count, _maxVolumes[(int)VolumeCurrency], VolumeCurrency);
+        var step = book.Market.TickSize * Multiplier;
+        return rows.Select(row => row with { OwnOrderCount = Orders.Count(o => !CcxtTradingService.Terminal(o.State) && o.Price is { } price &&
+            (o.Side == OrderSide.Buy ? decimal.Floor(price / step) : decimal.Ceiling(price / step)) * step == row.Price) }).ToArray();
     }
 
     public void Scroll(int levels)
@@ -150,14 +160,8 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
         Changed();
     }
 
-    public void SelectPrice(decimal price) => PriceText = Format(price);
-
-    private void Trade(string side)
-    {
-        if (!CanTrade) return;
-        _tradeStatus = $"Trading is not yet enabled. {side}: {AmountText} {Symbol.Split('/')[0]} at {PriceText}.";
-        Changed();
-    }
+    /// <summary>Copies the exact clicked price only while the order draft is editable.</summary>
+    public void SelectPrice(decimal price) { if (IsTradeEditable) PriceText = Format(price); }
 
     internal static bool TryPositive(string text, out decimal value) =>
         decimal.TryParse(text.Trim().Replace(',', '.'), NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign,
@@ -170,6 +174,9 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
         BuyCommand.RaiseCanExecuteChanged();
         SellCommand.RaiseCanExecuteChanged();
+        CancelSelectedCommand?.RaiseCanExecuteChanged();
+        CancelAllCommand?.RaiseCanExecuteChanged();
+        ReconnectCommand?.RaiseCanExecuteChanged();
     }
 
     public ValueTask DisposeAsync()
@@ -180,6 +187,7 @@ public sealed class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposabl
     private async Task DisposeCoreAsync()
     {
         _disposed = true;
+        ++_accountGeneration;
         await _stop.CancelAsync().ConfigureAwait(false);
         if (_startTask is not null) await _startTask.ConfigureAwait(false);
         if (_subscription is not null) await _subscription.DisposeAsync().ConfigureAwait(false);

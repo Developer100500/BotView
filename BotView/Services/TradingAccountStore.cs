@@ -6,8 +6,9 @@ using BotView.Models;
 namespace BotView.Services;
 
 /// <summary>Persists an explicit allowlist of profile metadata, never key material.</summary>
-public sealed class TradingAccountStore : ITradingAccountStore
+public sealed class TradingAccountStore : ITradingAccountStore, ITradingProfileNotifications
 {
+    public event Action? Changed;
     private readonly string _path;
     private readonly object _sync = new();
 
@@ -26,6 +27,7 @@ public sealed class TradingAccountStore : ITradingAccountStore
         }
     }
 
+    /// <summary>Atomically saves metadata and then notifies account selectors and session supervision.</summary>
     public void Save(TradingAccountsSettings settings)
     {
         lock (_sync)
@@ -48,6 +50,7 @@ public sealed class TradingAccountStore : ITradingAccountStore
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
+        Changed?.Invoke();
     }
 
     private static TradingAccountsSettings Validate(TradingAccountsSettings settings)

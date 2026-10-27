@@ -18,4 +18,4 @@ public sealed record OrderBookUpdate(OrderBookSnapshot? Snapshot, OrderBookConne
 public enum OrderBookSide { Spread, Bid, Ask }
 public enum OrderBookVolumeCurrency { Base, Quote }
 public sealed record OrderBookRow(decimal Price, decimal Amount, decimal? Cost, OrderBookSide Side,
-    bool HasDepth, bool IsBest, double VolumeFraction);
+    bool HasDepth, bool IsBest, double VolumeFraction, int OwnOrderCount = 0);

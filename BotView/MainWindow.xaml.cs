@@ -22,7 +22,7 @@ namespace BotView
         private ContextMenu? _pairContextMenu;
         private Point _favoriteDragStart;
         private TradingPairModel? _draggedFavorite;
-        private readonly Dictionary<(string Exchange, string Symbol), Views.OrderBookWindow> _orderBooks = new();
+        private readonly Dictionary<(string Exchange, string Symbol, TradingEnvironment Environment), Views.OrderBookWindow> _orderBooks = new();
         private readonly List<Task> _orderBookCleanup = new();
         private Views.TradingAccountsWindow? _tradingAccountsWindow;
 
@@ -350,19 +350,27 @@ namespace BotView
             menu.IsOpen = true;
         }
 
+        /// <summary>Opens one book per venue/pair/network, using the active profile's environment.</summary>
         private void OpenOrderBook(string symbol)
         {
             if (_viewModel.IsInstrumentCatalogMode) return;
             _viewModel.IsSearchDropdownOpen = false;
             _viewModel.IsComparisonDropdownOpen = false;
-            var key = (Exchange: _viewModel.SelectedExchange, Symbol: symbol);
+            var environment = TradingEnvironment.Production;
+            try
+            {
+                var settings = App.TradingAccounts.Load();
+                environment = settings.Profiles.FirstOrDefault(p => p.Id == settings.ActiveProfiles.GetValueOrDefault(_viewModel.SelectedExchange))?.Environment ?? environment;
+            }
+            catch (Exception) { }
+            var key = (Exchange: _viewModel.SelectedExchange, Symbol: symbol, Environment: environment);
             if (_orderBooks.TryGetValue(key, out var existing))
             {
                 if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
                 existing.Activate();
                 return;
             }
-            var window = new Views.OrderBookWindow(key.Exchange, symbol, App.OrderBookService) { Owner = this };
+            var window = new Views.OrderBookWindow(key.Exchange, symbol, App.OrderBookService, App.TradingSessions, environment) { Owner = this };
             _orderBooks.Add(key, window);
             window.Closed += (_, _) =>
             {
