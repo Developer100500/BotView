@@ -6,4 +6,5 @@ public sealed record InstrumentKey(string Venue, string Market, string Board, st
 /// <summary>Symbol is unique within a provider connection; Key identifies the actual listing.</summary>
 public sealed record Instrument(
     InstrumentKey Key, string Symbol, string Name, string? Currency = null,
-    decimal LotSize = 1m, decimal? PriceStep = null, DateOnly? Expiry = null);
+    decimal LotSize = 1m, decimal? PriceStep = null, DateOnly? Expiry = null,
+    TradingInstrumentRules? TradingRules = null);

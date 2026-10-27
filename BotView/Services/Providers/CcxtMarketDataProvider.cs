@@ -36,6 +36,7 @@ public sealed class CcxtMarketDataProvider : IMarketDataProvider, IMarketMoversP
         _ => throw new NotSupportedException($"No CCXT adapter is registered for '{id}'.")
     };
 
+    /// <summary>Loads the active spot catalog, preserving native quantity, price precision and limits.</summary>
     public async Task<IReadOnlyList<Instrument>> GetInstrumentsAsync(CancellationToken ct = default)
     {
         await _instrumentGate.WaitAsync(ct).ConfigureAwait(false);
@@ -46,13 +47,42 @@ public sealed class CcxtMarketDataProvider : IMarketDataProvider, IMarketMoversP
             ct.ThrowIfCancellationRequested();
             _instruments = markets.Values.Where(m => m.active != false && m.spot == true &&
                     !string.IsNullOrWhiteSpace(m.symbol))
-                .Select(m => new Instrument(new InstrumentKey(Definition.Venue, "spot", "", m.symbol!),
-                    m.symbol!, m.symbol!, m.quote))
+                .Select(m => MapInstrument(Definition.Venue, m, Convert.ToInt32(_client.Value.precisionMode)))
                 .DistinctBy(m => m.Symbol, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(m => m.Symbol, StringComparer.OrdinalIgnoreCase).ToArray();
             return _instruments;
         }
         finally { _instrumentGate.Release(); }
+    }
+
+    /// <summary>Maps spot quote/amount units and known precision/limits without exposing CCXT models.</summary>
+    internal static Instrument MapInstrument(string venue, ccxt.MarketInterface market, int precisionMode) => new(
+        new InstrumentKey(venue, "spot", "", market.symbol!), market.symbol!, market.symbol!, market.quote,
+        PriceStep: PrecisionStep(market.precision?.price, precisionMode),
+        TradingRules: new(QuantityUnit.BaseAsset, PriceQuotation.CurrencyPerUnit,
+            QuantityStep: PrecisionStep(market.precision?.amount, precisionMode),
+            MinQuantity: DecimalValue(market.limits?.amount?.min), MaxQuantity: DecimalValue(market.limits?.amount?.max),
+            MinPrice: DecimalValue(market.limits?.price?.min), MaxPrice: DecimalValue(market.limits?.price?.max),
+            MinNotional: DecimalValue(market.limits?.cost?.min), MaxNotional: DecimalValue(market.limits?.cost?.max),
+            SettlementCurrency: market.quote));
+
+    /// <summary>Converts fixed tick/decimal-place precision; significant digits have no fixed step.</summary>
+    private static decimal? PrecisionStep(double? precision, int mode)
+    {
+        if (!precision.HasValue || !double.IsFinite(precision.Value)) return null;
+        if (mode == 4) return DecimalValue(precision) is > 0 and var step ? step : null;
+        if (mode != 2 || precision.Value != Math.Truncate(precision.Value) || precision.Value is < -28 or > 28) return null;
+        var result = 1m;
+        for (var i = 0; i < Math.Abs(precision.Value); i++) result = precision.Value > 0 ? result / 10 : result * 10;
+        return result;
+    }
+
+    /// <summary>Leaves absent, nonfinite and out-of-range metadata unknown.</summary>
+    private static decimal? DecimalValue(double? value)
+    {
+        if (!value.HasValue || !double.IsFinite(value.Value)) return null;
+        try { return (decimal)value.Value; }
+        catch (OverflowException) { return null; }
     }
 
     public async Task<Candle[]> GetCandlesAsync(InstrumentKey instrument, string timeframe,

@@ -11,6 +11,7 @@ public sealed class QuikInstrumentProviderTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>Preserves listing identity and native price/quantity metadata without guessing valuation parameters.</summary>
     [Fact]
     public async Task CatalogIsLazyFiltersClassesAndPreservesTheListingAndMetadata()
     {
@@ -31,6 +32,18 @@ public sealed class QuikInstrumentProviderTests
         Assert.Equal("Sberbank", share.Name);
         Assert.Equal(10m, share.LotSize);
         Assert.Equal(0.01m, share.PriceStep);
+        Assert.Equal(QuantityUnit.Lots, share.TradingRules!.QuantityUnit);
+        Assert.Equal(PriceQuotation.CurrencyPerUnit, share.TradingRules.PriceQuotation);
+        Assert.Equal(PriceQuotation.PercentOfFaceValue, instruments.Single(i => i.Key.Market == "bonds").TradingRules!.PriceQuotation);
+        var futures = instruments.Single(i => i.Key.Market == "futures");
+        Assert.Equal(QuantityUnit.Contracts, futures.TradingRules!.QuantityUnit);
+        Assert.Equal(PriceQuotation.Points, futures.TradingRules.PriceQuotation);
+        Assert.Null(futures.TradingRules.TickValue);
+        Assert.All(instruments, i =>
+        {
+            Assert.Null(i.TradingRules!.QuantityStep);
+            Assert.Null(i.TradingRules.MinQuantity);
+        });
         Assert.Equal(3, instruments.Select(i => i.Symbol).Distinct().Count());
         Assert.Equal("Full bond name", Assert.Single(instruments, i => i.Key.Market == "bonds").Name);
         Assert.Equal("SAME", Assert.Single(instruments, i => i.Key.Market == "futures").Name);

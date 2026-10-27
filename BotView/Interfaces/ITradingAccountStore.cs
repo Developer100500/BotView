@@ -17,6 +17,8 @@ public interface ICredentialStore : IDisposable
     void Delete(Guid profileId);
 }
 
+/// <summary>Checks that a trading account's credentials can reach the exchange
+/// and reports whether the account has access and trading permissions.</summary>
 public interface IAccountConnectionVerifier
 {
     Task<AccountVerificationResult> VerifyAsync(TradingAccountProfile profile, AccountCredentials credentials,

@@ -48,8 +48,10 @@ internal sealed class QuikSharpCatalogClient : IQuikCatalogClient
     {
         var info = await _classes.GetSecurityInfo(classCode, code).WaitAsync(_timeout, ct).ConfigureAwait(false);
         if (info is null)
-            throw new InvalidOperationException($"QUIK did not return a description for {classCode}:{code}. Refresh the catalog again.");
-        return new(info.ShortName, info.Name, info.LotSize, info.MinPriceStep);
+            throw new InvalidOperationException(
+                $"QUIK did not return a description for {classCode}:{code}.Refresh the catalog again.");
+        
+        return new QuikSecurityDescription(info.ShortName, info.Name, info.LotSize, info.MinPriceStep);
     }
 
     public async ValueTask DisposeAsync()

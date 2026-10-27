@@ -8,9 +8,12 @@ namespace BotView.Views;
 public partial class TradingAccountsWindow : Window
 {
     private readonly TradingAccountsViewModel _viewModel;
-    private bool _resetting;
+    private bool _resetting; // This is used to prevent the editor from being reset while the user is typing.
 
-    public TradingAccountsWindow(ITradingAccountStore store, ICredentialStore credentials, IAccountConnectionVerifier verifier)
+    public TradingAccountsWindow(
+        ITradingAccountStore store,
+        ICredentialStore credentials,
+        IAccountConnectionVerifier verifier) // This is used to verify the connection to the trading account.
     {
         InitializeComponent();
         _viewModel = new(store, credentials, verifier);

@@ -38,6 +38,7 @@ public sealed class OrderBookLadderControl : FrameworkElement
 
     private void OnChanged(object? sender, PropertyChangedEventArgs e) => InvalidateVisual();
 
+    /// <summary>Draws visible quantity/value rows; missing depth or monetary valuation is shown as an em dash.</summary>
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
@@ -66,7 +67,7 @@ public sealed class OrderBookLadderControl : FrameworkElement
             if (!spread)
             {
                 Text(dc, row.HasDepth ? OrderBookViewModel.Format(row.Amount) : "—", 0, y, ActualWidth * .34, brush, false, dpi);
-                Text(dc, row.HasDepth ? OrderBookViewModel.Format(row.Cost) : "—", ActualWidth * .68, y, ActualWidth * .32, brush, false, dpi);
+                Text(dc, row.HasDepth && row.Cost is { } cost ? OrderBookViewModel.Format(cost) : "—", ActualWidth * .68, y, ActualWidth * .32, brush, false, dpi);
             }
         }
     }

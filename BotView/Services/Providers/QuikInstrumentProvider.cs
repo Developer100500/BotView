@@ -22,6 +22,7 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
     public ExchangeDefinition Definition { get; } = new(
         "quik", "QUIK / MOEX", "", true, [], "quiksharp", "MOEX");
 
+    /// <summary>Loads listing keys and native lots/contracts; unavailable financial valuation fields stay unknown.</summary>
     public async Task<IReadOnlyList<Instrument>> GetInstrumentsAsync(CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -53,7 +54,14 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
                         if (info.LotSize < 0 || !double.IsFinite(info.PriceStep) || info.PriceStep < 0)
                             throw new InvalidOperationException($"Invalid instrument description {classCode}:{code}.");
                         return new Instrument(new("MOEX", market, classCode, code), $"{classCode}:{code}", name,
-                            LotSize: info.LotSize, PriceStep: info.PriceStep > 0 ? (decimal)info.PriceStep : null);
+                            LotSize: info.LotSize, PriceStep: info.PriceStep > 0 ? (decimal)info.PriceStep : null,
+                            TradingRules: new(market == "futures" ? QuantityUnit.Contracts : QuantityUnit.Lots,
+                                market switch
+                                {
+                                    "bonds" => PriceQuotation.PercentOfFaceValue,
+                                    "futures" => PriceQuotation.Points,
+                                    _ => PriceQuotation.CurrencyPerUnit
+                                }));
                     })).ConfigureAwait(false);
                     instruments.AddRange(items);
                 }

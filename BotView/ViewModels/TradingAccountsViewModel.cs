@@ -5,10 +5,22 @@ using BotView.Models;
 
 namespace BotView.ViewModels;
 
+/// <summary>
+/// A trading environment option.
+/// </summary>
+/// <param name="Environment">Testnet or Mainnet (demo vs live trading).</param>
+/// <param name="Label">The label to display in the UI.</param>
 public sealed record TradingEnvironmentOption(TradingEnvironment Environment, string Label);
 
+/// <summary>
+/// Profile + credentials + verification status.
+/// </summary>
 public sealed class TradingAccountItem : INotifyPropertyChanged
 {
+    /// <summary> Constructs a new trading account item. </summary>
+    /// <param name="Profile">The trading account profile.</param>
+    /// <param name="HasCredentials">Whether the account has credentials.</param>
+    /// <param name="IsActive">Whether the account is chosen for the exchange.</param>
     public TradingAccountItem(TradingAccountProfile profile, bool hasCredentials)
     {
         Profile = profile;
@@ -57,10 +69,13 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     private string _exchange = "binance";
     private TradingEnvironment _environment = TradingEnvironment.Testnet;
     private string _message = "Add an account profile or select an existing one.";
-    private bool _hasCredentialInput;
-    private bool _hasCompleteCredentials;
+    private bool _hasCredentialInput; // whether the user has entered any credentials in the input fields
+    private bool _hasCompleteCredentials; // all required credentials have been entered
 
-    public TradingAccountsViewModel(ITradingAccountStore store, ICredentialStore credentials, IAccountConnectionVerifier verifier)
+    public TradingAccountsViewModel(
+        ITradingAccountStore store,
+        ICredentialStore credentials,
+        IAccountConnectionVerifier verifier) 
     {
         _store = store;
         _credentials = credentials;
@@ -113,6 +128,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             Notify();
         }
     }
+    /// <summary>The name of the account profile.</summary>
     public string Name { get => _name; set { _name = value; Notify(); } }
     public string Exchange { get => _exchange; set { if (IsNewProfile && Exchanges.Any(e => e.Id == value)) { _exchange = value; Notify(); } } }
     public TradingEnvironment Environment
@@ -155,6 +171,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         Notify();
     }
 
+    ///<summary> Creates a new account profile and resets the editor.</summary>
     public void BeginNew()
     {
         if (_disposed) return;
@@ -168,14 +185,18 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         Notify();
     }
 
-    /// <summary>The view supplies masked input only for this operation; it is never stored in the view model.</summary>
+    /// <summary>The view supplies masked input only for this operation;
+    /// it is never stored in the view model. Saves the profile to storage.</summary>
     public void Save(AccountCredentials? replacement)
     {
         if (!CanSave || IsNewProfile && replacement is null || _hasCredentialInput && replacement is null) return;
+
         var profile = _selected is { } selected ? selected.Profile with { Name = Name.Trim() }
             : new TradingAccountProfile(Guid.NewGuid(), Name.Trim(), Exchange, Environment);
         var profiles = Profiles.Select(p => p.Profile.Id == profile.Id ? profile : p.Profile).ToList();
+
         if (_selected is null) profiles.Add(profile);
+
         try
         {
             _store.Save(new(profiles, _active));
@@ -216,6 +237,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         Notify();
     }
 
+    /// <summary> Selects the current account for the exchange. </summary>
     public void ActivateSelected()
     {
         if (!CanModifySelected) return;
@@ -297,7 +319,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     {
         _hasCredentialInput = false;
         _hasCompleteCredentials = false;
-        EditorResetRequested?.Invoke();
+        EditorResetRequested?.Invoke(); // Clears the API key and secret input fields.
     }
 
     private void Notify()

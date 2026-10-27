@@ -78,7 +78,7 @@
             <TextBlock Grid.Column="1" Text="Price" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
             <TextBlock Grid.Column="2" Text="{Binding QuoteHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
         </Grid>
-        <local:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Scroll to browse prices. Click to select an order price. An em dash means the level is outside the loaded depth; volume is unknown."/>
+        <local:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Scroll to browse prices. Click to select an order price. An em dash means depth or monetary valuation data is unavailable."/>
         <TextBlock Grid.Row="4" Text="{Binding StatusText}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap" MaxHeight="44" Margin="0,6"/>
         <Grid Grid.Row="5">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
