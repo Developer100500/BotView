@@ -66,8 +66,8 @@ public sealed class AccountConnectionVerifier : IAccountConnectionVerifier
             ccxt.RequestTimeout => "The exchange response timed out.",
             ccxt.NetworkError => "The exchange is unavailable. Check the network and try verification again.",
             NotSupportedException => "The exchange or environment is not supported for account connections.",
-            _ => "Could not verify the account connection. Check settings and try again."
-        };
+            _ => "Unknown error: " + ex.Message
+            };
     }
 
     private static async Task<T> WaitAsync<T>(Task<T> task, CancellationToken ct)

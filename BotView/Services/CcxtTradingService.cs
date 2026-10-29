@@ -485,7 +485,7 @@ public sealed class CcxtTradingService : ITradingService
         var until = DateTimeOffset.UtcNow;
         while (since < until)
         {
-            var end = since.AddDays(7) < until ? since.AddDays(7) : until;
+            var end = HistoryEnd(since, until);
             cursor = null; seen.Clear();
             do
             {
@@ -507,6 +507,14 @@ public sealed class CcxtTradingService : ITradingService
         Publish(new TradingConnectionChanged(TradingConnectionState.Connected, DateTimeOffset.UtcNow));
     }
 
+    /// <summary>Keeps one history request inside the venue limit. Binance rejects startTime and endTime more than 24 hours apart; Bybit allows seven days.</summary>
+    private DateTimeOffset HistoryEnd(DateTimeOffset since, DateTimeOffset until)
+    {
+        var window = Account.Venue == "bybit" ? TimeSpan.FromDays(7) : TimeSpan.FromHours(24) - TimeSpan.FromMilliseconds(1);
+        var end = since + window;
+        return end < until ? end : until;
+    }
+
     /// <summary>Searches older unresolved client IDs in bounded history windows without guessing or resending.</summary>
     private async Task<OrderSnapshot?> FindInHistoryCoreAsync(TradingOperation operation, CancellationToken ct)
     {
@@ -514,7 +522,7 @@ public sealed class CcxtTradingService : ITradingService
         var until = DateTimeOffset.UtcNow;
         while (since < until)
         {
-            var end = since.AddDays(7) < until ? since.AddDays(7) : until;
+            var end = HistoryEnd(since, until);
             string? cursor = null;
             var seen = new HashSet<string>();
             do
