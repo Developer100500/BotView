@@ -1,5 +1,4 @@
 using System.Net.Http;
-using BotView.Interfaces;
 using BotView.Models;
 using BotView.Services;
 using BotView.ViewModels;

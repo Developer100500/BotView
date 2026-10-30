@@ -1,6 +1,6 @@
 using BotView.Models;
 using BotView.Services;
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
 
 namespace BotView.Tests;
 

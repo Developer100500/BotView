@@ -4,10 +4,12 @@ using System.Text.Json.Serialization;
 namespace BotView.Models;
 
 public enum TradingEnvironment { Testnet, Production }
+public enum TradingMarket { Spot, UsdtFutures }
 
-public sealed record TradingAccountProfile(Guid Id, string Name, string Exchange, TradingEnvironment Environment)
+public sealed record TradingAccountProfile(Guid Id, string Name, string Exchange, TradingEnvironment Environment,
+    TradingMarket Market = TradingMarket.Spot)
 {
-    public string DisplayName => $"{Name} · {Exchange} · {(Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet")}";
+    public string DisplayName => $"{Name} · {Exchange} · {Market} · {(Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet")}";
 }
 
 public sealed record TradingAccountsSettings(

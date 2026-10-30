@@ -8,7 +8,6 @@ using BotView.Chart.TechnicalAnalysis;
 using BotView.Chart;
 using BotView.Configuration;
 using BotView.Database;
-using BotView.Interfaces;
 using BotView.Models;
 using BotView.Services;
 

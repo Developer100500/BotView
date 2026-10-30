@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using BotView.Interfaces;
+using BotView.Services;
 using BotView.Models;
 
 namespace BotView.ViewModels;
@@ -75,7 +75,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     public TradingAccountsViewModel(
         ITradingAccountStore store,
         ICredentialStore credentials,
-        IAccountConnectionVerifier verifier) 
+        IAccountConnectionVerifier verifier)
     {
         _store = store;
         _credentials = credentials;
@@ -123,6 +123,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             _name = value?.Profile.Name ?? "";
             _exchange = value?.Profile.Exchange ?? "binance";
             _environment = value?.Profile.Environment ?? TradingEnvironment.Testnet;
+            _market = value?.Profile.Market ?? TradingMarket.Spot;
             ResetEditor();
             _message = value is null ? "New account profile." : value.Result?.Message ?? "Profile selected. Verify the connection manually.";
             Notify();
@@ -136,6 +137,21 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         get => _environment;
         set { if (IsNewProfile && Enum.IsDefined(value)) { _environment = value; Notify(); } }
     }
+    private TradingMarket _market;
+    public TradingMarket[] Markets { get; } = [TradingMarket.Spot, TradingMarket.UsdtFutures];
+    public TradingMarket Market
+    {
+        get => _market;
+        set
+        {
+            if (IsNewProfile && Enum.IsDefined(value))
+            {
+                _market = value;
+                Notify();
+            }
+        }
+    }
+
     public bool IsNewProfile => _selected is null;
     public bool IsBusy => _request is not null;
     public bool CanSave => !_disposed && _storageAvailable && !IsBusy && !string.IsNullOrWhiteSpace(Name)
@@ -180,6 +196,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         _name = "";
         _exchange = "binance";
         _environment = TradingEnvironment.Testnet;
+        _market = TradingMarket.Spot;
         _message = "New account profile.";
         ResetEditor();
         Notify();
@@ -192,7 +209,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         if (!CanSave || IsNewProfile && replacement is null || _hasCredentialInput && replacement is null) return;
 
         var profile = _selected is { } selected ? selected.Profile with { Name = Name.Trim() }
-            : new TradingAccountProfile(Guid.NewGuid(), Name.Trim(), Exchange, Environment);
+            : new TradingAccountProfile(Guid.NewGuid(), Name.Trim(), Exchange, Environment, Market);
         var profiles = Profiles.Select(p => p.Profile.Id == profile.Id ? profile : p.Profile).ToList();
 
         if (_selected is null) profiles.Add(profile);
@@ -257,7 +274,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     public async Task VerifySelectedAsync()
     {
         if (_disposed || _request is not null || _selected is null) return;
-        
+
         var item = _selected;
         using var credentials = _credentials.Read(item.Profile.Id);
 
@@ -271,7 +288,9 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         _checkingItem = item;
         item.SetChecking(true);
         _message = "Verifying account access…";
+
         Notify();
+
         try
         {
             var result = await _verifier.VerifyAsync(item.Profile, credentials, request.Token);

@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
-using BotView.Interfaces;
+using BotView.Services;
 using BotView.Models;
 
 namespace BotView.ViewModels;

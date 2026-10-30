@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.IO;
 using System.Threading.Channels;
-using BotView.Interfaces;
 using BotView.Models;
 using BotView.Services;
+using BotView.Services.Integrations.Ccxt;
 using BotView.ViewModels;
 
 namespace BotView.Tests;
@@ -414,6 +414,10 @@ public sealed class SpotTradingTests
 
         /// <summary>Supplies a stable fake account owner without network access.</summary>
         public Task<(string Identity, bool? CanTrade)> ConnectAsync(CancellationToken ct) => Task.FromResult<(string, bool?)>(("owner", true));
+
+        /// <summary>This fixture does not load an exchange catalog.</summary>
+        public Task<IReadOnlyList<string>> LoadTradingPairsAsync(string spotSymbol, CancellationToken ct = default)
+                => throw new NotSupportedException();
 
         /// <summary>Provides real trading constraints and a conservative input-asset fee.</summary>
         public Task<SpotMarket> MarketAsync(InstrumentKey key, CancellationToken ct) => Task.FromResult(new SpotMarket(

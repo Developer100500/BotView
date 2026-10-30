@@ -8,6 +8,7 @@ using BotView.Chart.TechnicalAnalysis;
 using BotView.Database;
 using BotView.Models;
 using BotView.Services;
+using BotView.Services.Integrations.Ccxt;
 using BotView.ViewModels;
 using System.Windows.Threading;
 
@@ -22,9 +23,9 @@ namespace BotView
         private ContextMenu? _pairContextMenu;
         private Point _favoriteDragStart;
         private TradingPairModel? _draggedFavorite;
-        private readonly Dictionary<(string Exchange, string Symbol, TradingEnvironment Environment), Views.OrderBookWindow> _orderBooks = new();
+        private readonly Dictionary<(string Exchange, string Symbol, TradingEnvironment Environment, TradingMarket Market), Windows.OrderBookWindow> _orderBooks = new();
         private readonly List<Task> _orderBookCleanup = new();
-        private Views.TradingAccountsWindow? _tradingAccountsWindow;
+        private Windows.TradingAccountsWindow? _tradingAccountsWindow;
 
         public MainWindow()
         {
@@ -85,7 +86,7 @@ namespace BotView
                 _tradingAccountsWindow.Activate();
                 return;
             }
-            var window = new Views.TradingAccountsWindow(App.TradingAccounts, App.TradingCredentials, App.AccountVerifier) { Owner = this };
+            var window = new Windows.TradingAccountsWindow(App.TradingAccounts, App.TradingCredentials, App.AccountVerifier) { Owner = this };
             _tradingAccountsWindow = window;
             window.Closed += (_, _) => _tradingAccountsWindow = null;
             window.Show();
@@ -331,7 +332,7 @@ namespace BotView
             {
                 _viewModel.IsSearchDropdownOpen = false;
                 _viewModel.IsComparisonDropdownOpen = false;
-                new Views.CoinInfoWindow(pair, App.CoinInfoProvider) { Owner = this }.Show();
+                new Windows.CoinInfoWindow(pair, App.CoinInfoProvider) { Owner = this }.Show();
             }, OpenOrderBook);
             if (menu is null) return;
             if (_pairContextMenu is not null) _pairContextMenu.IsOpen = false;
@@ -351,7 +352,7 @@ namespace BotView
         }
 
         /// <summary>Opens one book per venue/pair/network, using the active profile's environment.</summary>
-        private void OpenOrderBook(string symbol)
+        private async void OpenOrderBook(string symbol, TradingMarket market)
         {
             if (_viewModel.IsInstrumentCatalogMode) return;
             _viewModel.IsSearchDropdownOpen = false;
@@ -360,17 +361,58 @@ namespace BotView
             try
             {
                 var settings = App.TradingAccounts.Load();
-                environment = settings.Profiles.FirstOrDefault(p => p.Id == settings.ActiveProfiles.GetValueOrDefault(_viewModel.SelectedExchange))?.Environment ?? environment;
+                var active = settings.Profiles.FirstOrDefault(p => p.Id == settings.ActiveProfiles.GetValueOrDefault(_viewModel.SelectedExchange));
+                environment = active?.Environment ?? environment;
             }
             catch (Exception) { }
-            var key = (Exchange: _viewModel.SelectedExchange, Symbol: symbol, Environment: environment);
+            var exchange = _viewModel.SelectedExchange;
+            if (market == TradingMarket.UsdtFutures)
+            {
+                try
+                {
+                    var profile = new TradingAccountProfile(Guid.NewGuid(), "Catalog", exchange, environment, TradingMarket.UsdtFutures);
+                    using var placeholder = new AccountCredentials("unused", "unused");
+                    await using var client = new CcxtSpotTradingClient(profile, placeholder);
+                    // Public catalog loading does not require a trading key.
+                    client.Transport.apiKey = "";
+                    client.Transport.secret = "";
+
+                    var contracts = await client.LoadTradingPairsAsync(symbol);
+
+                    if (!this.IsLoaded)
+                    {
+                        return;
+                    }
+
+                    if (contracts.Count == 0)
+                    {
+                        MessageBox.Show(this, "No active USDT contracts are available for this pair on the selected network.");
+                        return;
+                    }
+
+                    var selection = new Windows.ContractSelectionWindow(contracts) { Owner = this };
+                    if (selection.ShowDialog() != true)
+                    {
+                        return;
+                    }
+
+                    symbol = selection.SelectedContract!;
+                }
+                catch (Exception)
+                {
+                    MessageBox.Show(this, "Could not load the futures catalog. Check the exchange and network.");
+                    return;
+                }
+            }
+
+            var key = (Exchange: exchange, Symbol: symbol, Environment: environment, Market: market);
             if (_orderBooks.TryGetValue(key, out var existing))
             {
                 if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
                 existing.Activate();
                 return;
             }
-            var window = new Views.OrderBookWindow(key.Exchange, symbol, App.OrderBookService, App.TradingSessions, environment) { Owner = this };
+            var window = new Windows.OrderBookWindow(key.Exchange, symbol, App.OrderBookService, App.TradingSessions, environment, market) { Owner = this };
             _orderBooks.Add(key, window);
             window.Closed += (_, _) =>
             {
@@ -459,7 +501,7 @@ namespace BotView
 
         private void OnShowMetricsRequested(string summary)
         {
-            var metricsWindow = new Views.MetricsWindow(summary)
+            var metricsWindow = new Windows.MetricsWindow(summary)
             {
                 Owner = this
             };

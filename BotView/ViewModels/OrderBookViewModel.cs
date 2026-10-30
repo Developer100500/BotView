@@ -1,8 +1,8 @@
 using System.ComponentModel;
 using System.Globalization;
-using BotView.Interfaces;
 using BotView.Models;
 using BotView.Services;
+using BotView.Services.Integrations.Ccxt;
 
 namespace BotView.ViewModels;
 
@@ -30,14 +30,15 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
 
     /// <summary>Creates a book fixed to one network; trading sessions are owned by the application manager.</summary>
     public OrderBookViewModel(string exchange, string symbol, IOrderBookService service,
-        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production)
+        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot)
     {
+        Market = market;
         Exchange = exchange;
         Symbol = symbol;
         VolumeCurrencyOptions =
         [
-            new(OrderBookVolumeCurrency.Base, $"Base ({symbol.Split('/')[0]})"),
-            new(OrderBookVolumeCurrency.Quote, $"Quote ({symbol.Split('/').Last()})")
+            new(OrderBookVolumeCurrency.Base, IsFutures ? "Contracts" : $"Base ({symbol.Split('/')[0]})"),
+            new(OrderBookVolumeCurrency.Quote, $"Quote ({symbol.Split('/').Last().Split(':')[0]})")
         ];
         _service = service;
         BuyCommand = new RelayCommand(_ => TradeAsync(OrderSide.Buy), _ => CanTrade);
@@ -46,11 +47,12 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
         InitializeTrading(trading, environment);
     }
 
+    public TradingMarket Market { get; }
     public string Exchange { get; }
     public string Symbol { get; }
-    public string Title => $"Order book · {Symbol} · {Exchange} · {EnvironmentText}";
-    public string BaseHeader => $"Volume ({_update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]})";
-    public string QuoteHeader => $"Total ({_update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last()})";
+    public string Title => $"Order book · {Symbol} · {Exchange} · {Market} · {EnvironmentText}";
+    public string BaseHeader => IsFutures ? "Volume (contracts)" : $"Volume ({_update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]})";
+    public string QuoteHeader => $"Total ({_update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last().Split(':')[0]})";
     public OrderBookVolumeOption[] VolumeCurrencyOptions { get; }
     public OrderBookVolumeCurrency VolumeCurrency
     {
@@ -63,8 +65,8 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
         }
     }
     public string MaxVolumeHeader => $"Volume for 100% ({(VolumeCurrency == OrderBookVolumeCurrency.Base
-        ? _update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]
-        : _update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last())})";
+        ? IsFutures ? "contracts" : _update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]
+        : _update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last().Split(':')[0])})";
     public string MaxVolumeText
     {
         get => _maxVolumeTexts[(int)VolumeCurrency];
@@ -118,7 +120,9 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
     {
         try
         {
-            var subscription = Environment == TradingEnvironment.Production
+            var subscription = IsFutures
+                ? await _service.SubscribeAsync(Exchange, Symbol, Environment, Market, _stop.Token).ConfigureAwait(false)
+                : Environment == TradingEnvironment.Production
                 ? await _service.SubscribeAsync(Exchange, Symbol, _stop.Token).ConfigureAwait(false)
                 : await _service.SubscribeAsync(Exchange, Symbol, Environment, _stop.Token).ConfigureAwait(false);
             _subscription = subscription;

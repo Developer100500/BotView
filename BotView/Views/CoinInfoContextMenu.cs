@@ -8,7 +8,8 @@ namespace BotView.Views;
 
 internal static class CoinInfoContextMenu
 {
-    public static ContextMenu? Create(FrameworkElement target, Action<string> openInfo, Action<string> openOrderBook)
+    public static ContextMenu? Create(FrameworkElement target, Action<string> openInfo,
+            Action<string, TradingMarket> openOrderBook)
     {
         var pair = target.DataContext switch
         {
@@ -27,12 +28,19 @@ internal static class CoinInfoContextMenu
             Foreground = Brushes.White,
             BorderBrush = new SolidColorBrush(Color.FromRgb(38, 52, 73))
         };
+
         var info = new MenuItem { Header = "Info" };
         info.Click += (_, _) => openInfo(pair);
         menu.Items.Add(info);
-        var orderBook = new MenuItem { Header = "Order book" };
-        orderBook.Click += (_, _) => openOrderBook(pair);
-        menu.Items.Add(orderBook);
+
+        var spotOrderBook = new MenuItem { Header = "Spot order book" };
+        spotOrderBook.Click += (_, _) => openOrderBook(pair, TradingMarket.Spot);
+        menu.Items.Add(spotOrderBook);
+
+        var futuresOrderBook = new MenuItem { Header = "Futures order book" };
+        futuresOrderBook.Click += (_, _) => openOrderBook(pair, TradingMarket.UsdtFutures);
+        menu.Items.Add(futuresOrderBook);
+
         return menu;
     }
 }

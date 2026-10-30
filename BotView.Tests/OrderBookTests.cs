@@ -1,4 +1,4 @@
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
 using System.Collections;
 using System.IO;
 using System.Threading.Channels;
@@ -7,11 +7,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using BotView.Interfaces;
 using BotView.Models;
 using BotView.Services;
 using BotView.ViewModels;
 using BotView.Views;
+using BotView.Windows;
 
 namespace BotView.Tests;
 

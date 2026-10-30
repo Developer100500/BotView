@@ -35,7 +35,7 @@
 
 ### 1. Стакан пересобирается каждые 50 мс, даже без новых данных — высокий приоритет
 
-Источники: `BotView/Views/OrderBookWindow.xaml.cs:20`, `BotView/ViewModels/OrderBookViewModel.cs:125`, `BotView/Services/OrderBookLadder.cs:13`, `BotView/Views/OrderBookLadderControl.cs:74`.
+Источники: `BotView/Windows/OrderBookWindow.xaml.cs:20`, `BotView/ViewModels/OrderBookViewModel.cs:125`, `BotView/Services/OrderBookLadder.cs:13`, `BotView/Views/OrderBookLadderControl.cs:74`.
 
 `Refresh()` всегда вызывает `Changed()`, уведомляя обо всех свойствах. Контрол перерисовывается и заново вызывает `GetRows()`. `Build()` создаёт группировки, словари, список объектов строк, а затем ещё один набор объектов строк через `with` и итоговый массив. Текст каждой ячейки создаёт новые `FontFamily`, `Typeface` и `FormattedText`.
 
@@ -100,7 +100,7 @@
 
 ### 8. Несколько клиентов CCXT и копии каталогов рынков — кандидат на отдельное профилирование
 
-Источники: `BotView/Services/ExchangeService.cs:22`, `BotView/Services/ExchangeService.cs:326`, `BotView/Services/ExchangeService.cs:495`, `BotView/Services/OrderBookService.cs:62`, `BotView/Services/OrderBookService.cs:158`, `BotView/Configuration/MarketCatalog.cs:62`.
+Источники: `BotView/Services/ExchangeService.cs:22`, `BotView/Services/ExchangeService.cs:326`, `BotView/Services/ExchangeService.cs:495`, `BotView/Services/Impl/Ccxt/OrderBookService.cs:62`, `BotView/Services/Impl/Ccxt/OrderBookService.cs:158`, `BotView/Configuration/MarketCatalog.cs:62`.
 
 Основной сервис сохраняет использованные клиенты бирж на весь сеанс. Каждая подписка стакана создаёт отдельный Pro-клиент и вызывает `LoadMarkets()`. Несколько окон одной биржи повторяют эту инициализацию. В основном сервисе отбор spot выполняется уже после загрузки рынков; настройки ограниченной загрузки, подобные настройкам стакана, в фабрику основных клиентов не передаются.
 

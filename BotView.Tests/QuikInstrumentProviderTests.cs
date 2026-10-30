@@ -1,9 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
 using BotView.Configuration;
-using BotView.Interfaces;
 using BotView.Services;
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Quik;
 
 namespace BotView.Tests;
 

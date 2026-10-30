@@ -1,9 +1,8 @@
 using BotView.Chart;
 using BotView.Configuration;
 using BotView.Database;
-using BotView.Interfaces;
 using BotView.Services;
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
 using BotView.ViewModels;
 using Moq;
 

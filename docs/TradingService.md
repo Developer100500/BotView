@@ -1,9 +1,11 @@
 # Общий торговый контракт
 
 `Services/ITradingService.cs` определяет общий контракт. `CcxtTradingService`
-реализует спотовую торговлю Binance/Bybit в Testnet и Mainnet; QUIK пока предоставляет
+реализует торговлю спотом и USDT-фьючерсами Binance/Bybit в Testnet и Mainnet; QUIK пока предоставляет
 каталог без торгового адаптера. Модели находятся в `Models/Trading.cs`, правила
 инструмента — в `Models/TradingInstrumentRules.cs`.
+
+USDT-контракты, режимы позиций и ограничения обеспечения описаны в [FuturesTrading.md](FuturesTrading.md).
 
 ## Торговля из стакана
 

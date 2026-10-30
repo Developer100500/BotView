@@ -1,0 +1,105 @@
+﻿<Window x:Class="BotView.Windows.TradingAccountsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Trading accounts" Width="900" Height="660" MinWidth="760" MinHeight="560"
+        Background="#0B1120" Foreground="#E5E7EB" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Margin" Value="0,0,8,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Background" Value="#182235"/>
+            <Setter Property="Foreground" Value="#F3F4F6"/>
+            <Setter Property="BorderBrush" Value="#475569"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Background" Value="#182235"/>
+            <Setter Property="Foreground" Value="#F3F4F6"/>
+            <Setter Property="BorderBrush" Value="#475569"/>
+        </Style>
+        <Style TargetType="ComboBox"><Setter Property="Padding" Value="7,5"/></Style>
+    </Window.Resources>
+    <Grid Margin="18">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,14">
+            <TextBlock Text="Trading accounts" FontSize="24" FontWeight="SemiBold"/>
+            <TextBlock Text="Keys are kept in memory until the app closes. Profiles are saved without keys."
+                       Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,6,0,0"/>
+        </StackPanel>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="18"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Button Content="Add account" Command="{Binding NewCommand}" HorizontalAlignment="Left"/>
+                <ListBox x:Name="AccountList" Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedAccount}"
+                         Background="#111827" Foreground="#E5E7EB" BorderBrush="#263449"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem"><Setter Property="Padding" Value="10"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Profile.Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Profile.Exchange}" Foreground="#94A3B8" FontSize="11"/>
+                                <TextBlock Text="Market" Foreground="#94A3B8"/>
+                    <ComboBox ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" IsEnabled="{Binding IsNewProfile}" Margin="0,4,0,10"/>
+                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontSize="11"/>
+                                <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding ActiveText}" Foreground="#4ADE80" FontSize="11"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="0,0,6,0">
+                    <TextBlock Text="Profile name" Foreground="#94A3B8"/>
+                    <TextBox x:Name="ProfileName" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10" MaxLength="100"/>
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Exchange" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding Exchanges}" DisplayMemberPath="DisplayName" SelectedValuePath="Id"
+                                      SelectedValue="{Binding Exchange}" IsEnabled="{Binding IsNewProfile}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Environment" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding Environments}" DisplayMemberPath="Label" SelectedValuePath="Environment"
+                                      SelectedValue="{Binding Environment}" IsEnabled="{Binding IsNewProfile}"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="Market" Foreground="#94A3B8"/>
+                    <ComboBox ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" IsEnabled="{Binding IsNewProfile}" Margin="0,4,0,10"/>
+                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontWeight="SemiBold" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                    <TextBlock Text="API key" Foreground="#94A3B8"/>
+                    <PasswordBox x:Name="ApiKeyInput" PasswordChanged="CredentialsChanged" Margin="0,4,0,10"/>
+                    <TextBlock Text="API secret" Foreground="#94A3B8"/>
+                    <PasswordBox x:Name="SecretInput" PasswordChanged="CredentialsChanged" Margin="0,4,0,8"/>
+                    <TextBlock Text="{Binding CredentialStatus}" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <WrapPanel>
+                        <Button x:Name="SaveButton" Content="Save" Click="SaveAccount" IsEnabled="{Binding CanSave}"/>
+                        <Button x:Name="ReplaceKeysButton" Content="Replace keys" Click="ReplaceKeys" IsEnabled="{Binding CanReplaceCredentials}"/>
+                        <Button Content="Select for exchange" Command="{Binding ActivateCommand}"/>
+                        <Button Content="Delete" Command="{Binding DeleteCommand}"/>
+                    </WrapPanel>
+                    <WrapPanel>
+                        <Button Content="Verify connection" Command="{Binding VerifyCommand}"/>
+                        <Button Content="Cancel verification" Command="{Binding CancelCommand}"/>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding SelectedPermissions}" TextWrapping="Wrap" Margin="0,6,0,6"/>
+                    <TextBlock Text="{Binding WithdrawalNotice}" Foreground="#FBBF24" TextWrapping="Wrap"/>
+                    <TextBlock Text="Read and trading permissions for the selected market are required; withdrawals are not required. Verification only reads account data."
+                               Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,12,0,0" FontSize="11"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+        <Border Grid.Row="2" Background="#182235" CornerRadius="6" Padding="10" Margin="0,14,0,0">
+            <TextBlock x:Name="StatusMessage" Text="{Binding Message}" TextWrapping="Wrap"/>
+        </Border>
+    </Grid>
+</Window>

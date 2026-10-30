@@ -4,11 +4,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using BotView.Interfaces;
 using BotView.Models;
 using BotView.Services;
+using BotView.Services.Integrations.Ccxt;
 using BotView.ViewModels;
-using BotView.Views;
+using BotView.Windows;
 
 namespace BotView.Tests;
 
@@ -57,7 +57,7 @@ public sealed class TradingAccountTests
             Assert.DoesNotContain("test-api-key", json);
             Assert.DoesNotContain("test-secret", json);
             using var parsed = JsonDocument.Parse(json);
-            Assert.Equal(new[] { "Id", "Name", "Exchange", "Environment" },
+            Assert.Equal(new[] { "Id", "Name", "Exchange", "Environment", "Market" },
                 parsed.RootElement.GetProperty("Profiles")[0].EnumerateObject().Select(p => p.Name));
             var settings = new TradingAccountStore(path).Load();
             Assert.Equal(profile, Assert.Single(settings.Profiles));

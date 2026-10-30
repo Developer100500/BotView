@@ -1,4 +1,4 @@
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -6,7 +6,6 @@ using Xunit;
 using BotView.Services;
 using BotView.Models;
 using BotView.Exceptions;
-using BotView.Interfaces;
 
 namespace BotView.Tests
 {

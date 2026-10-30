@@ -5,8 +5,8 @@ using System.Collections.Generic;
 using System.Net.Http;
 using BotView.Configuration;
 using BotView.Services;
-using BotView.Interfaces;
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
+using BotView.Services.Integrations.Quik;
 
 namespace BotView
 {

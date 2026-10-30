@@ -1,10 +1,9 @@
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
 using System;
 using System.Threading.Tasks;
 using Xunit;
 using Moq;
 using BotView.Services;
-using BotView.Interfaces;
 
 namespace BotView.Tests
 {

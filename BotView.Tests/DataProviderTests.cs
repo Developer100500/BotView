@@ -1,4 +1,4 @@
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
 using System;
 using System.Collections.Generic;
 using Xunit;

@@ -1,1 +1,11 @@
 global using BotView.Models;
+global using BotView.Services.MarketData;
+global using BotView.Services.OrderBooks;
+global using BotView.Services.Quotes;
+global using BotView.Services.CoinInformation;
+global using BotView.Services.Trading;
+global using BotView.Services.Trading.Accounts;
+global using BotView.Services.Preferences;
+global using BotView.Services.Persistence;
+global using BotView.Services.Diagnostics;
+global using BotView.Services.Integrations.Ccxt;

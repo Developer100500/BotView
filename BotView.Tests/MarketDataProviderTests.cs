@@ -1,11 +1,10 @@
-using BotView.Services.Providers;
+using BotView.Services.Integrations.Ccxt;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using BotView.Chart;
 using BotView.Configuration;
 using BotView.Database;
-using BotView.Interfaces;
 using BotView.Models;
 using BotView.Services;
 using BotView.ViewModels;
