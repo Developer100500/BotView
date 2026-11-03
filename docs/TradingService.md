@@ -2,11 +2,15 @@
 
 Торговый код разделён по обязанностям:
 
-- `CcxtTradingClient` — тонкая обёртка над настроенным CCXT. Методы возвращают нативные типы библиотеки; фоновых задач и состояния заявок нет.
-- `CcxtTradingClientFactory` — создание CCXT.Pro-клиентов Binance/Bybit, выбор Spot/USDT Futures и Testnet/Mainnet до первого запроса.
-- `ITradingService` — контракт стакана с моделями приложения. `CcxtTradingService` выбирает метод обёртки и преобразует результаты и ошибки.
+- `AbstractTradingService` — общая реализация `ITradingService`: вызовы CCXT, подготовка количества и цены, чтение и отмена заявок, баланс, приватные обновления, обработка ошибок и освобождение транспорта. За параметры конкретного рынка отвечают переопределяемые методы наследников.
+- `SpotTradingService` — спотовая торговля криптовалютой через CCXT. Напрямую вызывает библиотеку и возвращает текущие модели приложения. Подключение торговли акциями будет добавлено отдельно.
+- `FuturesTradingService` — отдельная торговля USDT-фьючерсами через CCXT с теми же моделями приложения. Выбор Spot/Futures внутри каждого торгового метода больше не требуется.
+- `TradingServiceFactory` — создание нужного сервиса и CCXT.Pro-подключения Binance/Bybit, выбор Testnet/Mainnet до первого запроса.
+- `ITradingService` — общий контракт стакана, который реализуют оба сервиса. Промежуточного торгового клиента с нативными результатами больше нет.
 - `TradingAccountSession` — снимок данных для UI, приватные подписки и резервный REST-опрос.
 - `TradingSessionManager` — одна сессия на профиль для всех его окон, замена соединения при изменении ключей или профиля.
+
+`SpotTradingService` и `FuturesTradingService` наследуют `AbstractTradingService`. В первом остаются параметры спотовой маршрутизации и Post-only, во втором — параметры позиции, контрактные единицы, запрос позиций и публичный каталог USDT-контрактов. `TradingServiceFactory.Create` возвращает базовый класс; сессия стакана принимает интерфейс `ITradingService` и не зависит от конкретного наследника.
 
 Торговля через QUIK пока не реализована. Будущая обёртка QuikSharp и её адаптер смогут использовать контракт стакана. Каталог QUIK работает независимо.
 
@@ -16,7 +20,7 @@
 
 Market принимает только количество монет или контрактов. Поле цены, бюджет в USDT и Post-only отключены. При переключении типа количество очищается, чтобы бюджет случайно не стал количеством монет. Точная цена и стоимость Market не обещаются.
 
-Обёртка содержит отдельные методы `CreateSpotLimitOrderAsync`, `CreateSpotMarketOrderAsync`, `CreateUsdtFuturesLimitOrderAsync`, `CreateUsdtFuturesMarketOrderAsync`. Контракт стакана принимает отдельные `LimitOrderRequest` и `MarketOrderRequest`.
+Оба сервиса предоставляют `CreateLimitOrderAsync` и `CreateMarketOrderAsync`, принимая соответственно `LimitOrderRequest` и `MarketOrderRequest`. Рынок определяется классом сервиса: спотовые методы не получают фьючерсные параметры, а фьючерсные методы формируют параметры позиции непосредственно перед вызовом CCXT. Создание сервиса с профилем другого рынка отклоняется.
 
 Проверяются обязательные поля, положительные числа, направление и преобразование точности средствами CCXT. Баланс, комиссии, маржу, лимиты и режим позиций проверяет биржа. Ошибки показываются в форме без ключей, подписанных URL и исходных тел запросов.
 
@@ -40,6 +44,6 @@ Market принимает только количество монет или к
 
 Сборка: `dotnet build BotView.Tests/BotView.Tests.csproj --no-restore`.
 
-Тесты: `dotnet run --project BotView.Tests/BotView.Tests.csproj --no-build -- -class BotView.Tests.CcxtTradingClientTests -class BotView.Tests.TradingAccountSessionTests -class BotView.Tests.BinanceRequestParametersTests -class BotView.Tests.FuturesTradingTests`.
+Тесты: `dotnet run --project BotView.Tests/BotView.Tests.csproj --no-build -- -class BotView.Tests.TradingServiceTests -class BotView.Tests.TradingAccountSessionTests -class BotView.Tests.BinanceRequestParametersTests -class BotView.Tests.FuturesTradingTests`.
 
 Тесты используют вымышленные ключи и подменённые транспорты. Реальные заявки не отправляются.

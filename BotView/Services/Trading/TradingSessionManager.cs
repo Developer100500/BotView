@@ -1,5 +1,4 @@
 using BotView.Models;
-using BotView.Services.Integrations.Ccxt;
 
 namespace BotView.Services.Trading;
 
@@ -21,7 +20,7 @@ public sealed class TradingSessionManager : IAsyncDisposable
 
     /// <summary>Builds the application manager without reading credentials or connecting until requested.</summary>
     public TradingSessionManager(ITradingAccountStore profiles, ICredentialStore credentials)
-        : this(profiles, credentials, (p, c) => new CcxtTradingService(p, CcxtTradingClientFactory.Create(p, c))) { }
+        : this(profiles, credentials, (p, c) => TradingServiceFactory.Create(p, c)) { }
 
     /// <summary>Injects a deterministic exchange adapter factory for tests.</summary>
     internal TradingSessionManager(ITradingAccountStore profiles, ICredentialStore credentials,

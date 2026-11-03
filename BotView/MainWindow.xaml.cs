@@ -371,18 +371,15 @@ namespace BotView
                 try
                 {
                     var profile = new TradingAccountProfile(Guid.NewGuid(), "Catalog", exchange, environment, TradingMarket.UsdtFutures);
-                    await using var client = CcxtTradingClientFactory.Create(profile);
-                    var catalog = await client.LoadMarketsAsync();
-                    var contracts = catalog.Values.Where(m => m.contract == true && m.linear == true && m.settle == "USDT"
-                        && m.active != false && m.symbol!.Split(':')[0] == symbol.Split(':')[0])
-                        .OrderBy(m => m.expiry.HasValue).ThenBy(m => m.expiry).Select(m => m.symbol!).ToArray();
+                    await using var service = TradingServiceFactory.CreateFutures(profile);
+                    var contracts = await service.FetchTradingPairsAsync(symbol);
 
                     if (!this.IsLoaded)
                     {
                         return;
                     }
 
-                    if (contracts.Length == 0)
+                    if (contracts.Count == 0)
                     {
                         MessageBox.Show(this, "No active USDT contracts are available for this pair on the selected network.");
                         return;

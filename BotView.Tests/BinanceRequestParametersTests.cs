@@ -13,13 +13,13 @@ public sealed class BinanceRequestParametersTests
         var transport = new CapturingBinance();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Production);
         using var credentials = new AccountCredentials("fake", "fake");
-        await using var client = new CcxtTradingClient(transport, profile.Exchange);
+        await using var client = new SpotTradingService(profile, transport);
         var instrument = new InstrumentKey("binance", "spot", "", "BTC/USDT");
 
-        await client.FetchSpotOpenOrdersAsync(instrument.SecurityId);
-        await client.FetchSpotMyTradesAsync(instrument.SecurityId);
-        await client.FetchSpotBalanceAsync();
-        await client.FetchSpotOrderAsync("1", instrument.SecurityId);
+        await client.FetchOpenOrdersAsync(instrument);
+        await client.FetchMyTradesAsync(instrument);
+        await client.FetchBalanceAsync();
+        await client.FetchOrderAsync(new(instrument, "1"));
 
         Assert.Contains(transport.Requests, uri => uri.AbsolutePath == "/api/v3/openOrders");
         Assert.Contains(transport.Requests, uri => uri.AbsolutePath == "/api/v3/myTrades");
