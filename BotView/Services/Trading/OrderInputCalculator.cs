@@ -1,0 +1,47 @@
+using BotView.Models;
+
+namespace BotView.Services.Trading;
+
+/// <summary>Prepares order input and preview values for one instrument without sending requests.</summary>
+public sealed class OrderInputCalculator
+{
+    private readonly ITradingService _service;
+    private readonly Instrument _instrument;
+
+    /// <summary>Uses loaded instrument metadata and the provider's precision rules.</summary>
+    public OrderInputCalculator(ITradingService service, Instrument instrument)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(instrument);
+
+        _service = service;
+        _instrument = instrument;
+    }
+
+    /// <summary>Converts a quote budget to native quantity and formats the amount for the provider.</summary>
+    public decimal ConvertQuantity(decimal input, decimal price, OrderQuantityCurrency currency)
+    {
+        var quantity = input;
+
+        if (currency == OrderQuantityCurrency.Quote)
+        {
+            quantity /= price * ContractSize;
+        }
+
+        return _service.AmountToPrecision(_instrument.Key, quantity);
+    }
+
+    /// <summary>Formats the actual limit price sent to the provider.</summary>
+    public decimal PriceToPrecision(decimal price)
+    {
+        return _service.PriceToPrecision(_instrument.Key, price);
+    }
+
+    /// <summary>Calculates preview notional, without treating it as required margin.</summary>
+    public decimal OrderNotional(decimal quantity, decimal price)
+    {
+        return quantity * price * ContractSize;
+    }
+
+    private decimal ContractSize => _instrument.TradingRules?.ContractSize ?? 1m;
+}

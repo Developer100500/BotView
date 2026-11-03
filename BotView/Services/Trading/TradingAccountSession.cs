@@ -9,7 +9,7 @@ public sealed class TradingAccountSession : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _tracking = new(1, 1);
     private readonly object _sync = new();
-    private readonly Dictionary<InstrumentKey, Instrument> _instruments = new();
+    private readonly Dictionary<InstrumentKey, OrderInputCalculator> _orderInputs = new();
     private readonly Dictionary<OrderReference, OrderSnapshot> _orders = new();
     private readonly Dictionary<(OrderReference Order, string Id), ExecutionSnapshot> _executions = new();
     private readonly Dictionary<InstrumentKey, IReadOnlyList<PositionSnapshot>> _positions = new();
@@ -52,14 +52,14 @@ public sealed class TradingAccountSession : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            lock (_sync) if (_instruments.ContainsKey(key)) return;
+            lock (_sync) if (_orderInputs.ContainsKey(key)) return;
             var instrument = await _service.FetchInstrumentAsync(key, linked.Token).ConfigureAwait(false);
             // Authentication is independent of order/execution endpoint availability.
             var balance = await _service.FetchBalanceAsync(linked.Token).ConfigureAwait(false);
             lock (_sync)
             {
-                var first = _instruments.Count == 0;
-                _instruments[key] = instrument;
+                var first = _orderInputs.Count == 0;
+                _orderInputs[key] = new OrderInputCalculator(_service, instrument);
                 _balance = balance;
                 _connected = true;
                 _message = "Connected";
@@ -221,24 +221,13 @@ public sealed class TradingAccountSession : IAsyncDisposable
         lock (_sync) _message = TradingErrorText.FromException(error);
     }
 
-    /// <summary>Converts the selected quantity unit and formats the actual amount sent to the provider.</summary>
-    public decimal ConvertQuantity(InstrumentKey key, decimal input, decimal price, OrderQuantityCurrency currency)
+    /// <summary>Returns the input calculator created from the tracked instrument metadata.</summary>
+    public OrderInputCalculator GetOrderInputCalculator(InstrumentKey key)
     {
-        var quantity = input;
-        if (currency == OrderQuantityCurrency.Quote) quantity /= price * ContractSize(key);
-        return _service.AmountToPrecision(key, quantity);
-    }
-
-    /// <summary>Formats the actual limit price sent to the provider.</summary>
-    public decimal PriceToPrecision(InstrumentKey key, decimal price) => _service.PriceToPrecision(key, price);
-
-    /// <summary>Calculates order notional for preview; this is not a margin check.</summary>
-    public decimal OrderNotional(InstrumentKey key, decimal quantity, decimal price) => quantity * price * ContractSize(key);
-
-    /// <summary>Reads native contract valuation metadata loaded when the instrument was attached.</summary>
-    private decimal ContractSize(InstrumentKey key)
-    {
-        lock (_sync) return _instruments[key].TradingRules?.ContractSize ?? 1m;
+        lock (_sync)
+        {
+            return _orderInputs[key];
+        }
     }
 
     /// <summary>Sends one explicit limit request and schedules a read-only refresh.</summary>

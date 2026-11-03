@@ -498,7 +498,7 @@ namespace BotView.ViewModels
             try
             {
                 ct.ThrowIfCancellationRequested();
-                if (catalogMode)
+                if (catalogMode) // for MOEX exchange
                 {
                     await LoadCatalogAsync(exchange, source);
                     return;

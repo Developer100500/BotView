@@ -70,8 +70,8 @@ public sealed partial class OrderBookViewModel
             {
                 if (_trading is not null && TryPositive(PriceText, out var price) && TryPositive(AmountText, out var input))
                 {
-                    var quantity = _trading.ConvertQuantity(TradingInstrument, input, price, _quantityCurrency);
-                    _amountText = Format(value == OrderQuantityCurrency.Base ? quantity : _trading.OrderNotional(TradingInstrument, quantity, price));
+                    var quantity = _trading.GetOrderInputCalculator(TradingInstrument).ConvertQuantity(input, price, _quantityCurrency);
+                    _amountText = Format(value == OrderQuantityCurrency.Base ? quantity : _trading.GetOrderInputCalculator(TradingInstrument).OrderNotional(quantity, price));
                 }
                 else _amountText = "";
             }
@@ -111,10 +111,10 @@ public sealed partial class OrderBookViewModel
         if (IsLimitOrder)
         {
             if (!TryPositive(PriceText, out price)) throw new ArgumentException("Enter a limit price greater than zero.");
-            price = _trading.PriceToPrecision(TradingInstrument, price);
+            price = _trading.GetOrderInputCalculator(TradingInstrument).PriceToPrecision(price);
             if (price <= 0) throw new ArgumentException("Price rounds to zero at exchange precision.");
         }
-        var quantity = _trading.ConvertQuantity(TradingInstrument, input, price,
+        var quantity = _trading.GetOrderInputCalculator(TradingInstrument).ConvertQuantity(input, price,
             IsLimitOrder ? QuantityCurrency : OrderQuantityCurrency.Base);
         if (quantity <= 0) throw new ArgumentException("Quantity rounds to zero at exchange precision.");
         return (quantity, price);
@@ -145,7 +145,7 @@ public sealed partial class OrderBookViewModel
                 var input = PreparedInput();
                 var unit = IsFutures ? "contracts" : Symbol.Split('/')[0];
                 if (!IsLimitOrder) return $"{Format(input.Quantity)} {unit} · Market; execution price is determined by the exchange";
-                return $"{Format(input.Quantity)} {unit} @ {Format(input.Price)} · {Format(_trading!.OrderNotional(TradingInstrument, input.Quantity, input.Price))} {Symbol.Split('/').Last().Split(':')[0]} (excluding commission)";
+                return $"{Format(input.Quantity)} {unit} @ {Format(input.Price)} · {Format(_trading!.GetOrderInputCalculator(TradingInstrument).OrderNotional(input.Quantity, input.Price))} {Symbol.Split('/').Last().Split(':')[0]} (excluding commission)";
             }
             catch (Exception) { return ""; }
         }
