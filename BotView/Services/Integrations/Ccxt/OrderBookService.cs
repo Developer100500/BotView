@@ -204,7 +204,7 @@ internal sealed class ProOrderBookClient : IOrderBookClient
         {
             instrument = instrument with
             {
-                TradingRules = instrument.TradingRules! with { QuantityUnit = QuantityUnit.Contracts, ContractSize = SpotOrderMath.Number(market.contractSize), SettlementCurrency = "USDT" }
+                TradingRules = instrument.TradingRules! with { QuantityUnit = QuantityUnit.Contracts, ContractSize = CcxtTradingMapper.Number(market.contractSize), SettlementCurrency = "USDT" }
             };
         }
 

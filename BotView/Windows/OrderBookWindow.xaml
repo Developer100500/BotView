@@ -111,15 +111,17 @@
         <Button Content="Reconnect account" Command="{Binding ReconnectCommand}" HorizontalAlignment="Left" Padding="5,2" Margin="0,3"/>
         <TextBlock Text="{Binding AccountIdentity}" FontSize="10" Foreground="#94A3B8"/>
         <TextBlock Text="{Binding BalanceText}" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,5"/>
+        <ComboBox ItemsSource="{Binding OrderTypes}" SelectedItem="{Binding SelectedOrderType}"
+                  IsEnabled="{Binding IsTradeEditable}" ToolTip="Order type: Limit or Market" Margin="0,4"/>
         <Grid IsEnabled="{Binding IsTradeEditable}">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
             <TextBlock Text="Order price" Foreground="#94A3B8" FontSize="11"/>
             <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Foreground="#94A3B8" FontSize="11"/>
-            <TextBox x:Name="PriceInput" Grid.Row="1" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
+            <TextBox x:Name="PriceInput" IsEnabled="{Binding IsLimitOrder}" Grid.Row="1" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
             <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
-            <CheckBox Grid.Row="2" Content="Post-only" IsChecked="{Binding PostOnly}" Foreground="#E5E7EB" ToolTip="Unchecked: ordinary GTC limit order"/>
-            <ComboBox Grid.Row="2" Grid.Column="2" ItemsSource="{Binding QuantityCurrencies}" SelectedItem="{Binding QuantityCurrency}" ToolTip="Order quantity unit; independent of depth volume bars"/>
+            <CheckBox Grid.Row="2" Content="Post-only" IsEnabled="{Binding IsLimitOrder}" IsChecked="{Binding PostOnly}" Foreground="#E5E7EB" ToolTip="Unchecked: ordinary GTC limit order"/>
+            <ComboBox Grid.Row="2" Grid.Column="2" IsEnabled="{Binding CanSelectQuantityCurrency}" ItemsSource="{Binding QuantityCurrencies}" SelectedItem="{Binding QuantityCurrency}" ToolTip="Order quantity unit; independent of depth volume bars"/>
             <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding OrderPreview}" FontSize="10" TextWrapping="Wrap" Margin="0,4"/>
         </Grid>
         <StackPanel IsEnabled="{Binding IsTradeEditable}" Margin="0,4">
@@ -136,7 +138,7 @@
             <ComboBox ItemsSource="{Binding PositionTargets}" SelectedItem="{Binding PositionTarget}" ToolTip="Auto for one-way mode; Long or Short for hedge mode"/>
             <TextBlock Text="{Binding PositionsText}" TextWrapping="Wrap" FontSize="10"/>
         </StackPanel>
-        <TextBlock Text="{Binding PendingStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11"/>
+        <TextBlock Text="{Binding TradingInputHint}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11"/>
         <TextBlock Text="{Binding TradeStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="0,4"/>
         <TextBlock Text="Account orders for this pair" FontSize="11" Margin="0,5"/>
         <DataGrid ItemsSource="{Binding Orders}" SelectedItem="{Binding SelectedOrder}" IsReadOnly="True" AutoGenerateColumns="False"

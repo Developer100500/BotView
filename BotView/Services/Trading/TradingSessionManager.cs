@@ -8,26 +8,28 @@ public sealed class TradingSessionManager : IAsyncDisposable
 {
     private readonly ITradingAccountStore _profiles;
     private readonly ICredentialStore _credentials;
-    private readonly Func<TradingAccountProfile, AccountCredentials, ISpotTradingClient> _factory;
+    private readonly Func<TradingAccountProfile, AccountCredentials, ITradingService> _factory;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sync = new();
-    private readonly Dictionary<Guid, CcxtTradingService> _sessions = new();
+    private readonly Dictionary<Guid, TradingAccountSession> _sessions = new();
     private readonly HashSet<Guid> _invalidated = new();
+    private readonly Dictionary<Guid, TradingAccountProfile> _sessionProfiles = new();
     private readonly CancellationTokenSource _stop = new();
-    private readonly Lazy<TradingJournal> _journal;
     private int _revision;
     private bool _disposed;
     public int Revision => Volatile.Read(ref _revision);
 
     /// <summary>Builds the application manager without reading credentials or connecting until requested.</summary>
     public TradingSessionManager(ITradingAccountStore profiles, ICredentialStore credentials)
-        : this(profiles, credentials, (p, c) => new CcxtSpotTradingClient(p, c), new(() => new TradingJournal())) { }
+        : this(profiles, credentials, (p, c) => new CcxtTradingService(p, CcxtTradingClientFactory.Create(p, c))) { }
 
-    /// <summary>Injects a deterministic exchange boundary and journal for tests.</summary>
+    /// <summary>Injects a deterministic exchange adapter factory for tests.</summary>
     internal TradingSessionManager(ITradingAccountStore profiles, ICredentialStore credentials,
-        Func<TradingAccountProfile, AccountCredentials, ISpotTradingClient> factory, Lazy<TradingJournal> journal)
+        Func<TradingAccountProfile, AccountCredentials, ITradingService> factory)
     {
-        _profiles = profiles; _credentials = credentials; _factory = factory; _journal = journal;
+        _profiles = profiles;
+        _credentials = credentials;
+        _factory = factory;
         if (profiles is ITradingProfileNotifications changes) changes.Changed += ProfilesChanged;
         if (credentials is ICredentialNotifications keys) keys.CredentialsChanged += CredentialsChanged;
     }
@@ -35,8 +37,8 @@ public sealed class TradingSessionManager : IAsyncDisposable
     /// <summary>Returns profile metadata only; missing keys remain an explicit UI state.</summary>
     public TradingAccountsSettings Settings() => _profiles.Load();
 
-    /// <summary>Authenticates on a background task, then reuses one session per verified owner/network.</summary>
-    public Task<CcxtTradingService> GetAsync(Guid profileId, CancellationToken ct = default) => Task.Run(async () =>
+    /// <summary>Authenticates on a background task, then reuses one session per profile and network.</summary>
+    public Task<TradingAccountSession> GetAsync(Guid profileId, CancellationToken ct = default) => Task.Run(async () =>
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
         var token = linked.Token;
@@ -51,31 +53,24 @@ public sealed class TradingSessionManager : IAsyncDisposable
                 ?? throw new TradingServiceException(new("ProfileMissing", "The selected account no longer exists."));
             using var credentials = _credentials.Read(profileId)
                 ?? throw new TradingServiceException(new("KeysRequired", "Enter and save this account's API keys first."));
-            ISpotTradingClient? client = null;
+            ITradingService? client = null;
             try
             {
                 client = _factory(profile, credentials);
-                var connected = await client.ConnectAsync(token).ConfigureAwait(false);
+                await client.FetchBalanceAsync(token).ConfigureAwait(false);
                 if (revision != Revision) throw new TradingServiceException(new("AccountChanged", "Account settings changed; select the account again."));
-                // A read-only profile must never acquire a session created using another profile's trading key.
-                CcxtTradingService? shared;
-                lock (_sync) shared = connected.CanTrade == false ? null : _sessions.Values.FirstOrDefault(s =>
-                    s.Account.Venue == profile.Exchange && s.Account.Environment == profile.Environment && s.Account.Market == profile.Market && s.Account.AccountId == connected.Identity && s.KeyCanTrade == connected.CanTrade);
-                if (shared is not null)
-                {
-                    await client.DisposeAsync().ConfigureAwait(false);
-                    client = null;
-                    lock (_sync) _sessions[profileId] = shared;
-                    return shared;
-                }
-                var service = new CcxtTradingService(profile, client, _journal.Value, connected.Identity, connected.CanTrade);
+                var service = new TradingAccountSession(client);
                 client = null;
-                lock (_sync) _sessions[profileId] = service;
+                lock (_sync)
+                {
+                    _sessions[profileId] = service;
+                    _sessionProfiles[profileId] = profile;
+                }
                 return service;
             }
             catch (OperationCanceledException) { throw; }
             catch (TradingServiceException) { throw; }
-            catch (Exception ex) { throw new TradingServiceException(new("ConnectionFailed", AccountConnectionVerifier.SafeError(ex))); }
+            catch (Exception ex) { throw new TradingServiceException(new("ConnectionFailed", TradingErrorText.FromException(ex))); }
             finally { if (client is not null) try { await client.DisposeAsync().ConfigureAwait(false); } catch (Exception) { } }
         }
         finally { _gate.Release(); }
@@ -93,13 +88,23 @@ public sealed class TradingSessionManager : IAsyncDisposable
         _ = RetireAsync();
     }
 
-    /// <summary>Profile removal retires its sessions; selecting an active profile leaves other sessions supervised.</summary>
+    /// <summary>Profile changes retire affected connections; selecting an active profile leaves unchanged sessions supervised.</summary>
     private void ProfilesChanged()
     {
         try
         {
-            var ids = _profiles.Load().Profiles.Select(p => p.Id).ToHashSet();
-            lock (_sync) foreach (var pair in _sessions.Where(p => !ids.Contains(p.Key))) { _invalidated.Add(pair.Key); pair.Value.Suspend(); }
+            var profiles = _profiles.Load().Profiles.ToDictionary(p => p.Id);
+            lock (_sync)
+            {
+                foreach (var pair in _sessions)
+                {
+                    if (!profiles.TryGetValue(pair.Key, out var profile) || _sessionProfiles[pair.Key] != profile)
+                    {
+                        _invalidated.Add(pair.Key);
+                        pair.Value.Suspend();
+                    }
+                }
+            }
         }
         catch (Exception) { }
         Interlocked.Increment(ref _revision);
@@ -117,11 +122,15 @@ public sealed class TradingSessionManager : IAsyncDisposable
     /// <summary>Disposes invalidated clients and removes all aliases to a shared retired session.</summary>
     private async Task RetireCoreAsync()
     {
-        CcxtTradingService[] retired;
+        TradingAccountSession[] retired;
         lock (_sync)
         {
             retired = _sessions.Where(p => _invalidated.Contains(p.Key)).Select(p => p.Value).Distinct().ToArray();
-            foreach (var id in _sessions.Where(p => retired.Contains(p.Value)).Select(p => p.Key).ToArray()) _sessions.Remove(id);
+            foreach (var id in _sessions.Where(p => retired.Contains(p.Value)).Select(p => p.Key).ToArray())
+            {
+                _sessions.Remove(id);
+                _sessionProfiles.Remove(id);
+            }
             _invalidated.Clear();
         }
         foreach (var session in retired) try { await session.DisposeAsync().ConfigureAwait(false); } catch (Exception) { }
@@ -137,7 +146,7 @@ public sealed class TradingSessionManager : IAsyncDisposable
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            CcxtTradingService[] sessions;
+            TradingAccountSession[] sessions;
             lock (_sync) { sessions = _sessions.Values.Distinct().ToArray(); _sessions.Clear(); }
             foreach (var session in sessions) try { await session.DisposeAsync().ConfigureAwait(false); } catch (Exception) { }
         }

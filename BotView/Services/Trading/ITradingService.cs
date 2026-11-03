@@ -2,54 +2,53 @@ using BotView.Models;
 
 namespace BotView.Services.Trading;
 
-/// <summary>Account-bound contract for CCXT and broker/QUIK adapters, using application models only.
-/// Dispose releases the connection without canceling live orders. Read failures throw TradingServiceException; only confirmed
-/// absence returns null. Unsupported capabilities throw NotSupportedException. Mutation timeouts after
-/// dispatch return Unknown and require reconciliation, not automatic resubmission.</summary>
+/// <summary>Order-book adapter contract. Calls return exchange data or throw; no recovery or local trade policy.</summary>
 public interface ITradingService : IAsyncDisposable
 {
     TradingAccountContext Account { get; }
 
-    /// <summary>Loads trading metadata including units, steps, limits and monetary valuation parameters.</summary>
-    Task<Instrument> GetTradingInstrumentAsync(InstrumentKey instrument, CancellationToken ct = default);
+    /// <summary>Loads native units and precision metadata for the selected listing.</summary>
+    Task<Instrument> FetchInstrumentAsync(InstrumentKey instrument, CancellationToken ct = default);
 
-    /// <summary>Returns options actually supported for this listing and the bound account.</summary>
-    Task<TradingCapabilities> GetCapabilitiesAsync(InstrumentKey instrument, CancellationToken ct = default);
+    /// <summary>Formats native order quantity with the provider's precision rules.</summary>
+    decimal AmountToPrecision(InstrumentKey instrument, decimal quantity);
 
-    /// <summary>Checks instrument/provider/account constraints without sending an order.
-    /// PlaceOrderAsync must check again because balances and limits can change.</summary>
-    Task<OrderValidationResult> ValidateOrderAsync(PlaceOrderRequest request, CancellationToken ct = default);
+    /// <summary>Formats a limit price with the provider's precision rules.</summary>
+    decimal PriceToPrecision(InstrumentKey instrument, decimal price);
 
-    /// <summary>Sends with an ID recorded before dispatch. Accepted does not mean filled.
-    /// Cancellation before dispatch may throw; after dispatch preserve/reconcile the unknown outcome.</summary>
-    Task<PlaceOrderResult> PlaceOrderAsync(PlaceOrderRequest request, CancellationToken ct = default);
+    /// <summary>Sends one limit order, returning the provider's acknowledgement.</summary>
+    Task<OrderSnapshot> CreateLimitOrderAsync(LimitOrderRequest request, CancellationToken ct = default);
 
-    /// <summary>Cancels by listing and exchange ID, preserving partial fills and uncertain outcomes.</summary>
-    Task<CancelOrderResult> CancelOrderAsync(OrderReference order, CancellationToken ct = default);
+    /// <summary>Sends one market order without a price or maker flag.</summary>
+    Task<OrderSnapshot> CreateMarketOrderAsync(MarketOrderRequest request, CancellationToken ct = default);
 
-    /// <summary>Returns latest state, filled quantity and remaining quantity; null only confirms absence.</summary>
-    Task<OrderSnapshot?> GetOrderAsync(OrderReference order, CancellationToken ct = default);
+    /// <summary>Requests cancellation once; a returned acknowledgement is not a promise of no fills.</summary>
+    Task<OrderSnapshot> CancelOrderAsync(OrderReference order, CancellationToken ct = default);
 
-    /// <summary>Reconciles a lost placement response where client-ID lookup is supported.
-    /// Unsupported lookup or a failed request must not be represented as an absent order.</summary>
-    Task<OrderSnapshot?> FindOrderByClientIdAsync(InstrumentKey instrument, string clientOrderId, CancellationToken ct = default);
+    /// <summary>Fetches a specific exchange order.</summary>
+    Task<OrderSnapshot> FetchOrderAsync(OrderReference order, CancellationToken ct = default);
 
-    /// <summary>Returns a bounded page of open orders with continuation instead of silent truncation.</summary>
-    Task<TradingPage<OrderSnapshot>> GetOpenOrdersAsync(TradingQuery query, CancellationToken ct = default);
+    /// <summary>Fetches the selected instrument's current open orders.</summary>
+    Task<IReadOnlyList<OrderSnapshot>> FetchOpenOrdersAsync(InstrumentKey instrument, CancellationToken ct = default);
 
-    /// <summary>Returns history with filters and provider-owned continuation where supported.</summary>
-    Task<TradingPage<OrderSnapshot>> GetOrderHistoryAsync(TradingQuery query, CancellationToken ct = default);
+    /// <summary>Fetches recent executions for display.</summary>
+    Task<IReadOnlyList<ExecutionSnapshot>> FetchMyTradesAsync(InstrumentKey instrument, CancellationToken ct = default);
 
-    /// <summary>Returns actual fills and fees; deduplicate by account, listing and execution identity.</summary>
-    Task<TradingPage<ExecutionSnapshot>> GetExecutionsAsync(TradingQuery query, CancellationToken ct = default);
+    /// <summary>Fetches balances and available collateral reported by the provider.</summary>
+    Task<AccountSnapshot> FetchBalanceAsync(CancellationToken ct = default);
 
-    /// <summary>Returns funds, reservations, positions and margin. Unknown values remain null.</summary>
-    Task<AccountSnapshot> GetAccountStateAsync(CancellationToken ct = default);
+    /// <summary>Fetches contract positions; spot returns an empty list.</summary>
+    Task<IReadOnlyList<PositionSnapshot>> FetchPositionsAsync(InstrumentKey instrument, CancellationToken ct = default);
 
-    /// <summary>Returns cash holdings or futures positions, including direction and quantity unit.</summary>
-    Task<IReadOnlyList<PositionSnapshot>> GetPositionsAsync(InstrumentKey? instrument = null, CancellationToken ct = default);
+    /// <summary>Reports whether this connection supports a private update source.</summary>
+    bool SupportsStream(TradingStream stream);
 
-    /// <summary>Streams order, execution, account and connection updates to each subscriber.
-    /// Refresh snapshots/reconcile history after reconnect; the stream is not durable history.</summary>
-    IAsyncEnumerable<TradingUpdate> WatchUpdatesAsync(CancellationToken ct = default);
+    /// <summary>Reads one detached order batch from a private stream.</summary>
+    Task<IReadOnlyList<OrderSnapshot>> WatchOrdersAsync(InstrumentKey instrument, CancellationToken ct = default);
+
+    /// <summary>Reads one detached execution batch from a private stream.</summary>
+    Task<IReadOnlyList<ExecutionSnapshot>> WatchMyTradesAsync(InstrumentKey instrument, CancellationToken ct = default);
+
+    /// <summary>Reads one detached account balance update.</summary>
+    Task<AccountSnapshot> WatchBalanceAsync(CancellationToken ct = default);
 }

@@ -6,20 +6,12 @@ namespace BotView.Tests;
 
 public sealed class TradingContractTests
 {
-    private static readonly DateTimeOffset Now = new(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
-    private static readonly TradingCapabilities Capabilities = new(
-        new HashSet<OrderType>(Enum.GetValues<OrderType>()), new HashSet<OrderTimeInForce>(Enum.GetValues<OrderTimeInForce>()));
-
+    private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow;
     /// <summary>Creates deterministic listing metadata for each price/quantity convention.</summary>
     private static Instrument Instrument(QuantityUnit quantityUnit, PriceQuotation quotation) => new(
         new("MOEX", "test", "BOARD", "SEC"), "BOARD:SEC", "Test instrument", "RUB", LotSize: 10m, PriceStep: .01m,
         TradingRules: new(quantityUnit, quotation,
             FaceValue: 1000m, AccruedInterest: 25m, TickValue: 5m, ContractSize: .01m));
-
-    /// <summary>Creates a valid order and binds it to the same venue/account.</summary>
-    private static OrderValidationResult Validate(PlaceOrderRequest request, Instrument instrument, TradingCapabilities? capabilities = null) =>
-        TradingOrderValidator.Validate(request, instrument, capabilities ?? Capabilities,
-            new("connection", "account", instrument.Key.Venue, TradingEnvironment.Testnet), Now);
 
     /// <summary>Checks money formulas and prevents futures notional from being treated as margin.</summary>
     [Fact]
@@ -63,83 +55,6 @@ public sealed class TradingContractTests
         var bond = Instrument(QuantityUnit.Lots, PriceQuotation.PercentOfFaceValue) with { LotSize = 1m };
         bond = bond with { TradingRules = bond.TradingRules! with { FaceValue = 600m } };
         Assert.Equal(new Money(1232m, "RUB"), TradingValueCalculator.Calculate(bond, 2m, 98.5m));
-    }
-
-    /// <summary>Rejects fractional MOEX lots/contracts but preserves fractional base-asset quantities.</summary>
-    [Theory]
-    [InlineData(QuantityUnit.Lots)]
-    [InlineData(QuantityUnit.Contracts)]
-    public void OrderQuantityUsesDeclaredUnitsAndNeverRounds(QuantityUnit unit)
-    {
-        var instrument = Instrument(unit, PriceQuotation.CurrencyPerUnit);
-        var order = new PlaceOrderRequest(instrument.Key, OrderSide.Buy, OrderType.Limit, 1.5m, "client-1", Price: 100m);
-        Assert.Null(instrument.TradingRules!.QuantityStep);
-        Assert.Null(instrument.TradingRules.MinQuantity);
-        Assert.Contains(Validate(order, instrument).Errors, e => e.Code == "WholeQuantityRequired");
-        foreach (var invalid in new[] { -1m, 0m, .5m, 1.5m })
-            Assert.False(Validate(order with { Quantity = invalid }, instrument).IsValid);
-        Assert.True(Validate(order with { Quantity = 1m }, instrument).IsValid);
-        Assert.True(Validate(order with { Quantity = 2m }, instrument).IsValid);
-        Assert.Equal(1.5m, order.Quantity);
-        var crypto = instrument with
-        {
-            Key = new("binance", "spot", "", "ETH/USDT"),
-            TradingRules = instrument.TradingRules! with { QuantityUnit = QuantityUnit.BaseAsset, QuantityStep = .001m, MinQuantity = .01m }
-        };
-        var cryptoOrder = order with { Instrument = crypto.Key };
-        Assert.True(Validate(cryptoOrder, crypto).IsValid);
-        Assert.Contains(Validate(cryptoOrder with { Quantity = 1.0001m }, crypto).Errors, e => e.Code == "QuantityStep");
-        Assert.Contains(Validate(cryptoOrder with { Quantity = .001m }, crypto).Errors, e => e.Code == "MinQuantity");
-        var fractionalContracts = crypto with { TradingRules = crypto.TradingRules! with { QuantityUnit = QuantityUnit.Contracts, QuantityStep = .1m } };
-        Assert.True(Validate(cryptoOrder, fractionalContracts).IsValid);
-    }
-
-    /// <summary>Validates market, stop and stop-limit field combinations separately.</summary>
-    [Fact]
-    public void MarketAndConditionalOrdersRequireDifferentPrices()
-    {
-        var instrument = Instrument(QuantityUnit.Lots, PriceQuotation.CurrencyPerUnit);
-        var market = new PlaceOrderRequest(instrument.Key, OrderSide.Buy, OrderType.Market, 1m, "market-1");
-        Assert.True(Validate(market, instrument).IsValid);
-        Assert.Contains(Validate(market with { Price = 100m }, instrument).Errors, e => e.Code == "LimitPrice");
-        var stop = market with { Type = OrderType.Stop, TriggerPrice = 100m, TriggerCondition = TriggerCondition.AtOrAbove };
-        Assert.True(Validate(stop, instrument).IsValid);
-        Assert.Contains(Validate(stop with { TriggerCondition = null }, instrument).Errors, e => e.Code == "TriggerPrice");
-        var stopLimit = stop with { Type = OrderType.StopLimit, Price = 100.01m };
-        Assert.True(Validate(stopLimit, instrument).IsValid);
-        Assert.Contains(Validate(stopLimit with { TriggerPrice = 100.001m }, instrument).Errors, e => e.Code == "PriceStep");
-    }
-
-    /// <summary>Checks instrument/account identity and unsupported provider options.</summary>
-    [Fact]
-    public void CapabilitiesAndListingIdentityAreValidated()
-    {
-        var instrument = Instrument(QuantityUnit.Lots, PriceQuotation.CurrencyPerUnit);
-        var order = new PlaceOrderRequest(instrument.Key, OrderSide.Buy, OrderType.Limit, 1m, "client", Price: 100m);
-        Assert.True(Validate(order, instrument).IsValid);
-        Assert.Contains(Validate(order with { Instrument = instrument.Key with { Board = "OTHER" } }, instrument).Errors, e => e.Code == "InstrumentMismatch");
-        Assert.Contains(Validate(order with { ClientOrderId = "" }, instrument).Errors, e => e.Code == "ClientOrderIdRequired");
-        Assert.Contains(Validate(order with { PostOnly = true }, instrument).Errors, e => e.Code == "InvalidPostOnly");
-        Assert.Contains(Validate(order with { ReduceOnly = true }, instrument).Errors, e => e.Code == "UnsupportedReduceOnly");
-        Assert.Contains(Validate(order with { PositionSide = PositionSide.Short }, instrument).Errors, e => e.Code == "UnsupportedPositionSide");
-        var supported = Capabilities with { SupportsPostOnly = true };
-        Assert.True(Validate(order with { PostOnly = true }, instrument, supported).IsValid);
-        Assert.Contains(Validate(order with { PostOnly = true, TimeInForce = OrderTimeInForce.Ioc }, instrument, supported).Errors, e => e.Code == "InvalidPostOnly");
-        Assert.Contains(Validate(order with { TimeInForce = OrderTimeInForce.Gtd }, instrument).Errors, e => e.Code == "InvalidExpiration");
-        Assert.True(Validate(order with { TimeInForce = OrderTimeInForce.Gtd, ExpiresAt = Now.AddDays(1) }, instrument).IsValid);
-    }
-
-    /// <summary>Notional checks use monetary lot conversion, and missing required data blocks validation.</summary>
-    [Fact]
-    public void MonetaryLimitsAreNotComparedToRawQuantityTimesPrice()
-    {
-        var shares = Instrument(QuantityUnit.Lots, PriceQuotation.CurrencyPerUnit);
-        shares = shares with { TradingRules = shares.TradingRules! with { MinNotional = 500m } };
-        var order = new PlaceOrderRequest(shares.Key, OrderSide.Buy, OrderType.Limit, 1m, "client", Price: 100m);
-        Assert.True(Validate(order, shares).IsValid); // 1 lot * 10 shares * 100 = 1000.
-        Assert.Contains(Validate(order with { Price = 10m }, shares).Errors, e => e.Code == "MinNotional");
-        var bond = shares with { TradingRules = shares.TradingRules! with { PriceQuotation = PriceQuotation.PercentOfFaceValue, FaceValue = null } };
-        Assert.Contains(Validate(order, bond).Errors, e => e.Code == "ValuationUnavailable");
     }
 
     /// <summary>Order-book monetary bars use bond cash value and display missing data as unknown.</summary>

@@ -1,14 +1,13 @@
 ﻿using System.Collections.ObjectModel;
 using BotView.Models;
 using BotView.Services;
-using BotView.Services.Integrations.Ccxt;
 
 namespace BotView.ViewModels;
 
 public sealed partial class OrderBookViewModel
 {
     private TradingSessionManager? _tradingManager;
-    private CcxtTradingService? _trading;
+    private TradingAccountSession? _trading;
     private TradingAccountProfile? _selectedAccount;
     private bool _tradeBusy;
     private bool _bindingAccount;
@@ -17,7 +16,7 @@ public sealed partial class OrderBookViewModel
     private int _managerRevision = -1;
     private OrderQuantityCurrency _quantityCurrency;
     private OrderSnapshot? _selectedOrder;
-    private SpotTradingState? _lastTradingState;
+    private TradingAccountState? _lastTradingState;
     private Task _bindTask = Task.CompletedTask;
 
     public TradingEnvironment Environment { get; private set; }
@@ -45,9 +44,6 @@ public sealed partial class OrderBookViewModel
     public string AccountStatus => _bindingAccount ? "Connecting account…" : _trading?.Current.Message ?? "Select an account with keys stored in memory.";
     public string AccountIdentity => _trading is null ? "" : _trading.Account.AccountId.StartsWith("key:", StringComparison.Ordinal)
         ? "Account verified by this API key" : _trading.Account.AccountId;
-    public string PendingStatus => _lastTradingState is null ? "" : string.Join("\n", _lastTradingState.Pending
-        .Where(o => o.Request.Instrument == TradingInstrument)
-        .Select(o => $"Unknown {(o.CancelTarget is null ? "placement" : "cancellation")}: {o.Id}. Reconciling; no automatic resend."));
     public string BalanceText => IsFutures ? $"Available margin: {_trading?.Current.Balance?.Margins?.FirstOrDefault(m => m.Currency == "USDT")?.AvailableFunds?.ToString() ?? "?"} USDT" : _trading?.Current.Balance?.Balances is { } balances
         ? string.Join(" · ", balances.Where(b => b.Currency == Symbol.Split('/')[0] || b.Currency == Symbol.Split('/').Last().Split(':')[0])
             .Select(b => $"{b.Currency}: {b.Available?.ToString() ?? "?"} free")) : "Balance unavailable";
@@ -69,7 +65,7 @@ public sealed partial class OrderBookViewModel
         get => _quantityCurrency;
         set
         {
-            if (!IsTradeEditable || value == _quantityCurrency || !Enum.IsDefined(value)) return;
+            if (!CanSelectQuantityCurrency || value == _quantityCurrency || !Enum.IsDefined(value)) return;
             try
             {
                 if (_trading is not null && TryPositive(PriceText, out var price) && TryPositive(AmountText, out var input))
@@ -87,31 +83,71 @@ public sealed partial class OrderBookViewModel
 
     public string QuantityHeader => IsFutures && QuantityCurrency == OrderQuantityCurrency.Base ? "Quantity (contracts)" : $"Quantity ({(QuantityCurrency == OrderQuantityCurrency.Base ? Symbol.Split('/')[0] : Symbol.Split('/').Last().Split(':')[0])})";
     public OrderSnapshot? SelectedOrder { get => _selectedOrder; set { _selectedOrder = value; Changed(); } }
-    private bool TradingInputValid
+    private OrderType _selectedOrderType = OrderType.Limit;
+    public OrderType[] OrderTypes { get; } = [OrderType.Limit, OrderType.Market];
+    public bool IsLimitOrder => SelectedOrderType == OrderType.Limit;
+    public bool CanSelectQuantityCurrency => IsTradeEditable && IsLimitOrder;
+
+    public OrderType SelectedOrderType
+    {
+        get => _selectedOrderType;
+        set
+        {
+            if (!IsTradeEditable || !OrderTypes.Contains(value) || value == _selectedOrderType) return;
+            _selectedOrderType = value;
+            _amountText = "";
+            _quantityCurrency = OrderQuantityCurrency.Base;
+            _postOnly = false;
+            Changed();
+        }
+    }
+
+    /// <summary>Prepares and validates only required input and exchange precision, without trading policy checks.</summary>
+    private (decimal Quantity, decimal Price) PreparedInput()
+    {
+        if (_trading is null) throw new InvalidOperationException("Select a connected account.");
+        if (!TryPositive(AmountText, out var input)) throw new ArgumentException("Enter a quantity greater than zero.");
+        decimal price = 1;
+        if (IsLimitOrder)
+        {
+            if (!TryPositive(PriceText, out price)) throw new ArgumentException("Enter a limit price greater than zero.");
+            price = _trading.PriceToPrecision(TradingInstrument, price);
+            if (price <= 0) throw new ArgumentException("Price rounds to zero at exchange precision.");
+        }
+        var quantity = _trading.ConvertQuantity(TradingInstrument, input, price,
+            IsLimitOrder ? QuantityCurrency : OrderQuantityCurrency.Base);
+        if (quantity <= 0) throw new ArgumentException("Quantity rounds to zero at exchange precision.");
+        return (quantity, price);
+    }
+
+    public string TradingInputHint
     {
         get
         {
-            try
-            {
-                if (_trading is null || !TryPositive(PriceText, out var price) || !TryPositive(AmountText, out var amount)) return false;
-                var quantity = _trading.ConvertQuantity(TradingInstrument, amount, price, QuantityCurrency);
-                return _trading.ValidateInput(new(TradingInstrument, OrderSide.Buy, OrderType.Limit, quantity, "bvpreview", price, PostOnly: PostOnly, ReduceOnly: ReduceOnly, PositionSide: SelectedPositionSide)).IsValid;
-            }
-            catch (Exception) { return false; }
+            if (_bindingAccount) return "Connecting account…";
+            if (_trading is null) return "Select an account with API keys.";
+            if (!_trading.Current.Connected) return "Reconnect the trading account.";
+            if (_tradeBusy) return "Waiting for the exchange response…";
+            try { PreparedInput(); return ""; }
+            catch (ArgumentException ex) { return ex.Message; }
+            catch (Exception) { return "Could not format order quantity or price."; }
         }
     }
+
+    private bool TradingInputValid => TradingInputHint.Length == 0;
 
     public string OrderPreview
     {
         get
         {
-            if (_trading is null || !TryPositive(PriceText, out var price) || !TryPositive(AmountText, out var input)) return "";
             try
             {
-                var amount = _trading.ConvertQuantity(TradingInstrument, input, price, QuantityCurrency);
-                return $"{Format(amount)} {(IsFutures ? "contracts" : Symbol.Split('/')[0])} · {Format(_trading.OrderNotional(TradingInstrument, amount, price))} {Symbol.Split('/').Last().Split(':')[0]} (excluding commission)";
+                var input = PreparedInput();
+                var unit = IsFutures ? "contracts" : Symbol.Split('/')[0];
+                if (!IsLimitOrder) return $"{Format(input.Quantity)} {unit} · Market; execution price is determined by the exchange";
+                return $"{Format(input.Quantity)} {unit} @ {Format(input.Price)} · {Format(_trading!.OrderNotional(TradingInstrument, input.Quantity, input.Price))} {Symbol.Split('/').Last().Split(':')[0]} (excluding commission)";
             }
-            catch (Exception) { return "Invalid quantity or precision."; }
+            catch (Exception) { return ""; }
         }
     }
 
@@ -120,7 +156,7 @@ public sealed partial class OrderBookViewModel
     {
         _tradingManager = manager;
         Environment = environment;
-        CancelSelectedCommand = new RelayCommand(CancelSelectedAsync, _ => !_tradeBusy && _trading is not null && SelectedOrder is { } order && !CcxtTradingService.Terminal(order.State));
+        CancelSelectedCommand = new RelayCommand(CancelSelectedAsync, _ => !_tradeBusy && _trading is not null && SelectedOrder is { } order && !TradingAccountSession.Terminal(order.State));
         CancelAllCommand = new RelayCommand(CancelAllAsync, _ => !_tradeBusy && !_bindingAccount && _trading is not null);
         ReconnectCommand = new RelayCommand(_ => BindAccountAsync(), _ => !_tradeBusy && !_bindingAccount && SelectedAccount is not null);
         ReloadAccounts();
@@ -160,7 +196,7 @@ public sealed partial class OrderBookViewModel
         {
             var service = await _tradingManager.GetAsync(selected.Id, _stop.Token);
             if (_disposed || generation != _accountGeneration) return;
-            // Keep the session attached even if the first snapshot fails; its worker continues recovery.
+            // Keep display subscriptions separate from the order-book feed.
             _trading = service;
             await Task.Run(() => service.TrackAsync(TradingInstrument, _stop.Token));
         }
@@ -180,14 +216,14 @@ public sealed partial class OrderBookViewModel
         _lastTradingState = _trading.Current;
         var selectedId = SelectedOrder?.Reference;
         var orders = _lastTradingState.Orders.Where(o => o.Reference.Instrument == TradingInstrument)
-            .OrderBy(o => CcxtTradingService.Terminal(o.State)).ThenByDescending(o => o.UpdatedAt).ToArray();
+            .OrderBy(o => TradingAccountSession.Terminal(o.State)).ThenByDescending(o => o.UpdatedAt).ToArray();
         if (!Orders.SequenceEqual(orders)) Orders = orders;
         var fills = _lastTradingState.Executions.Where(f => f.Order.Instrument == TradingInstrument).Take(100).ToArray();
         if (!Executions.SequenceEqual(fills)) Executions = fills;
         _selectedOrder = Orders.FirstOrDefault(o => o.Reference == selectedId);
     }
 
-    /// <summary>Freezes a request before awaiting, preventing edits or another Buy/Sell from changing the dispatched intent.</summary>
+    /// <summary>Freezes a request before awaiting, preventing edits or another Buy/Sell from changing the request.</summary>
     internal async Task TradeAsync(OrderSide side)
     {
         if (!CanTrade || _trading is null) return;
@@ -200,25 +236,22 @@ public sealed partial class OrderBookViewModel
 
         try
         {
-            if (!TryPositive(PriceText, out var price) || !TryPositive(AmountText, out var input)) return;
+            var input = PreparedInput();
+            var result = IsLimitOrder
+                ? await Task.Run(() => service.CreateLimitOrderAsync(new(TradingInstrument, side, input.Quantity, input.Price,
+                    PostOnly, ReduceOnly, SelectedPositionSide), _stop.Token))
+                : await Task.Run(() => service.CreateMarketOrderAsync(new(TradingInstrument, side, input.Quantity,
+                    ReduceOnly, SelectedPositionSide), _stop.Token));
 
-            var quantity = service.ConvertQuantity(TradingInstrument, input, price, QuantityCurrency);
-            var request = new PlaceOrderRequest(TradingInstrument, side, OrderType.Limit, quantity,
-                "bv" + Guid.NewGuid().ToString("N"), price, PostOnly: PostOnly, ReduceOnly: ReduceOnly, PositionSide: SelectedPositionSide);
-            var result = await Task.Run(() => service.PlaceOrderAsync(request, _stop.Token));
-
-            if (!_disposed && generation == _accountGeneration) {
-                _tradeStatus = $@"{side}: {result.Status} {result.Order?.State} ·
-                    {result.ExchangeOrderId ?? result.ClientOrderId} {result.Order?.StatusReason}" +
-                    (result.Error is null ? "" : $" · {result.Error.Message}");
-            }
+            if (!_disposed && generation == _accountGeneration)
+                _tradeStatus = $"{side}: {result.State} · {result.Reference.ExchangeOrderId} {result.StatusReason}";
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { if (!_disposed) _tradeStatus = "Response not received; check exchange orders before trying again."; }
         catch (Exception ex) {
             if (!_disposed) {
                 _tradeStatus = ex is TradingServiceException safe ?
                     safe.Message :
-                    "Order could not be prepared. Check values and precision.";
+                    TradingErrorText.FromException(ex);
             }
         }
         finally {
@@ -238,10 +271,10 @@ public sealed partial class OrderBookViewModel
         try
         {
             var result = await Task.Run(() => service.CancelOrderAsync(order.Reference, _stop.Token));
-            if (!_disposed) _tradeStatus = $"Cancel {order.Reference.ExchangeOrderId}: {result.Status} {result.Error?.Message}";
+            if (!_disposed) _tradeStatus = $"Cancel {order.Reference.ExchangeOrderId}: {result.State} {result.StatusReason}";
         }
-        catch (OperationCanceledException) { }
-        catch (Exception) { if (!_disposed) _tradeStatus = "Cancellation failed; check the account status."; }
+        catch (OperationCanceledException) { if (!_disposed) _tradeStatus = "Response not received; check exchange orders before trying again."; }
+        catch (Exception ex) { if (!_disposed) _tradeStatus = TradingErrorText.FromException(ex); }
         finally { _tradeBusy = false; if (!_disposed) Changed(); }
     }
 
@@ -256,7 +289,7 @@ public sealed partial class OrderBookViewModel
             var batch = await Task.Run(() => service.PrepareCancelAllAsync(TradingInstrument, _stop.Token));
             if (_disposed || !await ConfirmCancelAllAsync(batch)) return;
             var results = await Task.Run(() => service.CancelBatchAsync(batch, _stop.Token));
-            if (!_disposed) _tradeStatus = string.Join("; ", results.Select(r => $"{r.Reference.ExchangeOrderId}: {r.Status} {r.Error?.Message}"));
+            if (!_disposed) _tradeStatus = string.Join("; ", results);
         }
         catch (OperationCanceledException) { }
         catch (Exception) { if (!_disposed) _tradeStatus = "Could not complete batch cancellation. Check individual order states."; }

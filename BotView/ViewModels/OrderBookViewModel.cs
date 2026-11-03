@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Globalization;
 using BotView.Models;
 using BotView.Services;
-using BotView.Services.Integrations.Ccxt;
 
 namespace BotView.ViewModels;
 
@@ -107,8 +106,8 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
     public string PriceText { get => _priceText; set { _priceText = value; Changed(); } }
     public string AmountText { get => _amountText; set { _amountText = value; Changed(); } }
     public string TradeStatus => _tradeStatus;
-    public bool CanTrade => !_disposed && !_tradeBusy && !_bindingAccount && _trading?.IsReady(TradingInstrument) == true
-        && TradingInputValid && !_trading.Current.Pending.Any(o => o.Request.Instrument == TradingInstrument);
+    public bool CanTrade => !_disposed && !_tradeBusy && !_bindingAccount && _trading?.Current.Connected == true
+        && TradingInputValid;
     public RelayCommand BuyCommand { get; }
     public RelayCommand SellCommand { get; }
     public RelayCommand CenterCommand { get; }
@@ -150,7 +149,7 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
         if (_followMarket || _center is null) _center = marketCenter;
         var rows = OrderBookLadder.Build(book, Multiplier, _center.Value, count, _maxVolumes[(int)VolumeCurrency], VolumeCurrency);
         var step = book.Market.TickSize * Multiplier;
-        return rows.Select(row => row with { OwnOrderCount = Orders.Count(o => !CcxtTradingService.Terminal(o.State) && o.Price is { } price &&
+        return rows.Select(row => row with { OwnOrderCount = Orders.Count(o => !TradingAccountSession.Terminal(o.State) && o.Price is { } price &&
             (o.Side == OrderSide.Buy ? decimal.Floor(price / step) : decimal.Ceiling(price / step)) * step == row.Price) }).ToArray();
     }
 

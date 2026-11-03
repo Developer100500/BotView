@@ -8,18 +8,18 @@ public sealed class BinanceRequestParametersTests
 {
     /// <summary>Exercises real CCXT request construction while replacing all HTTP with an in-memory response.</summary>
     [Fact]
-    public async Task SpotReconciliationNeverSendsTypeOrSubTypeToBinance()
+    public async Task SpotReadsNeverSendDerivativeRoutingToBinance()
     {
         var transport = new CapturingBinance();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Production);
         using var credentials = new AccountCredentials("fake", "fake");
-        await using var client = new CcxtSpotTradingClient(profile, credentials, transport);
+        await using var client = new CcxtTradingClient(transport, profile.Exchange);
         var instrument = new InstrumentKey("binance", "spot", "", "BTC/USDT");
 
-        await client.OrdersAsync(new(instrument), true, CancellationToken.None);
-        await client.ExecutionsAsync(new(instrument, DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow), CancellationToken.None);
-        await client.BalanceAsync(new(profile.Id.ToString(), "owner", "binance", profile.Environment), CancellationToken.None);
-        await client.FindAsync(instrument, "bv-original", CancellationToken.None);
+        await client.FetchSpotOpenOrdersAsync(instrument.SecurityId);
+        await client.FetchSpotMyTradesAsync(instrument.SecurityId);
+        await client.FetchSpotBalanceAsync();
+        await client.FetchSpotOrderAsync("1", instrument.SecurityId);
 
         Assert.Contains(transport.Requests, uri => uri.AbsolutePath == "/api/v3/openOrders");
         Assert.Contains(transport.Requests, uri => uri.AbsolutePath == "/api/v3/myTrades");
