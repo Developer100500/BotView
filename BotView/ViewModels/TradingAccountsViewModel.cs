@@ -132,19 +132,28 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     /// <summary>The name of the account profile.</summary>
     public string Name { get => _name; set { _name = value; Notify(); } }
     public string Exchange { get => _exchange; set { if (IsNewProfile && Exchanges.Any(e => e.Id == value)) { _exchange = value; Notify(); } } }
+    /// <summary>The environment to apply when the new or existing profile is saved.</summary>
     public TradingEnvironment Environment
     {
         get => _environment;
-        set { if (IsNewProfile && Enum.IsDefined(value)) { _environment = value; Notify(); } }
+        set
+        {
+            if (Enum.IsDefined(value))
+            {
+                _environment = value;
+                Notify();
+            }
+        }
     }
     private TradingMarket _market;
     public TradingMarket[] Markets { get; } = [TradingMarket.Spot, TradingMarket.UsdtFutures];
+    /// <summary>The market to apply when the new or existing profile is saved.</summary>
     public TradingMarket Market
     {
         get => _market;
         set
         {
-            if (IsNewProfile && Enum.IsDefined(value))
+            if (Enum.IsDefined(value))
             {
                 _market = value;
                 Notify();
@@ -208,7 +217,10 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     {
         if (!CanSave || IsNewProfile && replacement is null || _hasCredentialInput && replacement is null) return;
 
-        var profile = _selected is { } selected ? selected.Profile with { Name = Name.Trim() }
+        var connectionChanged = _selected is { } existing
+            && (existing.Profile.Market != Market || existing.Profile.Environment != Environment);
+        var profile = _selected is { } selected
+            ? selected.Profile with { Name = Name.Trim(), Market = Market, Environment = Environment }
             : new TradingAccountProfile(Guid.NewGuid(), Name.Trim(), Exchange, Environment, Market);
         var profiles = Profiles.Select(p => p.Profile.Id == profile.Id ? profile : p.Profile).ToList();
 
@@ -226,7 +238,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             }
             else
             {
-                _selected.Update(profile, _credentials.Contains(profile.Id), replacement is not null);
+                _selected.Update(profile, _credentials.Contains(profile.Id), replacement is not null || connectionChanged);
                 ResetEditor();
             }
             _message = replacement is null ? "Profile saved." : "Profile saved. Keys are available only until the app closes.";

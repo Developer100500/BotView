@@ -46,9 +46,8 @@
                             <StackPanel>
                                 <TextBlock Text="{Binding Profile.Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                 <TextBlock Text="{Binding Profile.Exchange}" Foreground="#94A3B8" FontSize="11"/>
-                                <TextBlock Text="Market" Foreground="#94A3B8"/>
-                    <ComboBox ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" IsEnabled="{Binding IsNewProfile}" Margin="0,4,0,10"/>
-                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontSize="11"/>
+                                <TextBlock Text="{Binding Profile.Market}" Foreground="#94A3B8" FontSize="11"/>
+                                <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontSize="11"/>
                                 <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 <TextBlock Text="{Binding ActiveText}" Foreground="#4ADE80" FontSize="11"/>
                             </StackPanel>
@@ -69,12 +68,12 @@
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                             <TextBlock Text="Environment" Foreground="#94A3B8" Margin="0,0,0,4"/>
-                            <ComboBox ItemsSource="{Binding Environments}" DisplayMemberPath="Label" SelectedValuePath="Environment"
-                                      SelectedValue="{Binding Environment}" IsEnabled="{Binding IsNewProfile}"/>
+                            <ComboBox x:Name="EnvironmentInput" ItemsSource="{Binding Environments}" DisplayMemberPath="Label" SelectedValuePath="Environment"
+                                      SelectedValue="{Binding Environment}"/>
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="Market" Foreground="#94A3B8"/>
-                    <ComboBox ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" IsEnabled="{Binding IsNewProfile}" Margin="0,4,0,10"/>
+                    <ComboBox x:Name="MarketInput" ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" Margin="0,4,0,10"/>
                     <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontWeight="SemiBold" Margin="0,0,0,12" TextWrapping="Wrap"/>
                     <TextBlock Text="API key" Foreground="#94A3B8"/>
                     <PasswordBox x:Name="ApiKeyInput" PasswordChanged="CredentialsChanged" Margin="0,4,0,10"/>

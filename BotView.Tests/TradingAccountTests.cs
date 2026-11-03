@@ -78,8 +78,9 @@ public sealed class TradingAccountTests
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
+    /// <summary>Profile edits preserve the exchange and retain keys across account window reopens.</summary>
     [Fact]
-    public void ProfileCrudKeepsExchangeAndEnvironmentImmutableAndRetainsKeysAcrossWindowReopens()
+    public void ProfileCrudKeepsExchangeImmutableAndRetainsKeysAcrossWindowReopens()
     {
         var store = new FakeStore();
         using var memory = new InMemoryCredentialStore();
@@ -97,7 +98,7 @@ public sealed class TradingAccountTests
         vm.Save(null);
         Assert.Equal("Renamed", first.Profile.Name);
         Assert.Equal("binance", first.Profile.Exchange);
-        Assert.Equal(TradingEnvironment.Testnet, first.Profile.Environment);
+        Assert.Equal(TradingEnvironment.Production, first.Profile.Environment);
         using (var reopened = new TradingAccountsViewModel(store, memory, new FakeVerifier()))
         {
             Assert.True(reopened.SelectedAccount!.HasCredentials);
@@ -120,6 +121,75 @@ public sealed class TradingAccountTests
         Assert.False(store.Settings.ActiveProfiles.ContainsKey("bybit"));
     }
 
+    /// <summary>Market and environment edits retain keys and require verification for the new connection.</summary>
+    [Theory]
+    [InlineData(TradingMarket.Spot, TradingMarket.UsdtFutures, TradingEnvironment.Testnet, TradingEnvironment.Testnet)]
+    [InlineData(TradingMarket.UsdtFutures, TradingMarket.Spot, TradingEnvironment.Testnet, TradingEnvironment.Testnet)]
+    [InlineData(TradingMarket.Spot, TradingMarket.Spot, TradingEnvironment.Testnet, TradingEnvironment.Production)]
+    [InlineData(TradingMarket.UsdtFutures, TradingMarket.UsdtFutures, TradingEnvironment.Production, TradingEnvironment.Testnet)]
+    public async Task SavedProfileConnectionCanChangeWithoutReplacingCredentials(
+        TradingMarket originalMarket,
+        TradingMarket newMarket,
+        TradingEnvironment originalEnvironment,
+        TradingEnvironment newEnvironment)
+    {
+        var profile = Profile(environment: originalEnvironment) with { Market = originalMarket };
+        var store = new FakeStore
+        {
+            Settings = new([profile], new Dictionary<string, Guid> { [profile.Exchange] = profile.Id })
+        };
+        using var memory = new InMemoryCredentialStore();
+        using (var keys = Keys()) memory.Write(profile.Id, keys);
+
+        TradingMarket? verifiedMarket = null;
+        TradingEnvironment? verifiedEnvironment = null;
+        var verifier = new FakeVerifier
+        {
+            Verify = (account, _, _) =>
+            {
+                verifiedMarket = account.Market;
+                verifiedEnvironment = account.Environment;
+                return Task.FromResult(Success);
+            }
+        };
+        using var vm = new TradingAccountsViewModel(store, memory, verifier);
+        await vm.VerifySelectedAsync();
+        Assert.NotNull(vm.SelectedAccount!.Result);
+
+        vm.Market = newMarket;
+        vm.Environment = newEnvironment;
+        Assert.Equal(newMarket, vm.Market);
+        Assert.Equal(newEnvironment, vm.Environment);
+        Assert.Equal(originalMarket, vm.SelectedAccount.Profile.Market);
+        Assert.Equal(originalEnvironment, vm.SelectedAccount.Profile.Environment);
+        Assert.Equal(profile, Assert.Single(store.Settings.Profiles));
+        Assert.True(vm.CanSave);
+
+        vm.Save(null);
+
+        var updated = profile with { Market = newMarket, Environment = newEnvironment };
+        Assert.Equal(updated, vm.SelectedAccount.Profile);
+        Assert.Equal(updated, Assert.Single(store.Settings.Profiles));
+        Assert.Equal(profile.Id, store.Settings.ActiveProfiles[profile.Exchange]);
+        Assert.True(vm.SelectedAccount.IsActive);
+        Assert.Null(vm.SelectedAccount.Result);
+        Assert.Equal("Not verified", vm.SelectedAccount.Status);
+        using (var retained = memory.Read(profile.Id)!)
+        {
+            Assert.Equal("test-api-key", retained.ApiKey);
+            Assert.Equal("test-secret", retained.Secret);
+        }
+
+        using var reopened = new TradingAccountsViewModel(store, memory, verifier);
+        Assert.Equal(newMarket, reopened.Market);
+        Assert.Equal(newEnvironment, reopened.Environment);
+        await reopened.VerifySelectedAsync();
+        Assert.Equal(newMarket, verifiedMarket);
+        Assert.Equal(newEnvironment, verifiedEnvironment);
+        Assert.Equal("Connected", reopened.SelectedAccount!.Status);
+    }
+
+    /// <summary>A failed save keeps the saved connection settings and credentials intact.</summary>
     [Fact]
     public void FailedMetadataSaveLeavesOriginalKeysAndProfileIntact()
     {
@@ -130,9 +200,12 @@ public sealed class TradingAccountTests
         using var vm = new TradingAccountsViewModel(store, memory, new FakeVerifier());
         store.FailSave = true;
         vm.Name = "Changed";
+        vm.Market = TradingMarket.UsdtFutures;
+        vm.Environment = TradingEnvironment.Production;
         vm.SetCredentialInputState(true, true);
         using (var keys = Keys("-replacement")) vm.Save(keys);
-        Assert.Equal(profile.Name, vm.SelectedAccount!.Profile.Name);
+        Assert.Equal(profile, vm.SelectedAccount!.Profile);
+        Assert.Equal(profile, Assert.Single(store.Settings.Profiles));
         using var stillOriginal = memory.Read(profile.Id)!;
         Assert.Equal("test-api-key", stillOriginal.ApiKey);
         Assert.Contains("Could not save", vm.Message);
@@ -285,6 +358,7 @@ public sealed class TradingAccountTests
         Assert.Equal(new AccountPermissions(), CcxtAccountVerificationClient.ParseBinancePermissions(new Dictionary<string, object>()));
     }
 
+    /// <summary>The account editor masks keys and saves market and environment changes for existing profiles.</summary>
     [Fact]
     public void AccountWindowMasksAndClearsKeysAndRendersAtMinimumSize()
     {
@@ -315,6 +389,24 @@ public sealed class TradingAccountTests
             Assert.Single(vm.Profiles);
             Assert.Equal("", key.Password);
             Assert.Equal("", secret.Password);
+
+            var market = (ComboBox)window.FindName("MarketInput");
+            Assert.True(market.IsEnabled);
+            market.SelectedItem = TradingMarket.UsdtFutures;
+            Assert.Equal(TradingMarket.UsdtFutures, vm.Market);
+            ((Button)window.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(TradingMarket.UsdtFutures, vm.SelectedAccount!.Profile.Market);
+            Assert.Equal(TradingMarket.UsdtFutures, Assert.Single(store.Settings.Profiles).Market);
+
+            var environment = (ComboBox)window.FindName("EnvironmentInput");
+            Assert.True(environment.IsEnabled);
+            environment.SelectedValue = TradingEnvironment.Production;
+            Assert.Equal(TradingEnvironment.Production, vm.Environment);
+            Assert.Equal("MAINNET — live account", vm.EnvironmentText);
+            ((Button)window.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(TradingEnvironment.Production, vm.SelectedAccount.Profile.Environment);
+            Assert.Equal(TradingEnvironment.Production, Assert.Single(store.Settings.Profiles).Environment);
+
             key.Password = "unsaved-replacement";
             ((Button)window.FindName("ReplaceKeysButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal("", key.Password);
