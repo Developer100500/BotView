@@ -15,7 +15,7 @@ public sealed record TradingAccountProfile(Guid Id, string Name, string Exchange
 public sealed record TradingAccountsSettings(
     IReadOnlyList<TradingAccountProfile> Profiles, IReadOnlyDictionary<string, Guid> ActiveProfiles);
 
-/// <summary>Session-only key material. Never serialize credentials or use records with generated ToString.</summary>
+/// <summary>Disposable in-memory key material. Never serialize this object or use records with generated ToString.</summary>
 [DebuggerDisplay("Account credentials (redacted)")]
 public sealed class AccountCredentials : IDisposable
 {

@@ -81,9 +81,11 @@ public static class MarketCatalog
     public static bool TryGetTimeframe(string? id, out TimeframeDefinition? timeframe)
     {
         if (TimeframesById.TryGetValue(id ?? string.Empty, out timeframe)) return true;
+
         if (string.IsNullOrEmpty(id) || id.Length < 2 ||
             !int.TryParse(id.AsSpan(0, id.Length - 1), System.Globalization.NumberStyles.None,
                 System.Globalization.CultureInfo.InvariantCulture, out var count) || count <= 0) return false;
+        
         var unitTicks = id[^1] switch
         {
             's' => TimeSpan.TicksPerSecond,

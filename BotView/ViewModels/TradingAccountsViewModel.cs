@@ -102,7 +102,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         catch (Exception)
         {
             _storageAvailable = false;
-            _message = "Could not read account profiles. Saving is disabled to avoid overwriting settings.";
+            _message = "Could not read account profiles or saved keys. Saving is disabled to avoid overwriting settings.";
         }
     }
 
@@ -169,8 +169,8 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     public bool CanReplaceCredentials => !_disposed && !IsBusy && _selected is not null;
     public string Message => _message;
     public string CredentialStatus => _selected?.HasCredentials == true
-        ? "Keys are stored in memory. Enter both values to replace them."
-        : "Enter the API key and secret. You must enter them again after restarting.";
+        ? "Keys are saved. Enter both values to replace them."
+        : "Enter the API key and secret to save them.";
     public string EnvironmentText => Environment == TradingEnvironment.Testnet ? "Testnet — test network" : "MAINNET — live account";
     public string SelectedPermissions => _selected?.PermissionText ?? "Trading: unknown · Withdrawals: unknown";
     public string WithdrawalNotice => _selected?.Result?.Permissions.CanWithdraw == true
@@ -228,25 +228,45 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
 
         try
         {
+            var previousSettings = new TradingAccountsSettings(
+                Profiles.Select(p => p.Profile).ToArray(), new Dictionary<string, Guid>(_active));
+
             _store.Save(new(profiles, _active));
-            if (replacement is not null) _credentials.Write(profile.Id, replacement);
+
+            try
+            {
+                if (replacement is not null)
+                {
+                    _credentials.Write(profile.Id, replacement);
+                }
+            }
+            catch
+            {
+                // Restore profile metadata when the credential provider rejects the write.
+                _store.Save(previousSettings);
+                throw;
+            }
+
+            var hasCredentials = replacement is not null || _selected?.HasCredentials == true;
+
             if (_selected is null)
             {
-                var item = new TradingAccountItem(profile, _credentials.Contains(profile.Id));
+                var item = new TradingAccountItem(profile, hasCredentials);
                 Profiles.Add(item);
                 SelectedAccount = item;
             }
             else
             {
-                _selected.Update(profile, _credentials.Contains(profile.Id), replacement is not null || connectionChanged);
+                _selected.Update(profile, hasCredentials, replacement is not null || connectionChanged);
                 ResetEditor();
             }
-            _message = replacement is null ? "Profile saved." : "Profile saved. Keys are available only until the app closes.";
+            _message = replacement is null ? "Profile saved." : "Profile and keys saved.";
         }
-        catch (Exception) { _message = "Could not save the profile. Check access to the settings folder."; }
+        catch (Exception) { _message = "Could not save the profile or keys. Check access to account settings and credential storage."; }
         Notify();
     }
 
+    /// <summary>Removes profile keys and restores metadata if the credential provider rejects deletion.</summary>
     public void DeleteSelected()
     {
         if (!CanModifySelected) return;
@@ -255,14 +275,27 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         if (active.GetValueOrDefault(item.Profile.Exchange) == item.Profile.Id) active.Remove(item.Profile.Exchange);
         try
         {
+            var previousSettings = new TradingAccountsSettings(
+                Profiles.Select(p => p.Profile).ToArray(), new Dictionary<string, Guid>(_active));
+
             _store.Save(new(Profiles.Where(p => p != item).Select(p => p.Profile).ToArray(), active));
-            _credentials.Delete(item.Profile.Id);
+
+            try
+            {
+                _credentials.Delete(item.Profile.Id);
+            }
+            catch
+            {
+                _store.Save(previousSettings);
+                throw;
+            }
+
             _active = active;
             Profiles.Remove(item);
             BeginNew();
             _message = "Profile and keys deleted.";
         }
-        catch (Exception) { _message = "Could not delete the profile. Settings are unchanged."; }
+        catch (Exception) { _message = "Could not delete the profile or keys. Check access to account settings and credential storage."; }
         Notify();
     }
 
@@ -283,15 +316,29 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         Notify();
     }
 
+    /// <summary>Loads saved keys and verifies access without exposing credential provider errors.</summary>
     public async Task VerifySelectedAsync()
     {
         if (_disposed || _request is not null || _selected is null) return;
 
         var item = _selected;
-        using var credentials = _credentials.Read(item.Profile.Id);
+        AccountCredentials? credentials;
+
+        try
+        {
+            credentials = _credentials.Read(item.Profile.Id);
+        }
+        catch (Exception)
+        {
+            _message = "Could not read saved keys. Check access to credential storage.";
+            Notify();
+            return;
+        }
+
+        using var ownedCredentials = credentials;
 
         if (credentials is null) {
-            _message = "Keys are missing from memory. Enter and save them again."; Notify(); return;
+            _message = "Saved keys were not found. Enter and save them again."; Notify(); return;
         }
 
         using var request = new CancellationTokenSource();

@@ -12,7 +12,8 @@ public sealed class InMemoryCredentialStore : ICredentialStore, ICredentialNotif
 
     public bool Contains(Guid profileId)
     {
-        lock (_sync) { ObjectDisposedException.ThrowIf(_disposed, this); return _credentials.ContainsKey(profileId); }
+        lock (_sync) { ObjectDisposedException.ThrowIf(_disposed, this);
+        return _credentials.ContainsKey(profileId); }
     }
 
     public AccountCredentials? Read(Guid profileId)

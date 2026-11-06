@@ -86,7 +86,10 @@ namespace BotView
                 _tradingAccountsWindow.Activate();
                 return;
             }
-            var window = new Windows.TradingAccountsWindow(App.TradingAccounts, App.TradingCredentials, App.AccountVerifier) { Owner = this };
+            var window = new Windows.TradingAccountsWindow(App.TradingAccounts, App.TradingCredentials, App.AccountVerifier)
+            {
+                Owner = this
+            };
             _tradingAccountsWindow = window;
             window.Closed += (_, _) => _tradingAccountsWindow = null;
             window.Show();

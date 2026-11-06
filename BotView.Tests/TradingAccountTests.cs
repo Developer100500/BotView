@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Moq;
 using BotView.Models;
 using BotView.Services;
 using BotView.Services.Integrations.Ccxt;
@@ -435,6 +436,81 @@ public sealed class TradingAccountTests
         thread.Start();
         Assert.True(thread.Join(TimeSpan.FromSeconds(10)));
         if (error is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+    }
+
+    /// <summary>A rejected credential write restores metadata and leaves the editor available for retry.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CredentialWriteFailureRestoresProfileMetadata(bool existingProfile)
+    {
+        var profile = Profile();
+        var store = new FakeStore();
+        if (existingProfile)
+        {
+            store.Settings = new([profile], new Dictionary<string, Guid> { [profile.Exchange] = profile.Id });
+        }
+
+        var credentials = new Mock<ICredentialStore>();
+        credentials.Setup(c => c.Contains(It.IsAny<Guid>())).Returns(true);
+        credentials.Setup(c => c.Write(It.IsAny<Guid>(), It.IsAny<AccountCredentials>()))
+            .Throws(new IOException("fake-sensitive-provider-details"));
+        using var vm = new TradingAccountsViewModel(store, credentials.Object, new FakeVerifier());
+        vm.Name = "Changed name";
+        vm.SetCredentialInputState(true, true);
+        using var replacement = Keys("-replacement");
+
+        vm.Save(replacement);
+
+        Assert.Equal(existingProfile ? new[] { profile } : [], store.Settings.Profiles);
+        Assert.Equal(existingProfile ? 1 : 0, store.Settings.ActiveProfiles.Count);
+        Assert.Equal(existingProfile ? 1 : 0, vm.Profiles.Count);
+        Assert.True(vm.CanSave);
+        Assert.Contains("Could not save", vm.Message);
+        Assert.DoesNotContain("fake-sensitive-provider-details", vm.Message);
+    }
+
+    /// <summary>A failed key deletion keeps the profile available so deletion can be retried.</summary>
+    [Fact]
+    public void CredentialDeletionFailureRestoresProfileAndSelection()
+    {
+        var profile = Profile();
+        var store = new FakeStore
+        {
+            Settings = new([profile], new Dictionary<string, Guid> { [profile.Exchange] = profile.Id })
+        };
+        var credentials = new Mock<ICredentialStore>();
+        credentials.Setup(c => c.Contains(profile.Id)).Returns(true);
+        credentials.Setup(c => c.Delete(profile.Id)).Throws(new IOException("fake-sensitive-provider-details"));
+        using var vm = new TradingAccountsViewModel(store, credentials.Object, new FakeVerifier());
+
+        vm.DeleteSelected();
+
+        Assert.Equal(profile, Assert.Single(store.Settings.Profiles));
+        Assert.Equal(profile.Id, store.Settings.ActiveProfiles[profile.Exchange]);
+        Assert.Same(Assert.Single(vm.Profiles), vm.SelectedAccount);
+        Assert.Contains("Could not delete", vm.Message);
+        Assert.DoesNotContain("fake-sensitive-provider-details", vm.Message);
+    }
+
+    /// <summary>Unreadable saved keys produce a safe message without reaching the exchange.</summary>
+    [Fact]
+    public async Task CredentialReadFailureDoesNotEscapeVerification()
+    {
+        var profile = Profile();
+        var store = new FakeStore { Settings = new([profile], new Dictionary<string, Guid>()) };
+        var credentials = new Mock<ICredentialStore>();
+        credentials.Setup(c => c.Contains(profile.Id)).Returns(true);
+        credentials.Setup(c => c.Read(profile.Id)).Throws(new IOException("fake-sensitive-provider-details"));
+        var verifier = new Mock<IAccountConnectionVerifier>(MockBehavior.Strict);
+        using var vm = new TradingAccountsViewModel(store, credentials.Object, verifier.Object);
+
+        await vm.VerifySelectedAsync();
+
+        Assert.False(vm.IsBusy);
+        Assert.Contains("Could not read saved keys", vm.Message);
+        Assert.DoesNotContain("fake-sensitive-provider-details", vm.Message);
+        verifier.VerifyNoOtherCalls();
     }
 
     private sealed class FakeStore : ITradingAccountStore

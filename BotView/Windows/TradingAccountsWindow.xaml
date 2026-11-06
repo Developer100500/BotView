@@ -27,7 +27,7 @@
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <StackPanel Margin="0,0,0,14">
             <TextBlock Text="Trading accounts" FontSize="24" FontWeight="SemiBold"/>
-            <TextBlock Text="Keys are kept in memory until the app closes. Profiles are saved without keys."
+            <TextBlock Text="Keys are saved separately from account profiles. Saved keys are never displayed in this form."
                        Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,6,0,0"/>
         </StackPanel>
         <Grid Grid.Row="1">
