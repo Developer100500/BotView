@@ -161,6 +161,19 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         }
     }
 
+    public string[] PositionModes { get; } = ["OneWay", "TwoWay"];
+    private string _positionMode = "OneWay";
+    public string PositionMode {
+        get => _positionMode;
+        set {
+            if (value == _positionMode || value == null)
+                return;
+
+            _positionMode = value;
+            Notify();
+        }
+    }
+
     public bool IsNewProfile => _selected is null;
     public bool IsBusy => _request is not null;
     public bool CanSave => !_disposed && _storageAvailable && !IsBusy && !string.IsNullOrWhiteSpace(Name)

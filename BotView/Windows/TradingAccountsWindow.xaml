@@ -60,21 +60,36 @@
                     <TextBlock Text="Profile name" Foreground="#94A3B8"/>
                     <TextBox x:Name="ProfileName" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10" MaxLength="100"/>
                     <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                        <StackPanel>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition />
+                            <RowDefinition />
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0">
                             <TextBlock Text="Exchange" Foreground="#94A3B8" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding Exchanges}" DisplayMemberPath="DisplayName" SelectedValuePath="Id"
                                       SelectedValue="{Binding Exchange}" IsEnabled="{Binding IsNewProfile}"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="2">
+                        <StackPanel Grid.Row="0" Grid.Column="2">
                             <TextBlock Text="Environment" Foreground="#94A3B8" Margin="0,0,0,4"/>
                             <ComboBox x:Name="EnvironmentInput" ItemsSource="{Binding Environments}" DisplayMemberPath="Label" SelectedValuePath="Environment"
-                                      SelectedValue="{Binding Environment}"/>
+                                      SelectedValue="{Binding Environment}"  HorizontalAlignment="Left"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Vertical">
+                            <TextBlock Text="Market" Foreground="#94A3B8"/>
+                            <ComboBox x:Name="MarketInput" ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" Margin="0,4,0,10"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="2">
+                            <TextBlock Text="Position Mode" Foreground="#94A3B8" />
+                            <ComboBox x:Name="PositionModeInput" ItemsSource="{Binding PositionModes}" SelectedItem="{Binding PositionMode}"
+                                      HorizontalAlignment="Left"/>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Text="Market" Foreground="#94A3B8"/>
-                    <ComboBox x:Name="MarketInput" ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" Margin="0,4,0,10"/>
-                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontWeight="SemiBold" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                    
                     <TextBlock Text="API key" Foreground="#94A3B8"/>
                     <PasswordBox x:Name="ApiKeyInput" PasswordChanged="CredentialsChanged" Margin="0,4,0,10"/>
                     <TextBlock Text="API secret" Foreground="#94A3B8"/>
