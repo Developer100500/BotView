@@ -36,7 +36,7 @@ public sealed class FuturesTradingService : AbstractTradingService
             return positions.Select(position => Position(position, key)).ToArray();
         }, ct);
 
-    /// <summary>Sets the instrument leverage once; Bybit applies the same value to both hedge sides.</summary>
+    /// <summary>Sets one leverage value for the instrument. Bybit applies that value to both hedge legs.</summary>
     public override Task SetLeverageAsync(InstrumentKey key, int leverage, CancellationToken ct = default) =>
         ExecuteAsync(async () =>
         {
@@ -58,48 +58,139 @@ public sealed class FuturesTradingService : AbstractTradingService
             return true;
         }, ct);
 
-    /// <summary>Selects the linear USDT futures account route.</summary>
-    protected override Dictionary<string, object> CreateParameters() => Venue == "binance"
-        ? new() { ["type"] = "future" } : new() { ["category"] = "linear", ["type"] = "swap" };
-
-    /// <summary>Requires an explicit hedge side and maps it to the venue's two-way order parameters.</summary>
-    private Dictionary<string, object> OrderParameters(bool reduceOnly, PositionSide? side)
+    /// <summary>Selects the linear USDT futures account route for a supported venue.</summary>
+    protected override Dictionary<string, object> CreateParameters() => Venue switch
     {
+        "binance" => new() { ["type"] = "future" },
+        "bybit" => new() { ["category"] = "linear", ["type"] = "swap" },
+        "okx" => new() { ["type"] = "swap" },
+        _ => throw new TradingServiceException(new("VenueUnsupported", $"Futures trading is not supported for {Venue}."))
+    };
+
+    /// <summary>Reads hedge versus one-way from the exchange. A missing report stays null and blocks new orders.</summary>
+    public override Task<bool?> FetchPositionModeAsync(InstrumentKey key, CancellationToken ct = default) =>
+        ExecuteAsync(async () =>
+        {
+            ValidateInstrument(key);
+            return await ReadHedgedAsync(key).ConfigureAwait(false);
+        }, ct);
+
+    /// <summary>Order creation uses the same exchange report as the account display.</summary>
+    protected override Task<bool?> ResolveHedgedAsync(InstrumentKey key, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return ReadHedgedAsync(key);
+    }
+
+    /// <summary>Prefers the unified position-mode call. Venues that only expose the flag on positions, such as Bybit, use that report instead.</summary>
+    private async Task<bool?> ReadHedgedAsync(InstrumentKey key)
+    {
+        if (Exchange.has.GetValueOrDefault("fetchPositionMode") is true)
+        {
+            var mode = await Exchange.FetchPositionMode(key.SecurityId, CreateParameters()).ConfigureAwait(false);
+            return mode.hedged;
+        }
+
+        if (Exchange.has.GetValueOrDefault("fetchPositions") is not true)
+        {
+            return null;
+        }
+
+        var positions = await Exchange.FetchPositions(new List<string> { key.SecurityId }, CreateParameters()).ConfigureAwait(false);
+        bool? hedged = null;
+        foreach (var position in positions)
+        {
+            if (position.symbol is string symbol && symbol != key.SecurityId)
+            {
+                continue;
+            }
+
+            if (position.hedged is not bool value)
+            {
+                continue;
+            }
+
+            if (hedged is bool known && known != value)
+            {
+                return null;
+            }
+
+            hedged = value;
+        }
+
+        return hedged;
+    }
+
+    /// <summary>Maps one-way and hedge orders to the venue's explicit parameters. The account mode is never guessed.</summary>
+    private Dictionary<string, object> OrderParameters(bool reduceOnly, PositionSide? side, bool? hedged)
+    {
+        if (hedged is not bool twoWay)
+        {
+            throw new TradingServiceException(new("PositionModeUnavailable",
+                "The exchange did not report whether this account is in one-way or hedge mode."));
+        }
+
+        var parameters = CreateParameters();
+        if (reduceOnly)
+        {
+            parameters["reduceOnly"] = true;
+        }
+        if (!twoWay)
+        {
+            if (side is not null)
+            {
+                throw new TradingServiceException(new("PositionSideNotUsed", "One-way mode uses Buy or Sell only."));
+            }
+
+            switch (Venue)
+            {
+                case "binance": parameters["positionSide"] = "BOTH"; break;
+                case "bybit": parameters["positionIdx"] = 0; break;
+                case "okx": parameters["posSide"] = "net"; break;
+                default: throw UnsupportedVenue();
+            }
+
+            return parameters;
+        }
+
         if (side is not (PositionSide.Long or PositionSide.Short))
         {
             throw new TradingServiceException(new("PositionSideRequired", "Select Long or Short for a hedge-mode futures order."));
         }
 
-        var parameters = CreateParameters();
-
-        if (Venue == "binance")
+        switch (Venue)
         {
-            parameters["positionSide"] = side == PositionSide.Long ? "LONG" : "SHORT";
-        }
-        else
-        {
-            parameters["positionIdx"] = side == PositionSide.Long ? 1 : 2;
-        }
-
-        if (reduceOnly)
-        {
-            parameters["reduceOnly"] = true;
+            case "binance":
+                parameters["positionSide"] = side == PositionSide.Long ? "LONG" : "SHORT";
+                break;
+            case "bybit":
+                parameters["positionIdx"] = side == PositionSide.Long ? 1 : 2;
+                break;
+            case "okx":
+                parameters["posSide"] = side == PositionSide.Long ? "long" : "short";
+                break;
+            default:
+                throw UnsupportedVenue();
         }
 
         return parameters;
     }
 
+    /// <summary>Keeps an unknown venue from receiving another exchange's position fields.</summary>
+    private TradingServiceException UnsupportedVenue() =>
+        new(new("VenueUnsupported", $"Futures position mode is not supported for {Venue}."));
+
     /// <summary>Applies the venue's maker-only duration to a futures limit order.</summary>
-    protected override Dictionary<string, object> CreateLimitOrderParameters(LimitOrderRequest request)
+    protected override Dictionary<string, object> CreateLimitOrderParameters(LimitOrderRequest request, bool? hedged)
     {
-        var parameters = OrderParameters(request.ReduceOnly, request.PositionSide);
+        var parameters = OrderParameters(request.ReduceOnly, request.PositionSide, hedged);
         parameters["timeInForce"] = request.PostOnly ? Venue == "binance" ? "GTX" : "PostOnly" : "GTC";
         return parameters;
     }
 
-    /// <summary>Adds the requested hedge leg and Reduce-only flag to a futures market order.</summary>
-    protected override Dictionary<string, object> CreateMarketOrderParameters(MarketOrderRequest request) =>
-        OrderParameters(request.ReduceOnly, request.PositionSide);
+    /// <summary>Adds the reported position mode and Reduce-only flag to a futures market order.</summary>
+    protected override Dictionary<string, object> CreateMarketOrderParameters(MarketOrderRequest request, bool? hedged) =>
+        OrderParameters(request.ReduceOnly, request.PositionSide, hedged);
 
     /// <summary>Loads the public list of linear USDT contracts matching a spot pair without requiring keys.</summary>
     public Task<IReadOnlyList<string>> FetchTradingPairsAsync(string spotSymbol, CancellationToken ct = default) =>

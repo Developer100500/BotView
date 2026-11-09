@@ -150,7 +150,8 @@ internal sealed class ProOrderBookClient : IOrderBookClient
     private readonly int _subscriptionDepth;
     private readonly TradingMarket _marketType;
 
-    public ProOrderBookClient(string id, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket marketType = TradingMarket.Spot)
+    public ProOrderBookClient(string id, TradingEnvironment environment = TradingEnvironment.Production,
+            TradingMarket marketType = TradingMarket.Spot)
     {
         _marketType = marketType;
         var settings = CreateSettings();
@@ -158,10 +159,12 @@ internal sealed class ProOrderBookClient : IOrderBookClient
         _subscriptionDepth = id == "bybit" ? 200 : 100;
         if (marketType == TradingMarket.UsdtFutures)
         {
-            var options = (Dictionary<string, object>)settings["options"];
+            var options = (Dictionary<string, object>) settings["options"];
             options["defaultType"] = id == "binance" ? "future" : "swap";
             options["defaultSubType"] = "linear";
-            options["fetchMarkets"] = new Dictionary<string, object> { ["types"] = new List<object> { "linear" } };
+            options["fetchMarkets"] = new Dictionary<string, object> {
+                ["types"] = new List<object> { "linear" }
+            };
         }
 
         _client = id switch
@@ -194,9 +197,12 @@ internal sealed class ProOrderBookClient : IOrderBookClient
     {
         if (!_client.has.TryGetValue("watchOrderBook", out var supported) || supported is not true)
             throw new NotSupportedException("The exchange does not support streaming order books.");
+        
         var markets = await AwaitAsync(_client.LoadMarkets(), ct).ConfigureAwait(false);
+
         if (!markets.TryGetValue(symbol, out var market) || (_marketType == TradingMarket.Spot ? market.spot != true : market.linear != true || market.contract != true || market.settle != "USDT") || market.active == false)
             throw new NotSupportedException($"Spot pair {symbol} is unavailable on this exchange.");
+        
         var precision = market.precision?.price;
         var tick = GetTickSize(precision, Convert.ToInt32(_client.precisionMode, CultureInfo.InvariantCulture));
         var instrument = CcxtMarketDataProvider.MapInstrument(_client.id, market, Convert.ToInt32(_client.precisionMode));
@@ -208,7 +214,7 @@ internal sealed class ProOrderBookClient : IOrderBookClient
             };
         }
 
-        return new(symbol, market.baseCurrency!, market.quote!, tick, instrument);
+        return new OrderBookMarket(symbol, market.baseCurrency!, market.quote!, tick, instrument);
     }
 
     internal static decimal GetTickSize(double? precision, int precisionMode)

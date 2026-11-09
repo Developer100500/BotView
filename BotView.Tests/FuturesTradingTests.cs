@@ -28,6 +28,8 @@ public sealed class FuturesTradingTests
                 content.UpdateLayout();
 
                 Assert.True(viewModel.IsFutures);
+                Assert.False(viewModel.ShowPositionSide);
+                Assert.Equal("", viewModel.PositionModeText);
                 Assert.Equal(new[] { "Long", "Short" }, viewModel.PositionTargets);
                 Assert.Equal("Long", viewModel.PositionTarget);
                 viewModel.PositionTarget = "Auto";

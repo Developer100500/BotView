@@ -139,13 +139,26 @@
                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <ComboBox x:Name="LeverageInput" IsEditable="True" ItemsSource="{Binding LeverageOptions}"
                           Text="{Binding LeverageText, UpdateSourceTrigger=PropertyChanged}"
-                          ToolTip="Enter a whole number of at least 1. The exchange checks the allowed maximum. Applies to this instrument, both hedge sides."/>
+                          ToolTip="Enter a whole number of at least 1. The exchange checks the allowed maximum. One value applies to this instrument."/>
                 <Button Grid.Column="1" Content="Apply leverage" Command="{Binding ApplyLeverageCommand}" Margin="6,0,0,0" Padding="6,2"/>
             </Grid>
             <TextBlock Text="{Binding MarginPreview}" TextWrapping="Wrap" FontSize="10" Foreground="#94A3B8" Margin="0,2,0,5"
                        ToolTip="Opening margin estimate = formatted quantity × contract size × price / selected leverage. Apply leverage separately. Exchange requirements depend on positions and margin mode; fees and maintenance margin are excluded."/>
+            <TextBlock Text="{Binding PositionModeText}" TextWrapping="Wrap" FontSize="10" Foreground="#94A3B8" Margin="0,0,0,3"/>
             <CheckBox Content="Reduce-only" IsChecked="{Binding ReduceOnly}" Foreground="#E5E7EB"/>
-            <ComboBox ItemsSource="{Binding PositionTargets}" SelectedItem="{Binding PositionTarget}" ToolTip="Position side: Long or Short. The exchange account must use hedge (two-way) mode."/>
+            <ComboBox ItemsSource="{Binding PositionTargets}" SelectedItem="{Binding PositionTarget}"
+                      ToolTip="Hedge mode: the Long or Short position this order changes.">
+                <ComboBox.Style>
+                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ShowPositionSide}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ComboBox.Style>
+            </ComboBox>
             <TextBlock Text="{Binding PositionsText}" TextWrapping="Wrap" FontSize="10"/>
         </StackPanel>
         <TextBlock Text="{Binding TradingInputHint}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11"/>

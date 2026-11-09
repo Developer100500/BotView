@@ -71,7 +71,8 @@ public abstract class AbstractTradingService : ITradingService
         }
 
         var side = request.Side == OrderSide.Buy ? "buy" : "sell";
-        var parameters = CreateLimitOrderParameters(request);
+        var hedged = await ResolveHedgedAsync(request.Instrument, ct).ConfigureAwait(false);
+        var parameters = CreateLimitOrderParameters(request, hedged);
         var order = await Exchange.CreateOrder(request.Instrument.SecurityId, "limit", side,
             (double)amount, (double)price, parameters).ConfigureAwait(false);
         return MapOrder(order, request.Instrument);
@@ -89,8 +90,9 @@ public abstract class AbstractTradingService : ITradingService
         }
 
         var side = request.Side == OrderSide.Buy ? "buy" : "sell";
+        var hedged = await ResolveHedgedAsync(request.Instrument, ct).ConfigureAwait(false);
         var order = await Exchange.CreateOrder(request.Instrument.SecurityId, "market", side,
-            (double)amount, null, CreateMarketOrderParameters(request)).ConfigureAwait(false);
+            (double)amount, null, CreateMarketOrderParameters(request, hedged)).ConfigureAwait(false);
         return MapOrder(order, request.Instrument);
     }, ct);
 
@@ -146,6 +148,22 @@ public abstract class AbstractTradingService : ITradingService
             return Task.FromResult<IReadOnlyList<PositionSnapshot>>([]);
         }, ct);
 
+    /// <summary>Spot has no position mode. Futures reads the mode reported by the exchange.</summary>
+    public virtual Task<bool?> FetchPositionModeAsync(InstrumentKey key, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        ValidateInstrument(key);
+        throw new NotSupportedException("Position mode applies to futures accounts.");
+    }
+
+    /// <summary>Spot orders are not routed with a futures position mode.</summary>
+    protected virtual Task<bool?> ResolveHedgedAsync(InstrumentKey key, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        ValidateInstrument(key);
+        return Task.FromResult<bool?>(null);
+    }
+
     /// <summary>Rejects leverage changes for markets without futures leverage support.</summary>
     public virtual Task SetLeverageAsync(InstrumentKey instrument, int leverage, CancellationToken ct = default)
     {
@@ -189,10 +207,18 @@ public abstract class AbstractTradingService : ITradingService
     protected abstract Dictionary<string, object> CreateParameters();
 
     /// <summary>Builds maker and position parameters specific to the selected market's limit orders.</summary>
-    protected abstract Dictionary<string, object> CreateLimitOrderParameters(LimitOrderRequest request);
+    protected abstract Dictionary<string, object> CreateLimitOrderParameters(LimitOrderRequest request, bool? hedged);
 
     /// <summary>Uses ordinary routing for market orders unless the subclass needs position parameters.</summary>
-    protected virtual Dictionary<string, object> CreateMarketOrderParameters(MarketOrderRequest request) => CreateParameters();
+    protected virtual Dictionary<string, object> CreateMarketOrderParameters(MarketOrderRequest request, bool? hedged)
+    {
+        if (hedged is not null)
+        {
+            throw new NotSupportedException("Spot orders do not use a position mode.");
+        }
+
+        return CreateParameters();
+    }
 
     /// <summary>Maps common listing metadata; subclasses can enrich it with contract-specific units.</summary>
     protected virtual Instrument DescribeInstrument(ccxt.MarketInterface market, InstrumentKey key) =>

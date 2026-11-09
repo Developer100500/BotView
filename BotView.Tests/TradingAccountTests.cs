@@ -403,7 +403,6 @@ public sealed class TradingAccountTests
             Assert.True(environment.IsEnabled);
             environment.SelectedValue = TradingEnvironment.Production;
             Assert.Equal(TradingEnvironment.Production, vm.Environment);
-            Assert.Equal("MAINNET — live account", vm.EnvironmentText);
             ((Button)window.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal(TradingEnvironment.Production, vm.SelectedAccount.Profile.Environment);
             Assert.Equal(TradingEnvironment.Production, Assert.Single(store.Settings.Profiles).Environment);

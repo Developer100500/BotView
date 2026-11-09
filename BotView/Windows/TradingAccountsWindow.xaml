@@ -24,16 +24,28 @@
         <Style TargetType="ComboBox"><Setter Property="Padding" Value="7,5"/></Style>
     </Window.Resources>
     <Grid Margin="18">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
         <StackPanel Margin="0,0,0,14">
             <TextBlock Text="Trading accounts" FontSize="24" FontWeight="SemiBold"/>
             <TextBlock Text="Keys are saved separately from account profiles. Saved keys are never displayed in this form."
                        Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,6,0,0"/>
         </StackPanel>
         <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="18"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="18"/>
+                <ColumnDefinition/>
+            </Grid.ColumnDefinitions>
             <Grid>
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
                 <Button Content="Add account" Command="{Binding NewCommand}" HorizontalAlignment="Left"/>
                 <ListBox x:Name="AccountList" Grid.Row="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedAccount}"
                          Background="#111827" Foreground="#E5E7EB" BorderBrush="#263449"
@@ -58,7 +70,8 @@
             <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="0,0,6,0">
                     <TextBlock Text="Profile name" Foreground="#94A3B8"/>
-                    <TextBox x:Name="ProfileName" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10" MaxLength="100"/>
+                    <TextBox x:Name="ProfileName" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                            Margin="0,4,0,10" MaxLength="100"/>
                     <Grid Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition/>
@@ -76,17 +89,13 @@
                         </StackPanel>
                         <StackPanel Grid.Row="0" Grid.Column="2">
                             <TextBlock Text="Environment" Foreground="#94A3B8" Margin="0,0,0,4"/>
-                            <ComboBox x:Name="EnvironmentInput" ItemsSource="{Binding Environments}" DisplayMemberPath="Label" SelectedValuePath="Environment"
-                                      SelectedValue="{Binding Environment}"  HorizontalAlignment="Left"/>
+                            <ComboBox x:Name="EnvironmentInput" ItemsSource="{Binding Environments}"
+                                    DisplayMemberPath="Label" SelectedValuePath="Environment"
+                                    SelectedValue="{Binding Environment}" HorizontalAlignment="Left"/>
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Vertical">
                             <TextBlock Text="Market" Foreground="#94A3B8"/>
                             <ComboBox x:Name="MarketInput" ItemsSource="{Binding Markets}" SelectedItem="{Binding Market}" Margin="0,4,0,10"/>
-                        </StackPanel>
-                        <StackPanel Grid.Row="1" Grid.Column="2">
-                            <TextBlock Text="Position Mode" Foreground="#94A3B8" />
-                            <ComboBox x:Name="PositionModeInput" ItemsSource="{Binding PositionModes}" SelectedItem="{Binding PositionMode}"
-                                      HorizontalAlignment="Left"/>
                         </StackPanel>
                     </Grid>
                     

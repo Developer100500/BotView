@@ -47,7 +47,7 @@ internal static class CcxtTradingMapper
             order.reduceOnly);
     }
 
-    /// <summary>Retains the hedge leg for exchange orders created by this or another application.</summary>
+    /// <summary>Keeps a hedge leg. One-way markers (BOTH, position index 0, net) have no separate leg.</summary>
     private static PositionSide? GetPositionSide(ccxt.Order order)
     {
         if (order.info is null)
@@ -55,21 +55,37 @@ internal static class CcxtTradingMapper
             return null;
         }
 
-        var side = Text(order.info, "positionSide");
-        if (side == "LONG")
+        var positionSide = Text(order.info, "positionSide");
+        if (positionSide is not null)
         {
-            return PositionSide.Long;
+            if (positionSide.Equals("LONG", StringComparison.OrdinalIgnoreCase))
+            {
+                return PositionSide.Long;
+            }
+
+            if (positionSide.Equals("SHORT", StringComparison.OrdinalIgnoreCase))
+            {
+                return PositionSide.Short;
+            }
+
+            return null;
         }
 
-        if (side == "SHORT")
+        var index = Text(order.info, "positionIdx");
+        if (index is not null)
         {
-            return PositionSide.Short;
+            return index switch
+            {
+                "1" => PositionSide.Long,
+                "2" => PositionSide.Short,
+                _ => null
+            };
         }
 
-        return Text(order.info, "positionIdx") switch
+        return Text(order.info, "posSide")?.ToLowerInvariant() switch
         {
-            "1" => PositionSide.Long,
-            "2" => PositionSide.Short,
+            "long" => PositionSide.Long,
+            "short" => PositionSide.Short,
             _ => null
         };
     }

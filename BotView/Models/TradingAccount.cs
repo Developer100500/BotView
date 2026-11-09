@@ -6,16 +6,20 @@ namespace BotView.Models;
 public enum TradingEnvironment { Testnet, Production }
 public enum TradingMarket { Spot, UsdtFutures }
 
-public sealed record TradingAccountProfile(Guid Id, string Name, string Exchange, TradingEnvironment Environment,
-    TradingMarket Market = TradingMarket.Spot)
+public sealed record TradingAccountProfile(Guid Id, string Name, string Exchange,
+    TradingEnvironment Environment, TradingMarket Market = TradingMarket.Spot)
 {
-    public string DisplayName => $"{Name} · {Exchange} · {Market} · {(Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet")}";
+    public string DisplayName => @$"{Name} · {Exchange} · {Market} · 
+            {(Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet")}";
 }
 
 public sealed record TradingAccountsSettings(
     IReadOnlyList<TradingAccountProfile> Profiles, IReadOnlyDictionary<string, Guid> ActiveProfiles);
 
-/// <summary>Disposable in-memory key material. Never serialize this object or use records with generated ToString.</summary>
+/// <summary>
+/// Disposable in-memory key material. 
+/// Never serialize this object or use records with generated ToString.
+/// </summary>
 [DebuggerDisplay("Account credentials (redacted)")]
 public sealed class AccountCredentials : IDisposable
 {
@@ -31,8 +35,14 @@ public sealed class AccountCredentials : IDisposable
         _secret = secret.ToCharArray();
     }
 
-    [JsonIgnore] public string ApiKey { get { ObjectDisposedException.ThrowIf(_disposed, this); return new(_apiKey); } }
-    [JsonIgnore] public string Secret { get { ObjectDisposedException.ThrowIf(_disposed, this); return new(_secret); } }
+    [JsonIgnore] public string ApiKey { get {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return new(_apiKey); }
+    }
+    [JsonIgnore] public string Secret { get {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return new(_secret); }
+    }
     public AccountCredentials Copy() => new(ApiKey, Secret);
     public override string ToString() => "Account credentials (redacted)";
 

@@ -114,51 +114,140 @@ public sealed class TradingServiceTests
         }
     }
 
-    /// <summary>Every futures order has an explicit hedge leg; missing sides never reach CCXT.</summary>
+    /// <summary>Hedge and one-way orders use the venue's own fields and the mode the exchange reported.</summary>
     [Theory]
-    [InlineData("binance", false, PositionSide.Long)]
-    [InlineData("binance", false, PositionSide.Short)]
-    [InlineData("binance", true, PositionSide.Long)]
-    [InlineData("binance", true, PositionSide.Short)]
-    [InlineData("bybit", false, PositionSide.Long)]
-    [InlineData("bybit", false, PositionSide.Short)]
-    [InlineData("bybit", true, PositionSide.Long)]
-    [InlineData("bybit", true, PositionSide.Short)]
-    [InlineData("binance", false, null)]
-    [InlineData("binance", true, null)]
-    [InlineData("bybit", false, null)]
-    [InlineData("bybit", true, null)]
-    public async Task FuturesOrdersAlwaysUseHedgeSides(string venue, bool market, PositionSide? side)
+    [InlineData("binance", true, PositionSide.Long, false)]
+    [InlineData("binance", true, PositionSide.Short, true)]
+    [InlineData("bybit", true, PositionSide.Long, true)]
+    [InlineData("bybit", true, PositionSide.Short, false)]
+    [InlineData("okx", true, PositionSide.Long, false)]
+    [InlineData("okx", true, PositionSide.Short, true)]
+    [InlineData("binance", false, null, false)]
+    [InlineData("bybit", false, null, true)]
+    [InlineData("okx", false, null, false)]
+    public async Task FuturesOrdersUseTheReportedPositionMode(string venue, bool hedged, PositionSide? side, bool market)
     {
-        var native = new CapturingExchange();
+        var native = new CapturingExchange { ReportedHedged = hedged };
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
         await using var service = new FuturesTradingService(profile, native);
         var key = new InstrumentKey(venue, "futures", "", "BTC/USDT:USDT");
-
-        // Exercise both creation paths through their application-model requests.
         Task<OrderSnapshot> SendAsync() => market
             ? service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, PositionSide: side))
             : service.CreateLimitOrderAsync(new(key, OrderSide.Sell, 1, 100, PositionSide: side));
 
-        if (side is null)
+        await SendAsync();
+
+        Assert.Equal(1, native.Calls);
+        Assert.Equal(1, native.PositionModeCalls);
+        Assert.DoesNotContain("reduceOnly", native.Parameters.Keys);
+        if (venue == "binance") Assert.Equal("future", native.Parameters["type"]);
+        if (venue == "bybit") Assert.Equal("linear", native.Parameters["category"]);
+        if (venue != "binance") Assert.DoesNotContain("positionSide", native.Parameters.Keys);
+        if (venue != "bybit") Assert.DoesNotContain("positionIdx", native.Parameters.Keys);
+        if (venue != "okx") Assert.DoesNotContain("posSide", native.Parameters.Keys);
+        if (!hedged)
         {
-            var error = await Assert.ThrowsAsync<TradingServiceException>(SendAsync);
-            Assert.Contains("Select Long or Short", error.Message);
-            Assert.Equal(0, native.Calls);
+            if (venue == "binance") Assert.Equal("BOTH", native.Parameters["positionSide"]);
+            if (venue == "bybit") Assert.Equal(0, native.Parameters["positionIdx"]);
+            if (venue == "okx") Assert.Equal("net", native.Parameters["posSide"]);
             return;
         }
 
-        await SendAsync();
-        Assert.Equal(1, native.Calls);
+        if (venue == "binance") Assert.Equal(side == PositionSide.Long ? "LONG" : "SHORT", native.Parameters["positionSide"]);
+        if (venue == "bybit") Assert.Equal(side == PositionSide.Long ? 1 : 2, native.Parameters["positionIdx"]);
+        if (venue == "okx") Assert.Equal(side == PositionSide.Long ? "long" : "short", native.Parameters["posSide"]);
+    }
 
-        if (venue == "binance")
+    /// <summary>A hedge order needs a leg, and a one-way order must not invent one.</summary>
+    [Theory]
+    [InlineData(true, null, false)]
+    [InlineData(false, PositionSide.Short, false)]
+    [InlineData(false, null, true)]
+    public async Task FuturesOrdersStopWhenTheModeAndSideDisagree(bool? hedged, PositionSide? side, bool unavailable)
+    {
+        var native = new CapturingExchange { ReportedHedged = hedged };
+        if (unavailable)
         {
-            Assert.Equal(side == PositionSide.Long ? "LONG" : "SHORT", native.Parameters["positionSide"]);
+            native.has["fetchPositionMode"] = false;
+            native.has["fetchPositions"] = false;
         }
-        else
+
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await using var service = new FuturesTradingService(profile, native);
+        var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
+        var error = await Assert.ThrowsAsync<TradingServiceException>(() => service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, PositionSide: side)));
+
+        Assert.Equal(0, native.Calls);
+        if (unavailable) Assert.Contains("did not report", error.Message);
+        else if (hedged == true) Assert.Contains("Select Long or Short", error.Message);
+        else Assert.Contains("Buy or Sell only", error.Message);
+    }
+
+    /// <summary>Bybit reports the mode on positions because this CCXT version has no position-mode fetch.</summary>
+    [Fact]
+    public async Task BybitPositionModeComesFromThePositionReport()
+    {
+        var native = new CapturingExchange();
+        native.has["fetchPositionMode"] = false;
+        native.has["fetchPositions"] = true;
+        native.Positions.Add(new ccxt.Position { symbol = "BTC/USDT:USDT", hedged = false });
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "bybit", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await using var service = new FuturesTradingService(profile, native);
+        var key = new InstrumentKey("bybit", "futures", "", "BTC/USDT:USDT");
+
+        await service.CreateMarketOrderAsync(new(key, OrderSide.Sell, 1, ReduceOnly: true));
+
+        Assert.Equal(0, native.PositionModeCalls);
+        Assert.Equal(1, native.PositionFetches);
+        Assert.Equal(0, native.Parameters["positionIdx"]);
+        Assert.Equal(true, native.Parameters["reduceOnly"]);
+
+        native.Positions.Clear();
+        native.Positions.Add(new ccxt.Position { symbol = "ETH/USDT:USDT", hedged = true });
+        native.Positions.Add(new ccxt.Position { symbol = "BTC/USDT:USDT", hedged = true });
+        native.Positions.Add(new ccxt.Position { symbol = "BTC/USDT:USDT", hedged = false });
+        var conflict = await Assert.ThrowsAsync<TradingServiceException>(() =>
+            service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1)));
+        Assert.Contains("did not report", conflict.Message);
+        Assert.Equal(1, native.Calls);
+    }
+
+    /// <summary>An unsupported futures venue does not receive another exchange's position fields.</summary>
+    [Fact]
+    public async Task UnsupportedFuturesVenueDoesNotBorrowPositionFields()
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "kraken", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await using var service = new FuturesTradingService(profile, native);
+        var error = await Assert.ThrowsAsync<TradingServiceException>(() =>
+            service.CreateMarketOrderAsync(new(new("kraken", "futures", "", "BTC/USDT:USDT"), OrderSide.Buy, 1)));
+        Assert.Contains("not supported", error.Message);
+        Assert.Equal(0, native.Calls);
+        Assert.Equal(0, native.PositionModeCalls);
+    }
+
+    /// <summary>One-way markers stay empty. Only an actual hedge leg is kept, including OKX names.</summary>
+    [Theory]
+    [InlineData("positionSide", "LONG", "Long")]
+    [InlineData("positionSide", "SHORT", "Short")]
+    [InlineData("positionSide", "BOTH", "")]
+    [InlineData("positionIdx", "1", "Long")]
+    [InlineData("positionIdx", "2", "Short")]
+    [InlineData("positionIdx", "0", "")]
+    [InlineData("posSide", "long", "Long")]
+    [InlineData("posSide", "short", "Short")]
+    [InlineData("posSide", "net", "")]
+    public void OrderPositionSideKeepsOnlyHedgeLegs(string field, string value, string expected)
+    {
+        var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
+        var info = new Dictionary<string, object> { [field] = value };
+        if (field == "positionSide") info["positionIdx"] = 1;
+        var order = new ccxt.Order
         {
-            Assert.Equal(side == PositionSide.Long ? 1 : 2, native.Parameters["positionIdx"]);
-        }
+            id = "1", side = "buy", type = "limit", status = "open", info = info
+        };
+        var snapshot = CcxtTradingMapper.MapOrder(order, key);
+        Assert.Equal(expected == "" ? null : Enum.Parse<PositionSide>(expected), snapshot.PositionSide);
     }
 
     /// <summary>Market selection creates a concrete direct service without an intermediate trading client.</summary>
@@ -297,6 +386,10 @@ public sealed class TradingServiceTests
     {
         public int Calls;
         public int LeverageCalls;
+        public int PositionModeCalls;
+        public int PositionFetches;
+        public bool? ReportedHedged = true;
+        public List<ccxt.Position> Positions = [];
         public int Leverage;
         public string? Symbol;
         public string? Type;
@@ -310,6 +403,7 @@ public sealed class TradingServiceTests
         public CapturingExchange() : base(new Dictionary<string, object>())
         {
             precisionMode = 4;
+            has["fetchPositionMode"] = true;
             setMarkets(new List<object>
             {
                 new Dictionary<string, object>
@@ -338,6 +432,20 @@ public sealed class TradingServiceTests
             return Failure is null
                 ? Task.FromResult(new Dictionary<string, object>())
                 : Task.FromException<Dictionary<string, object>>(Failure);
+        }
+
+        /// <summary>Captures the unified position-mode report without contacting the exchange.</summary>
+        public override Task<ccxt.PositionModeInfo> FetchPositionMode(string symbol = null!, object parameters = null!)
+        {
+            PositionModeCalls++;
+            return Task.FromResult(new ccxt.PositionModeInfo { hedged = ReportedHedged });
+        }
+
+        /// <summary>Captures positions used when a venue exposes the mode only on the position report.</summary>
+        public override Task<List<ccxt.Position>> FetchPositions(object symbols = null!, object parameters = null!)
+        {
+            PositionFetches++;
+            return Task.FromResult(Positions);
         }
 
         /// <summary>Captures the exact payload handed to the library's unified create operation.</summary>

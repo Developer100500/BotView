@@ -26,12 +26,16 @@ public sealed class TradingAccountSessionTests
             .ReturnsAsync(new AccountSnapshot(account, [new("USDT", 100, 100, 0)], null, null, DateTimeOffset.UtcNow));
         adapter.Setup(s => s.FetchOpenOrdersAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<OrderSnapshot>());
+        adapter.Setup(s => s.FetchPositionsAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PositionSnapshot>());
         adapter.Setup(s => s.FetchMyTradesAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<ExecutionSnapshot>());
         adapter.Setup(s => s.AmountToPrecision(It.IsAny<InstrumentKey>(), It.IsAny<decimal>()))
             .Returns((InstrumentKey _, decimal value) => decimal.Floor(value * 1000) / 1000);
         adapter.Setup(s => s.PriceToPrecision(It.IsAny<InstrumentKey>(), It.IsAny<decimal>()))
             .Returns((InstrumentKey _, decimal value) => decimal.Round(value, 2));
+        adapter.Setup(s => s.FetchPositionModeAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
         adapter.Setup(s => s.DisposeAsync()).Returns(ValueTask.CompletedTask);
         return adapter;
     }
@@ -326,5 +330,47 @@ public sealed class TradingAccountSessionTests
         vm.SelectedOrderType = OrderType.Limit;
         Assert.False(vm.CanTrade);
         Assert.Equal("", vm.AmountText);
+    }
+
+    /// <summary>The form follows the exchange mode: hedge keeps a leg, one-way and an unknown mode do not.</summary>
+    [Theory]
+    [InlineData("hedge", "Hedge mode", true)]
+    [InlineData("oneway", "One-way mode", false)]
+    [InlineData("unknown", "did not report", false)]
+    public async Task FuturesFormFollowsTheReportedPositionMode(string mode, string expected, bool showSide)
+    {
+        bool? hedged = mode switch { "hedge" => true, "oneway" => false, _ => null };
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "bybit", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        var contract = Key with { Venue = "bybit", Market = "futures", SecurityId = "BTC/USDT:USDT" };
+        var store = new Mock<ITradingAccountStore>();
+        store.Setup(s => s.Load()).Returns(new TradingAccountsSettings([profile], new Dictionary<string, Guid> { ["bybit"] = profile.Id }));
+        using var keys = new InMemoryCredentialStore();
+        using (var credentials = new AccountCredentials("fake", "fake")) keys.Write(profile.Id, credentials);
+        var adapter = Adapter(profile);
+        adapter.SetupGet(s => s.Account).Returns(new TradingAccountContext(profile.Id.ToString(), "Fake", "bybit", TradingEnvironment.Testnet, TradingMarket.UsdtFutures));
+        adapter.Setup(s => s.FetchPositionModeAsync(contract, It.IsAny<CancellationToken>())).ReturnsAsync(hedged);
+        adapter.Setup(s => s.CreateMarketOrderAsync(It.IsAny<MarketOrderRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OrderSnapshot(new(contract, "9"), null, OrderSide.Buy, OrderType.Market, OrderState.Open,
+                1, 0, 1, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        await using var manager = new TradingSessionManager(store.Object, keys, (_, _) => adapter.Object);
+        await using var vm = new OrderBookViewModel("bybit", contract.SecurityId, new Mock<IOrderBookService>().Object,
+            manager, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await UntilAsync(() => vm.AccountStatus == "Connected");
+
+        Assert.Equal(showSide, vm.ShowPositionSide);
+        Assert.Contains(expected, showSide || hedged == false ? vm.PositionModeText : vm.TradingInputHint);
+        vm.SelectedOrderType = OrderType.Market;
+        vm.AmountText = "1";
+        Assert.Equal(hedged is not null, vm.CanTrade);
+        if (hedged is null)
+        {
+            return;
+        }
+
+        vm.PositionTarget = "Short";
+        await vm.TradeAsync(OrderSide.Buy);
+        adapter.Verify(s => s.CreateMarketOrderAsync(It.Is<MarketOrderRequest>(order =>
+            order.PositionSide == (hedged == true ? PositionSide.Short : null) && order.ReduceOnly == false),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 }

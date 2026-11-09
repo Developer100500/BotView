@@ -161,19 +161,6 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         }
     }
 
-    public string[] PositionModes { get; } = ["OneWay", "TwoWay"];
-    private string _positionMode = "OneWay";
-    public string PositionMode {
-        get => _positionMode;
-        set {
-            if (value == _positionMode || value == null)
-                return;
-
-            _positionMode = value;
-            Notify();
-        }
-    }
-
     public bool IsNewProfile => _selected is null;
     public bool IsBusy => _request is not null;
     public bool CanSave => !_disposed && _storageAvailable && !IsBusy && !string.IsNullOrWhiteSpace(Name)
@@ -184,7 +171,6 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     public string CredentialStatus => _selected?.HasCredentials == true
         ? "Keys are saved. Enter both values to replace them."
         : "Enter the API key and secret to save them.";
-    public string EnvironmentText => Environment == TradingEnvironment.Testnet ? "Testnet — test network" : "MAINNET — live account";
     public string SelectedPermissions => _selected?.PermissionText ?? "Trading: unknown · Withdrawals: unknown";
     public string WithdrawalNotice => _selected?.Result?.Permissions.CanWithdraw == true
         ? "This key has withdrawal permission. Create a separate key without this permission for trading." : "";

@@ -13,6 +13,7 @@ public sealed class TradingAccountSession : IAsyncDisposable
     private readonly Dictionary<OrderReference, OrderSnapshot> _orders = new();
     private readonly Dictionary<(OrderReference Order, string Id), ExecutionSnapshot> _executions = new();
     private readonly Dictionary<InstrumentKey, IReadOnlyList<PositionSnapshot>> _positions = new();
+    private readonly Dictionary<InstrumentKey, bool?> _positionModes = new();
     private readonly List<Task> _workers = new();
     private readonly Dictionary<(TradingStream Stream, InstrumentKey? Key), Resource> _resources = new();
     private readonly TimeSpan _pollInterval;
@@ -56,13 +57,24 @@ public sealed class TradingAccountSession : IAsyncDisposable
             var instrument = await _service.FetchInstrumentAsync(key, linked.Token).ConfigureAwait(false);
             // Authentication is independent of order/execution endpoint availability.
             var balance = await _service.FetchBalanceAsync(linked.Token).ConfigureAwait(false);
+            bool? hedged = null;
+            if (Account.Market == TradingMarket.UsdtFutures)
+            {
+                try
+                {
+                    hedged = await _service.FetchPositionModeAsync(key, linked.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (linked.Token.IsCancellationRequested) { throw; }
+                catch (Exception ex) { Report(ex); }
+            }
             lock (_sync)
             {
                 var first = _orderInputs.Count == 0;
                 _orderInputs[key] = new OrderInputCalculator(_service, instrument);
                 _balance = balance;
                 _connected = true;
-                _message = "Connected";
+                if (Account.Market == TradingMarket.UsdtFutures) _positionModes[key] = hedged;
+                if (_message == "Connecting account…") _message = "Connected";
                 StartResource(TradingStream.Orders, key);
                 StartResource(TradingStream.MyTrades, key);
                 if (first) StartResource(TradingStream.Balance, key);
@@ -205,8 +217,13 @@ public sealed class TradingAccountSession : IAsyncDisposable
         {
             try
             {
+                var hedged = await _service.FetchPositionModeAsync(key, _stop.Token).ConfigureAwait(false);
                 var positions = await _service.FetchPositionsAsync(key, _stop.Token).ConfigureAwait(false);
-                lock (_sync) _positions[key] = positions;
+                lock (_sync)
+                {
+                    _positionModes[key] = hedged;
+                    _positions[key] = positions;
+                }
             }
             catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
             catch (Exception ex) { Report(ex); }
@@ -219,6 +236,15 @@ public sealed class TradingAccountSession : IAsyncDisposable
     private void Report(Exception error)
     {
         lock (_sync) _message = TradingErrorText.FromException(error);
+    }
+
+    /// <summary>Returns the last exchange position mode for this instrument. Null means it was not reported.</summary>
+    public bool? GetHedged(InstrumentKey key)
+    {
+        lock (_sync)
+        {
+            return _positionModes.TryGetValue(key, out var hedged) ? hedged : null;
+        }
     }
 
     /// <summary>Returns the input calculator created from the tracked instrument metadata.</summary>
@@ -281,8 +307,13 @@ public sealed class TradingAccountSession : IAsyncDisposable
             }
             if (Account.Market == TradingMarket.UsdtFutures)
             {
+                var hedged = await _service.FetchPositionModeAsync(key, ct).ConfigureAwait(false);
                 var positions = await _service.FetchPositionsAsync(key, ct).ConfigureAwait(false);
-                lock (_sync) _positions[key] = positions;
+                lock (_sync)
+                {
+                    _positionModes[key] = hedged;
+                    _positions[key] = positions;
+                }
             }
         }
         catch (Exception ex) { Report(ex); }

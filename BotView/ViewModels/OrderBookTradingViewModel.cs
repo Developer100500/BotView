@@ -24,12 +24,22 @@ public sealed partial class OrderBookViewModel
     public bool IsFutures => Market == TradingMarket.UsdtFutures;
     public InstrumentKey TradingInstrument => new(Exchange, IsFutures ? "futures" : "spot", "", Symbol);
     private bool _reduceOnly;
+    private bool? _hedged;
     private string _positionTarget = "Long";
     public string[] PositionTargets { get; } = ["Long", "Short"];
     public bool ReduceOnly { get => _reduceOnly; set { if (IsTradeEditable) { _reduceOnly = value; Changed(); } } }
     public string PositionTarget { get => _positionTarget; set { if (IsTradeEditable && PositionTargets.Contains(value)) { _positionTarget = value; Changed(); } } }
-    private PositionSide? SelectedPositionSide => !IsFutures ? null
-        : PositionTarget == "Long" ? PositionSide.Long : PositionSide.Short;
+    /// <summary>Hedge mode chooses a leg. One-way and an unreported mode send Buy or Sell only.</summary>
+    public bool ShowPositionSide => IsFutures && _hedged == true;
+    public string PositionModeText => !IsFutures || _trading is null ? "" : _hedged switch
+    {
+        true => "Hedge mode",
+        false => "One-way mode",
+        _ => "Position mode unavailable"
+    };
+    private PositionSide? SelectedPositionSide => ShowPositionSide
+        ? PositionTarget == "Long" ? PositionSide.Long : PositionSide.Short
+        : null;
     public string PositionsText => !IsFutures ? "" : string.Join(" · ", (_trading?.Current.Balance?.Positions ?? [])
         .Where(p => p.Instrument == TradingInstrument)
         .Select(p => $"{p.Side}: {p.Quantity} contracts · {p.Leverage}x · {p.MarginMode} · PnL {p.UnrealizedPnl?.Amount} USDT"));
@@ -151,6 +161,7 @@ public sealed partial class OrderBookViewModel
             if (_bindingAccount) return "Connecting account…";
             if (_trading is null) return "Select an account with API keys.";
             if (!_trading.Current.Connected) return "Reconnect the trading account.";
+            if (IsFutures && _hedged is null) return "The exchange did not report whether this account is in one-way or hedge mode.";
             if (_tradeBusy) return "Waiting for the exchange response…";
             try { PreparedInput(); return ""; }
             catch (ArgumentException ex) { return ex.Message; }
@@ -263,6 +274,7 @@ public sealed partial class OrderBookViewModel
         var generation = ++_accountGeneration;
         var selected = _selectedAccount;
         _trading = null;
+        _hedged = null;
         _leverageText = "";
         _lastTradingState = null;
         Orders = []; Executions = []; SelectedOrder = null;
@@ -282,7 +294,12 @@ public sealed partial class OrderBookViewModel
         catch (Exception ex) { if (!_disposed && generation == _accountGeneration) _tradeStatus = ex is TradingServiceException safe ? safe.Message : "Could not connect the trading account."; }
         finally
         {
-            if (!_disposed && generation == _accountGeneration) { _bindingAccount = false; Changed(); }
+            if (!_disposed && generation == _accountGeneration)
+            {
+                _hedged = _trading?.GetHedged(TradingInstrument);
+                _bindingAccount = false;
+                Changed();
+            }
         }
     }
 
@@ -291,6 +308,7 @@ public sealed partial class OrderBookViewModel
     {
         if (!_tradeBusy && _tradingManager is not null && _managerRevision != _tradingManager.Revision) ReloadAccounts();
         if (_trading is null) return;
+        _hedged = _trading.GetHedged(TradingInstrument);
         _lastTradingState = _trading.Current;
         var selectedId = SelectedOrder?.Reference;
         var orders = _lastTradingState.Orders.Where(o => o.Reference.Instrument == TradingInstrument)

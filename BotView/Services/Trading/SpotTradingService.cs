@@ -16,8 +16,13 @@ public sealed class SpotTradingService : AbstractTradingService
         ? new() { ["category"] = "spot" } : new();
 
     /// <summary>Preserves maker-only intent and otherwise requests an ordinary GTC limit order.</summary>
-    protected override Dictionary<string, object> CreateLimitOrderParameters(LimitOrderRequest request)
+    protected override Dictionary<string, object> CreateLimitOrderParameters(LimitOrderRequest request, bool? hedged)
     {
+        if (hedged is not null)
+        {
+            throw new NotSupportedException("Spot orders do not use a position mode.");
+        }
+
         var parameters = CreateParameters();
         if (request.PostOnly)
         {
