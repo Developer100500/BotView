@@ -146,6 +146,13 @@ public abstract class AbstractTradingService : ITradingService
             return Task.FromResult<IReadOnlyList<PositionSnapshot>>([]);
         }, ct);
 
+    /// <summary>Rejects leverage changes for markets without futures leverage support.</summary>
+    public virtual Task SetLeverageAsync(InstrumentKey instrument, int leverage, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        throw new NotSupportedException("Leverage is available only for futures trading.");
+    }
+
     /// <summary>Reports availability of a typed private stream without leaking CCXT method names into the UI.</summary>
     public bool SupportsStream(TradingStream stream) => Exchange.has.GetValueOrDefault(stream switch
     {

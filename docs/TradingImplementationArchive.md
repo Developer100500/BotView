@@ -9417,3 +9417,742 @@ Previous calculation methods from TradingAccountSession.cs; moved to OrderInputC
     }
 
 ```
+
+
+## Before adding futures leverage controls
+
+### BotView/ViewModels/OrderBookTradingViewModel.cs
+
+```csharp
+﻿using System.Collections.ObjectModel;
+using BotView.Models;
+using BotView.Services;
+
+namespace BotView.ViewModels;
+
+public sealed partial class OrderBookViewModel
+{
+    private TradingSessionManager? _tradingManager;
+    private TradingAccountSession? _trading;
+    private TradingAccountProfile? _selectedAccount;
+    private bool _tradeBusy;
+    private bool _bindingAccount;
+    private bool _postOnly;
+    private int _accountGeneration;
+    private int _managerRevision = -1;
+    private OrderQuantityCurrency _quantityCurrency;
+    private OrderSnapshot? _selectedOrder;
+    private TradingAccountState? _lastTradingState;
+    private Task _bindTask = Task.CompletedTask;
+
+    public TradingEnvironment Environment { get; private set; }
+    public string EnvironmentText => Environment == TradingEnvironment.Testnet ? "Testnet" : "MAINNET · live trading";
+    public bool IsFutures => Market == TradingMarket.UsdtFutures;
+    public InstrumentKey TradingInstrument => new(Exchange, IsFutures ? "futures" : "spot", "", Symbol);
+    private bool _reduceOnly;
+    private string _positionTarget = "Auto";
+    public string[] PositionTargets { get; } = ["Auto", "Long", "Short"];
+    public bool ReduceOnly { get => _reduceOnly; set { if (IsTradeEditable) { _reduceOnly = value; Changed(); } } }
+    public string PositionTarget { get => _positionTarget; set { if (IsTradeEditable && PositionTargets.Contains(value)) { _positionTarget = value; Changed(); } } }
+    private PositionSide? SelectedPositionSide => PositionTarget == "Long" ? PositionSide.Long : PositionTarget == "Short" ? PositionSide.Short : null;
+    public string PositionsText => !IsFutures ? "" : string.Join(" · ", (_trading?.Current.Balance?.Positions ?? [])
+        .Where(p => p.Instrument == TradingInstrument)
+        .Select(p => $"{p.Side}: {p.Quantity} contracts · {p.Leverage}x · {p.MarginMode} · PnL {p.UnrealizedPnl?.Amount} USDT"));
+    public ObservableCollection<TradingAccountProfile> Accounts { get; } = new();
+    public IReadOnlyList<OrderSnapshot> Orders { get; private set; } = [];
+    public IReadOnlyList<ExecutionSnapshot> Executions { get; private set; } = [];
+    public OrderQuantityCurrency[] QuantityCurrencies { get; } = [OrderQuantityCurrency.Base, OrderQuantityCurrency.Quote];
+    public RelayCommand CancelSelectedCommand { get; private set; } = null!;
+    public RelayCommand CancelAllCommand { get; private set; } = null!;
+    public RelayCommand ReconnectCommand { get; private set; } = null!;
+    public Func<CancelBatch, Task<bool>>? ConfirmCancelAllAsync { get; set; }
+    public bool IsTradeEditable => !_tradeBusy && !_bindingAccount;
+    public string AccountStatus => _bindingAccount ? "Connecting account…" : _trading?.Current.Message ?? "Select an account with keys stored in memory.";
+    public string AccountIdentity => _trading is null ? "" : _trading.Account.AccountId.StartsWith("key:", StringComparison.Ordinal)
+        ? "Account verified by this API key" : _trading.Account.AccountId;
+    public string BalanceText => IsFutures ? $"Available margin: {_trading?.Current.Balance?.Margins?.FirstOrDefault(m => m.Currency == "USDT")?.AvailableFunds?.ToString() ?? "?"} USDT" : _trading?.Current.Balance?.Balances is { } balances
+        ? string.Join(" · ", balances.Where(b => b.Currency == Symbol.Split('/')[0] || b.Currency == Symbol.Split('/').Last().Split(':')[0])
+            .Select(b => $"{b.Currency}: {b.Available?.ToString() ?? "?"} free")) : "Balance unavailable";
+
+    public TradingAccountProfile? SelectedAccount
+    {
+        get => _selectedAccount;
+        set
+        {
+            if (_tradeBusy || value?.Id == _selectedAccount?.Id) return;
+            _selectedAccount = value;
+            _bindTask = BindAccountAsync();
+        }
+    }
+
+    public bool PostOnly { get => _postOnly; set { if (!IsTradeEditable) return; _postOnly = value; Changed(); } }
+    public OrderQuantityCurrency QuantityCurrency
+    {
+        get => _quantityCurrency;
+        set
+        {
+            if (!CanSelectQuantityCurrency || value == _quantityCurrency || !Enum.IsDefined(value)) return;
+            try
+            {
+                if (_trading is not null && TryPositive(PriceText, out var price) && TryPositive(AmountText, out var input))
+                {
+                    var quantity = _trading.GetOrderInputCalculator(TradingInstrument).ConvertQuantity(input, price, _quantityCurrency);
+                    _amountText = Format(value == OrderQuantityCurrency.Base ? quantity : _trading.GetOrderInputCalculator(TradingInstrument).OrderNotional(quantity, price));
+                }
+                else _amountText = "";
+            }
+            catch (Exception) { _amountText = ""; }
+            _quantityCurrency = value;
+            Changed();
+        }
+    }
+
+    public string QuantityHeader => IsFutures && QuantityCurrency == OrderQuantityCurrency.Base ? "Quantity (contracts)" : $"Quantity ({(QuantityCurrency == OrderQuantityCurrency.Base ? Symbol.Split('/')[0] : Symbol.Split('/').Last().Split(':')[0])})";
+    public OrderSnapshot? SelectedOrder { get => _selectedOrder; set { _selectedOrder = value; Changed(); } }
+    private OrderType _selectedOrderType = OrderType.Limit;
+    public OrderType[] OrderTypes { get; } = [OrderType.Limit, OrderType.Market];
+    public bool IsLimitOrder => SelectedOrderType == OrderType.Limit;
+    public bool CanSelectQuantityCurrency => IsTradeEditable && IsLimitOrder;
+
+    public OrderType SelectedOrderType
+    {
+        get => _selectedOrderType;
+        set
+        {
+            if (!IsTradeEditable || !OrderTypes.Contains(value) || value == _selectedOrderType) return;
+            _selectedOrderType = value;
+            _amountText = "";
+            _quantityCurrency = OrderQuantityCurrency.Base;
+            _postOnly = false;
+            Changed();
+        }
+    }
+
+    /// <summary>Prepares and validates only required input and exchange precision, without trading policy checks.</summary>
+    private (decimal Quantity, decimal Price) PreparedInput()
+    {
+        if (_trading is null) throw new InvalidOperationException("Select a connected account.");
+        if (!TryPositive(AmountText, out var input)) throw new ArgumentException("Enter a quantity greater than zero.");
+        decimal price = 1;
+        if (IsLimitOrder)
+        {
+            if (!TryPositive(PriceText, out price)) throw new ArgumentException("Enter a limit price greater than zero.");
+            price = _trading.GetOrderInputCalculator(TradingInstrument).PriceToPrecision(price);
+            if (price <= 0) throw new ArgumentException("Price rounds to zero at exchange precision.");
+        }
+        var quantity = _trading.GetOrderInputCalculator(TradingInstrument).ConvertQuantity(input, price,
+            IsLimitOrder ? QuantityCurrency : OrderQuantityCurrency.Base);
+        if (quantity <= 0) throw new ArgumentException("Quantity rounds to zero at exchange precision.");
+        return (quantity, price);
+    }
+
+    public string TradingInputHint
+    {
+        get
+        {
+            if (_bindingAccount) return "Connecting account…";
+            if (_trading is null) return "Select an account with API keys.";
+            if (!_trading.Current.Connected) return "Reconnect the trading account.";
+            if (_tradeBusy) return "Waiting for the exchange response…";
+            try { PreparedInput(); return ""; }
+            catch (ArgumentException ex) { return ex.Message; }
+            catch (Exception) { return "Could not format order quantity or price."; }
+        }
+    }
+
+    private bool TradingInputValid => TradingInputHint.Length == 0;
+
+    public string OrderPreview
+    {
+        get
+        {
+            try
+            {
+                var input = PreparedInput();
+                var unit = IsFutures ? "contracts" : Symbol.Split('/')[0];
+                if (!IsLimitOrder) return $"{Format(input.Quantity)} {unit} · Market; execution price is determined by the exchange";
+                return $"{Format(input.Quantity)} {unit} @ {Format(input.Price)} · {Format(_trading!.GetOrderInputCalculator(TradingInstrument).OrderNotional(input.Quantity, input.Price))} {Symbol.Split('/').Last().Split(':')[0]} (excluding commission)";
+            }
+            catch (Exception) { return ""; }
+        }
+    }
+
+    /// <summary>Initializes trade controls without contacting any exchange or starting an order.</summary>
+    private void InitializeTrading(TradingSessionManager? manager, TradingEnvironment environment)
+    {
+        _tradingManager = manager;
+        Environment = environment;
+        CancelSelectedCommand = new RelayCommand(CancelSelectedAsync, _ => !_tradeBusy && _trading is not null && SelectedOrder is { } order && !TradingAccountSession.Terminal(order.State));
+        CancelAllCommand = new RelayCommand(CancelAllAsync, _ => !_tradeBusy && !_bindingAccount && _trading is not null);
+        ReconnectCommand = new RelayCommand(_ => BindAccountAsync(), _ => !_tradeBusy && !_bindingAccount && SelectedAccount is not null);
+        ReloadAccounts();
+    }
+
+    /// <summary>Updates available profiles on the UI timer and rebinds after keys/profile changes.</summary>
+    private void ReloadAccounts()
+    {
+        if (_tradingManager is null) return;
+        _managerRevision = _tradingManager.Revision;
+        try
+        {
+            var settings = _tradingManager.Settings();
+            var oldId = _selectedAccount?.Id;
+            Accounts.Clear();
+            foreach (var profile in settings.Profiles.Where(p => p.Exchange == Exchange && p.Environment == Environment && p.Market == Market)) Accounts.Add(profile);
+            _selectedAccount = Accounts.FirstOrDefault(p => p.Id == oldId)
+                ?? Accounts.FirstOrDefault(p => p.Id == settings.ActiveProfiles.GetValueOrDefault(Exchange));
+            _bindTask = BindAccountAsync();
+        }
+        catch (Exception) { _tradeStatus = "Could not load trading account profiles."; }
+    }
+
+    /// <summary>Guards late authentication results and clears order input whenever account identity changes.</summary>
+    private async Task BindAccountAsync()
+    {
+        var generation = ++_accountGeneration;
+        var selected = _selectedAccount;
+        _trading = null;
+        _lastTradingState = null;
+        Orders = []; Executions = []; SelectedOrder = null;
+        _priceText = ""; _amountText = ""; _tradeStatus = "";
+        _bindingAccount = selected is not null;
+        Changed();
+        if (selected is null || _tradingManager is null) { _bindingAccount = false; return; }
+        try
+        {
+            var service = await _tradingManager.GetAsync(selected.Id, _stop.Token);
+            if (_disposed || generation != _accountGeneration) return;
+            // Keep display subscriptions separate from the order-book feed.
+            _trading = service;
+            await Task.Run(() => service.TrackAsync(TradingInstrument, _stop.Token));
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (!_disposed && generation == _accountGeneration) _tradeStatus = ex is TradingServiceException safe ? safe.Message : "Could not connect the trading account."; }
+        finally
+        {
+            if (!_disposed && generation == _accountGeneration) { _bindingAccount = false; Changed(); }
+        }
+    }
+
+    /// <summary>Applies the latest detached account state without accumulating Dispatcher callbacks.</summary>
+    private void RefreshTrading()
+    {
+        if (!_tradeBusy && _tradingManager is not null && _managerRevision != _tradingManager.Revision) ReloadAccounts();
+        if (_trading is null) return;
+        _lastTradingState = _trading.Current;
+        var selectedId = SelectedOrder?.Reference;
+        var orders = _lastTradingState.Orders.Where(o => o.Reference.Instrument == TradingInstrument)
+            .OrderBy(o => TradingAccountSession.Terminal(o.State)).ThenByDescending(o => o.UpdatedAt).ToArray();
+        if (!Orders.SequenceEqual(orders)) Orders = orders;
+        var fills = _lastTradingState.Executions.Where(f => f.Order.Instrument == TradingInstrument).Take(100).ToArray();
+        if (!Executions.SequenceEqual(fills)) Executions = fills;
+        _selectedOrder = Orders.FirstOrDefault(o => o.Reference == selectedId);
+    }
+
+    /// <summary>Freezes a request before awaiting, preventing edits or another Buy/Sell from changing the request.</summary>
+    internal async Task TradeAsync(OrderSide side)
+    {
+        if (!CanTrade || _trading is null) return;
+
+        var service = _trading;
+        var generation = _accountGeneration;
+        _tradeBusy = true;
+
+        Changed();
+
+        try
+        {
+            var input = PreparedInput();
+            var result = IsLimitOrder
+                ? await Task.Run(() => service.CreateLimitOrderAsync(new(TradingInstrument, side, input.Quantity, input.Price,
+                    PostOnly, ReduceOnly, SelectedPositionSide), _stop.Token))
+                : await Task.Run(() => service.CreateMarketOrderAsync(new(TradingInstrument, side, input.Quantity,
+                    ReduceOnly, SelectedPositionSide), _stop.Token));
+
+            if (!_disposed && generation == _accountGeneration)
+                _tradeStatus = $"{side}: {result.State} · {result.Reference.ExchangeOrderId} {result.StatusReason}";
+        }
+        catch (OperationCanceledException) { if (!_disposed) _tradeStatus = "Response not received; check exchange orders before trying again."; }
+        catch (Exception ex) {
+            if (!_disposed) {
+                _tradeStatus = ex is TradingServiceException safe ?
+                    safe.Message :
+                    TradingErrorText.FromException(ex);
+            }
+        }
+        finally {
+            _tradeBusy = false;
+            if (!_disposed) {
+                Changed();
+            }
+        }
+    }
+
+    /// <summary>Cancels exactly the selected account order, preserving a possible partial fill.</summary>
+    private async Task CancelSelectedAsync(object? parameter)
+    {
+        if (_tradeBusy || _trading is null || SelectedOrder is not { } order) return;
+        var service = _trading;
+        _tradeBusy = true; Changed();
+        try
+        {
+            var result = await Task.Run(() => service.CancelOrderAsync(order.Reference, _stop.Token));
+            if (!_disposed) _tradeStatus = $"Cancel {order.Reference.ExchangeOrderId}: {result.State} {result.StatusReason}";
+        }
+        catch (OperationCanceledException) { if (!_disposed) _tradeStatus = "Response not received; check exchange orders before trying again."; }
+        catch (Exception ex) { if (!_disposed) _tradeStatus = TradingErrorText.FromException(ex); }
+        finally { _tradeBusy = false; if (!_disposed) Changed(); }
+    }
+
+    /// <summary>Confirms a frozen account/pair snapshot, including external orders, before starting batch cancellation.</summary>
+    private async Task CancelAllAsync(object? parameter)
+    {
+        if (_tradeBusy || _trading is null || ConfirmCancelAllAsync is null) return;
+        var service = _trading;
+        _tradeBusy = true; Changed();
+        try
+        {
+            var batch = await Task.Run(() => service.PrepareCancelAllAsync(TradingInstrument, _stop.Token));
+            if (_disposed || !await ConfirmCancelAllAsync(batch)) return;
+            var results = await Task.Run(() => service.CancelBatchAsync(batch, _stop.Token));
+            if (!_disposed) _tradeStatus = string.Join("; ", results);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { if (!_disposed) _tradeStatus = "Could not complete batch cancellation. Check individual order states."; }
+        finally { _tradeBusy = false; if (!_disposed) Changed(); }
+    }
+}
+
+```
+
+### BotView/ViewModels/OrderBookViewModel.cs
+
+```csharp
+using System.ComponentModel;
+using System.Globalization;
+using BotView.Models;
+using BotView.Services;
+
+namespace BotView.ViewModels;
+
+public sealed record OrderBookVolumeOption(OrderBookVolumeCurrency Currency, string Label);
+
+public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncDisposable
+{
+    private readonly IOrderBookService _service;
+    private readonly CancellationTokenSource _stop = new();
+    private IOrderBookSubscription? _subscription;
+    private Task? _startTask;
+    private Task? _disposeTask;
+    private readonly object _disposeSync = new();
+    private bool _disposed;
+    private OrderBookUpdate? _update;
+    private string _priceText = "";
+    private string _amountText = "";
+    private string _tradeStatus = "";
+    private readonly string[] _maxVolumeTexts = ["", ""];
+    private readonly decimal?[] _maxVolumes = new decimal?[2];
+    private OrderBookVolumeCurrency _volumeCurrency;
+    private int _multiplier = 1;
+    private decimal? _center;
+    private bool _followMarket = true;
+
+    /// <summary>Creates a book fixed to one network; trading sessions are owned by the application manager.</summary>
+    public OrderBookViewModel(string exchange, string symbol, IOrderBookService service,
+        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot)
+    {
+        Market = market;
+        Exchange = exchange;
+        Symbol = symbol;
+        VolumeCurrencyOptions =
+        [
+            new(OrderBookVolumeCurrency.Base, IsFutures ? "Contracts" : $"Base ({symbol.Split('/')[0]})"),
+            new(OrderBookVolumeCurrency.Quote, $"Quote ({symbol.Split('/').Last().Split(':')[0]})")
+        ];
+        _service = service;
+        BuyCommand = new RelayCommand(_ => TradeAsync(OrderSide.Buy), _ => CanTrade);
+        SellCommand = new RelayCommand(_ => TradeAsync(OrderSide.Sell), _ => CanTrade);
+        CenterCommand = new RelayCommand(() => { _followMarket = true; _center = null; Changed(); });
+        InitializeTrading(trading, environment);
+    }
+
+    public TradingMarket Market { get; }
+    public string Exchange { get; }
+    public string Symbol { get; }
+    public string Title => $"Order book · {Symbol} · {Exchange} · {Market} · {EnvironmentText}";
+    public string BaseHeader => IsFutures ? "Volume (contracts)" : $"Volume ({_update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]})";
+    public string QuoteHeader => $"Total ({_update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last().Split(':')[0]})";
+    public OrderBookVolumeOption[] VolumeCurrencyOptions { get; }
+    public OrderBookVolumeCurrency VolumeCurrency
+    {
+        get => _volumeCurrency;
+        set
+        {
+            if (value is not (OrderBookVolumeCurrency.Base or OrderBookVolumeCurrency.Quote) || value == _volumeCurrency) return;
+            _volumeCurrency = value;
+            Changed();
+        }
+    }
+    public string MaxVolumeHeader => $"Volume for 100% ({(VolumeCurrency == OrderBookVolumeCurrency.Base
+        ? IsFutures ? "contracts" : _update?.Snapshot?.Market.BaseCurrency ?? Symbol.Split('/')[0]
+        : _update?.Snapshot?.Market.QuoteCurrency ?? Symbol.Split('/').Last().Split(':')[0])})";
+    public string MaxVolumeText
+    {
+        get => _maxVolumeTexts[(int)VolumeCurrency];
+        set
+        {
+            _maxVolumeTexts[(int)VolumeCurrency] = value;
+            if (string.IsNullOrWhiteSpace(value)) _maxVolumes[(int)VolumeCurrency] = null;
+            else if (TryPositive(value, out var volume)) _maxVolumes[(int)VolumeCurrency] = volume;
+            Changed();
+        }
+    }
+    public bool HasVolumeScaleError => !string.IsNullOrWhiteSpace(MaxVolumeText) && !TryPositive(MaxVolumeText, out _);
+    public string VolumeScaleHint => HasVolumeScaleError
+        ? "Enter a number greater than zero; the previous scale is retained."
+        : string.IsNullOrWhiteSpace(MaxVolumeText) ? "Blank uses the maximum visible volume for automatic scaling."
+        : "Volumes above the threshold fill the bar to 100%.";
+    public int[] Multipliers { get; } = [1, 5, 10];
+    public int Multiplier
+    {
+        get => _multiplier;
+        set { if (Multipliers.Contains(value)) { _multiplier = value; Changed(); } }
+    }
+    public bool IsFollowing => _followMarket;
+    public string FollowText => _followMarket ? "Following market" : "Manual scrolling";
+    public string StatusText
+    {
+        get
+        {
+            if (_update is null) return "Connecting…";
+            var snapshot = _update.Snapshot;
+            var age = snapshot is null ? "" : $" · {snapshot.ReceivedAt.ToLocalTime():HH:mm:ss.fff}";
+            bool stale = snapshot is not null && DateTimeOffset.UtcNow - snapshot.ReceivedAt > TimeSpan.FromSeconds(10);
+            return _update.Message + (stale && _update.Connection == OrderBookConnection.Live ? " · No recent data" : "") + age;
+        }
+    }
+
+    public string StepText => _update?.Snapshot is { } b ? $"Step: {Format(b.Market.TickSize * Multiplier)}" : "Step: —";
+    public string PriceText { get => _priceText; set { _priceText = value; Changed(); } }
+    public string AmountText { get => _amountText; set { _amountText = value; Changed(); } }
+    public string TradeStatus => _tradeStatus;
+    public bool CanTrade => !_disposed && !_tradeBusy && !_bindingAccount && _trading?.Current.Connected == true
+        && TradingInputValid;
+    public RelayCommand BuyCommand { get; }
+    public RelayCommand SellCommand { get; }
+    public RelayCommand CenterCommand { get; }
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public Task StartAsync() => _disposed ? Task.CompletedTask : _startTask ??= StartCoreAsync();
+
+    private async Task StartCoreAsync()
+    {
+        try
+        {
+            var subscription = IsFutures
+                ? await _service.SubscribeAsync(Exchange, Symbol, Environment, Market, _stop.Token).ConfigureAwait(false)
+                : Environment == TradingEnvironment.Production
+                ? await _service.SubscribeAsync(Exchange, Symbol, _stop.Token).ConfigureAwait(false)
+                : await _service.SubscribeAsync(Exchange, Symbol, Environment, _stop.Token).ConfigureAwait(false);
+            _subscription = subscription;
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception ex) { _update = new(null, OrderBookConnection.Error, ex.Message); }
+    }
+
+    /// <summary>Called only by the UI's 50 ms timer; no dispatcher queue is accumulated by the feed.</summary>
+    public void Refresh()
+    {
+        if (_disposed) return;
+        if (_subscription is not null) _update = _subscription.Current;
+        RefreshTrading();
+        Changed();
+    }
+
+    public IReadOnlyList<OrderBookRow> GetRows(int count)
+    {
+        var book = _update?.Snapshot;
+        if (book is null) return [];
+        var marketCenter = book.BestBid is { } bid && book.BestAsk is { } ask ? (bid + ask) / 2
+            : book.BestBid ?? book.BestAsk;
+        if (marketCenter is null) return [];
+        if (_followMarket || _center is null) _center = marketCenter;
+        var rows = OrderBookLadder.Build(book, Multiplier, _center.Value, count, _maxVolumes[(int)VolumeCurrency], VolumeCurrency);
+        var step = book.Market.TickSize * Multiplier;
+        return rows.Select(row => row with { OwnOrderCount = Orders.Count(o => !TradingAccountSession.Terminal(o.State) && o.Price is { } price &&
+            (o.Side == OrderSide.Buy ? decimal.Floor(price / step) : decimal.Ceiling(price / step)) * step == row.Price) }).ToArray();
+    }
+
+    public void Scroll(int levels)
+    {
+        if (_update?.Snapshot is not { } book) return;
+        if (_center is null) GetRows(1);
+        if (_center is null) return;
+        _followMarket = false;
+        _center = Math.Max(book.Market.TickSize, _center.Value + levels * book.Market.TickSize * Multiplier);
+        Changed();
+    }
+
+    /// <summary>Copies the exact clicked price only while the order draft is editable.</summary>
+    public void SelectPrice(decimal price) { if (IsTradeEditable) PriceText = Format(price); }
+
+    internal static bool TryPositive(string text, out decimal value) =>
+        decimal.TryParse(text.Trim().Replace(',', '.'), NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign,
+            CultureInfo.InvariantCulture, out value) && value > 0;
+
+    internal static string Format(decimal value) => value.ToString("0.############################", CultureInfo.InvariantCulture);
+
+    private void Changed()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+        BuyCommand.RaiseCanExecuteChanged();
+        SellCommand.RaiseCanExecuteChanged();
+        CancelSelectedCommand?.RaiseCanExecuteChanged();
+        CancelAllCommand?.RaiseCanExecuteChanged();
+        ReconnectCommand?.RaiseCanExecuteChanged();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_disposeSync) return new(_disposeTask ??= DisposeCoreAsync());
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        _disposed = true;
+        ++_accountGeneration;
+        await _stop.CancelAsync().ConfigureAwait(false);
+        if (_startTask is not null) await _startTask.ConfigureAwait(false);
+        if (_subscription is not null) await _subscription.DisposeAsync().ConfigureAwait(false);
+        _stop.Dispose();
+    }
+}
+
+```
+
+### BotView/Windows/OrderBookWindow.xaml
+
+```xml
+﻿<Window x:Class="BotView.Windows.OrderBookWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:BotView.Views"
+        Title="{Binding Title}" Width="420" Height="820" MinWidth="340" MinHeight="480"
+        Background="#0B1120" Foreground="#E5E7EB" FontFamily="Segoe UI"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Background" Value="#263449"/>
+            <Setter Property="Foreground" Value="#F3F4F6"/>
+            <Setter Property="BorderBrush" Value="#475569"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="6,5"/>
+            <Setter Property="Background" Value="#182235"/>
+            <Setter Property="Foreground" Value="#F3F4F6"/>
+            <Setter Property="BorderBrush" Value="#475569"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="80"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="1.1*" MinHeight="190"/>
+        </Grid.RowDefinitions>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="{Binding Symbol}" FontSize="19" FontWeight="SemiBold"/>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Exchange}" Foreground="#94A3B8" FontSize="11"/>
+                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontWeight="Bold" FontSize="11" Margin="5,0,0,0"/>
+                </StackPanel>
+                <TextBlock Text="{Binding SelectedAccount.Name}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis">
+                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                        <DataTrigger Binding="{Binding SelectedAccount}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                    </Style.Triggers></Style></TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+            <Button Grid.Column="1" Content="Center on market" Command="{Binding CenterCommand}" VerticalAlignment="Center"/>
+        </Grid>
+        <Expander Grid.Row="1" Header="Depth display settings" Foreground="#94A3B8" Margin="0,0,0,5">
+        <StackPanel>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="65"/></Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="1" Text="{Binding StepText}" VerticalAlignment="Center" Margin="4,0,8,0" FontSize="11"/>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding Multipliers}" SelectedItem="{Binding Multiplier}" VerticalContentAlignment="Center"
+                      ToolTip="Exchange price step multiplier">
+                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding StringFormat=×{0}}"/></DataTemplate></ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
+        <Grid Margin="0,0,0,8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition Width="105"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Margin="0,0,8,0">
+                <TextBlock Text="{Binding MaxVolumeHeader}" FontSize="10" Margin="0,0,0,2"/>
+                <ComboBox x:Name="VolumeCurrencySelector" ItemsSource="{Binding VolumeCurrencyOptions}"
+                          SelectedValuePath="Currency" DisplayMemberPath="Label" SelectedValue="{Binding VolumeCurrency}"
+                          MinHeight="24" VerticalContentAlignment="Center" ToolTip="Currency used for volume bars and the fill threshold"/>
+            </StackPanel>
+            <TextBox x:Name="MaxVolumeInput" Grid.Column="1" Text="{Binding MaxVolumeText, UpdateSourceTrigger=PropertyChanged}"
+                     VerticalAlignment="Center" ToolTip="Volume in the selected currency for a full-width bar. Leave blank for automatic scaling.">
+                <TextBox.Style>
+                    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasVolumeScaleError}" Value="True">
+                                <Setter Property="BorderBrush" Value="#F87171"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBox.Style>
+            </TextBox>
+            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding VolumeScaleHint}" FontSize="10" Foreground="#94A3B8"
+                       TextWrapping="Wrap" Margin="0,3,0,0"/>
+        </Grid>
+        </StackPanel>
+        </Expander>
+        <Grid Grid.Row="2" Background="#182235" Height="26">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="34*"/>
+                <ColumnDefinition Width="34*"/>
+                <ColumnDefinition Width="32*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding BaseHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+            <TextBlock Grid.Column="1" Text="Price" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+            <TextBlock Grid.Column="2" Text="{Binding QuoteHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+        </Grid>
+        <views:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Scroll to browse prices. Click to select an order price. An em dash means depth or monetary valuation data is unavailable."/>
+        <TextBlock Grid.Row="4" Text="{Binding StatusText}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap" MaxHeight="44" Margin="0,6"/>
+        <Grid Grid.Row="5">
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
+        <ComboBox ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}" DisplayMemberPath="DisplayName"
+                  IsEnabled="{Binding IsTradeEditable}" ToolTip="Accounts for this exchange and network" Margin="0,0,0,4"/>
+        <TextBlock Text="{Binding AccountStatus}" FontSize="10" TextWrapping="Wrap" Foreground="#94A3B8"/>
+        <Button Content="Reconnect account" Command="{Binding ReconnectCommand}" HorizontalAlignment="Left" Padding="5,2" Margin="0,3"/>
+        <TextBlock Text="{Binding AccountIdentity}" FontSize="10" Foreground="#94A3B8"/>
+        <TextBlock Text="{Binding BalanceText}" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,5"/>
+        <ComboBox ItemsSource="{Binding OrderTypes}" SelectedItem="{Binding SelectedOrderType}"
+                  IsEnabled="{Binding IsTradeEditable}" ToolTip="Order type: Limit or Market" Margin="0,4"/>
+        <Grid IsEnabled="{Binding IsTradeEditable}">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <TextBlock Text="Order price" Foreground="#94A3B8" FontSize="11"/>
+            <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Foreground="#94A3B8" FontSize="11"/>
+            <TextBox x:Name="PriceInput" IsEnabled="{Binding IsLimitOrder}" Grid.Row="1" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
+            <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
+            <CheckBox Grid.Row="2" Content="Post-only" IsEnabled="{Binding IsLimitOrder}" IsChecked="{Binding PostOnly}" Foreground="#E5E7EB" ToolTip="Unchecked: ordinary GTC limit order"/>
+            <ComboBox Grid.Row="2" Grid.Column="2" IsEnabled="{Binding CanSelectQuantityCurrency}" ItemsSource="{Binding QuantityCurrencies}" SelectedItem="{Binding QuantityCurrency}" ToolTip="Order quantity unit; independent of depth volume bars"/>
+            <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding OrderPreview}" FontSize="10" TextWrapping="Wrap" Margin="0,4"/>
+        </Grid>
+        <StackPanel IsEnabled="{Binding IsTradeEditable}" Margin="0,4">
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsFutures}" Value="False">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <CheckBox Content="Reduce-only" IsChecked="{Binding ReduceOnly}" Foreground="#E5E7EB"/>
+            <ComboBox ItemsSource="{Binding PositionTargets}" SelectedItem="{Binding PositionTarget}" ToolTip="Auto for one-way mode; Long or Short for hedge mode"/>
+            <TextBlock Text="{Binding PositionsText}" TextWrapping="Wrap" FontSize="10"/>
+        </StackPanel>
+        <TextBlock Text="{Binding TradingInputHint}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11"/>
+        <TextBlock Text="{Binding TradeStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="0,4"/>
+        <TextBlock Text="Account orders for this pair" FontSize="11" Margin="0,5"/>
+        <DataGrid ItemsSource="{Binding Orders}" SelectedItem="{Binding SelectedOrder}" IsReadOnly="True" AutoGenerateColumns="False"
+                  MaxHeight="150" MinHeight="55" Background="#182235" Foreground="#172033" SelectionMode="Single"
+                  CanUserAddRows="False" HeadersVisibility="Column" HorizontalScrollBarVisibility="Auto">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Side" Binding="{Binding Side}"/>
+                <DataGridTextColumn Header="Position" Binding="{Binding PositionSide}"/>
+                <DataGridTextColumn Header="Reduce-only" Binding="{Binding ReduceOnly}"/>
+                <DataGridTextColumn Header="Price" Binding="{Binding Price}"/>
+                <DataGridTextColumn Header="Quantity" Binding="{Binding Quantity}"/>
+                <DataGridTextColumn Header="Filled" Binding="{Binding FilledQuantity}"/>
+                <DataGridTextColumn Header="Remaining" Binding="{Binding RemainingQuantity}"/>
+                <DataGridTextColumn Header="State" Binding="{Binding State}"/>
+                <DataGridTextColumn Header="Reason" Binding="{Binding StatusReason}"/>
+                <DataGridTextColumn Header="Order ID" Binding="{Binding Reference.ExchangeOrderId}"/>
+            </DataGrid.Columns>
+        </DataGrid>
+        <WrapPanel Margin="0,5">
+            <Button Content="Cancel selected" Command="{Binding CancelSelectedCommand}" Margin="0,0,5,0"/>
+            <Button Content="Cancel all for pair" Command="{Binding CancelAllCommand}"/>
+        </WrapPanel>
+        <TextBlock Text="Recent executions" FontSize="11" Margin="0,5"/>
+        <ItemsControl ItemsSource="{Binding Executions}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock FontSize="10" TextWrapping="Wrap">
+                        <Run Text="{Binding ExecutedAt, StringFormat=HH:mm:ss}"/><Run Text=" "/>
+                        <Run Text="{Binding Side}"/><Run Text=" "/><Run Text="{Binding Quantity}"/>
+                        <Run Text=" @ "/><Run Text="{Binding Price}"/>
+                        <Run Text=" · Fee: "/><Run Text="{Binding Fee.Amount}"/><Run Text=" "/>
+                        <Run Text="{Binding Fee.Currency}"/>
+                    </TextBlock>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        </StackPanel>
+        </ScrollViewer>
+        <Grid Grid.Row="1" Margin="0,4,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Button Content="Buy" Command="{Binding BuyCommand}" Background="#22613B"/>
+            <Button Grid.Column="2" Content="Sell" Command="{Binding SellCommand}" Background="#873C43"/>
+        </Grid>
+        </Grid>
+    </Grid>
+</Window>
+
+```
+
+
+## Before removing one-way order routing
+
+Previous FuturesTradingService.OrderParameters and order-book position selection.
+
+```csharp
+    /// <summary>Maps the selected position side directly; the exchange validates account mode and Reduce-only.</summary>
+    private Dictionary<string, object> OrderParameters(bool reduceOnly, PositionSide? side)
+    {
+        var parameters = CreateParameters();
+        if (Venue == "binance")
+        {
+            parameters["positionSide"] = side == PositionSide.Long ? "LONG" : side == PositionSide.Short ? "SHORT" : "BOTH";
+        }
+        else
+        {
+            parameters["positionIdx"] = side == PositionSide.Long ? 1 : side == PositionSide.Short ? 2 : 0;
+        }
+
+        if (reduceOnly)
+        {
+            parameters["reduceOnly"] = true;
+        }
+
+        return parameters;
+    }
+
+    private string _positionTarget = "Auto";
+    public string[] PositionTargets { get; } = ["Auto", "Long", "Short"];
+    public bool ReduceOnly { get => _reduceOnly; set { if (IsTradeEditable) { _reduceOnly = value; Changed(); } } }
+    public string PositionTarget { get => _positionTarget; set { if (IsTradeEditable && PositionTargets.Contains(value)) { _positionTarget = value; Changed(); } } }
+    private PositionSide? SelectedPositionSide => PositionTarget == "Long" ? PositionSide.Long : PositionTarget == "Short" ? PositionSide.Short : null;
+```

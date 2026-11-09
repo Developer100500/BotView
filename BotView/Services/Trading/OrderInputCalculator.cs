@@ -43,5 +43,16 @@ public sealed class OrderInputCalculator
         return quantity * price * ContractSize;
     }
 
+    /// <summary>Estimates initial margin for linear contracts, excluding fees and exchange adjustments.</summary>
+    public decimal EstimateInitialMargin(decimal quantity, decimal price, int leverage)
+    {
+        if (quantity <= 0 || price <= 0 || leverage < 1)
+        {
+            throw new ArgumentException("Positive quantity, price and leverage are required.");
+        }
+
+        return OrderNotional(quantity, price) / leverage;
+    }
+
     private decimal ContractSize => _instrument.TradingRules?.ContractSize ?? 1m;
 }

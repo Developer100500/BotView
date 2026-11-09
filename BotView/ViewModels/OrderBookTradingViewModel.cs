@@ -24,14 +24,38 @@ public sealed partial class OrderBookViewModel
     public bool IsFutures => Market == TradingMarket.UsdtFutures;
     public InstrumentKey TradingInstrument => new(Exchange, IsFutures ? "futures" : "spot", "", Symbol);
     private bool _reduceOnly;
-    private string _positionTarget = "Auto";
-    public string[] PositionTargets { get; } = ["Auto", "Long", "Short"];
+    private string _positionTarget = "Long";
+    public string[] PositionTargets { get; } = ["Long", "Short"];
     public bool ReduceOnly { get => _reduceOnly; set { if (IsTradeEditable) { _reduceOnly = value; Changed(); } } }
     public string PositionTarget { get => _positionTarget; set { if (IsTradeEditable && PositionTargets.Contains(value)) { _positionTarget = value; Changed(); } } }
-    private PositionSide? SelectedPositionSide => PositionTarget == "Long" ? PositionSide.Long : PositionTarget == "Short" ? PositionSide.Short : null;
+    private PositionSide? SelectedPositionSide => !IsFutures ? null
+        : PositionTarget == "Long" ? PositionSide.Long : PositionSide.Short;
     public string PositionsText => !IsFutures ? "" : string.Join(" · ", (_trading?.Current.Balance?.Positions ?? [])
         .Where(p => p.Instrument == TradingInstrument)
         .Select(p => $"{p.Side}: {p.Quantity} contracts · {p.Leverage}x · {p.MarginMode} · PnL {p.UnrealizedPnl?.Amount} USDT"));
+    private string _leverageText = "";
+    public string[] LeverageOptions { get; } = ["1", "2", "3", "5", "10", "20", "25", "50", "100"];
+    public RelayCommand ApplyLeverageCommand { get; private set; } = null!;
+
+    /// <summary>Edits the requested leverage without changing the exchange until Apply is pressed.</summary>
+    public string LeverageText
+    {
+        get => _leverageText;
+        set
+        {
+            if (!IsTradeEditable || value == _leverageText)
+            {
+                return;
+            }
+
+            _leverageText = value;
+            Changed();
+        }
+    }
+
+    public bool CanApplyLeverage => !_disposed && IsFutures && IsTradeEditable &&
+        _trading?.Current.Connected == true && int.TryParse(LeverageText, out var leverage) && leverage >= 1;
+
     public ObservableCollection<TradingAccountProfile> Accounts { get; } = new();
     public IReadOnlyList<OrderSnapshot> Orders { get; private set; } = [];
     public IReadOnlyList<ExecutionSnapshot> Executions { get; private set; } = [];
@@ -151,6 +175,58 @@ public sealed partial class OrderBookViewModel
         }
     }
 
+    /// <summary>Shows an opening-margin estimate at the selected leverage without affecting order eligibility.</summary>
+    public string MarginPreview
+    {
+        get
+        {
+            if (!IsFutures)
+            {
+                return "";
+            }
+
+            if (ReduceOnly)
+            {
+                return "Initial margin estimate is not applicable to Reduce-only orders.";
+            }
+
+            if (!int.TryParse(LeverageText, out var leverage) || leverage < 1)
+            {
+                return "Select leverage to estimate initial margin.";
+            }
+
+            try
+            {
+                var input = PreparedInput();
+                var calculator = _trading!.GetOrderInputCalculator(TradingInstrument);
+                var suffix = $" USDT at selected {leverage}x (excluding fees)";
+
+                if (IsLimitOrder)
+                {
+                    var margin = calculator.EstimateInitialMargin(input.Quantity, input.Price, leverage);
+                    return $"Estimated initial margin: ≈ {Format(margin)}{suffix}";
+                }
+
+                var book = _update?.Snapshot;
+
+                if (_update?.Connection != OrderBookConnection.Live || book is null ||
+                    DateTimeOffset.UtcNow - book.ReceivedAt > TimeSpan.FromSeconds(10) ||
+                    book.BestAsk is not > 0 || book.BestBid is not > 0)
+                {
+                    return "Estimated initial margin: unavailable until live market prices arrive.";
+                }
+
+                var buy = calculator.EstimateInitialMargin(input.Quantity, book.BestAsk.Value, leverage);
+                var sell = calculator.EstimateInitialMargin(input.Quantity, book.BestBid.Value, leverage);
+                return $"Estimated initial margin: Buy ≈ {Format(buy)} / Sell ≈ {Format(sell)}{suffix}; based on best ask/bid, before slippage.";
+            }
+            catch (Exception)
+            {
+                return "Enter a valid quantity and price to estimate initial margin.";
+            }
+        }
+    }
+
     /// <summary>Initializes trade controls without contacting any exchange or starting an order.</summary>
     private void InitializeTrading(TradingSessionManager? manager, TradingEnvironment environment)
     {
@@ -158,6 +234,7 @@ public sealed partial class OrderBookViewModel
         Environment = environment;
         CancelSelectedCommand = new RelayCommand(CancelSelectedAsync, _ => !_tradeBusy && _trading is not null && SelectedOrder is { } order && !TradingAccountSession.Terminal(order.State));
         CancelAllCommand = new RelayCommand(CancelAllAsync, _ => !_tradeBusy && !_bindingAccount && _trading is not null);
+        ApplyLeverageCommand = new RelayCommand(_ => ApplyLeverageAsync(), _ => CanApplyLeverage);
         ReconnectCommand = new RelayCommand(_ => BindAccountAsync(), _ => !_tradeBusy && !_bindingAccount && SelectedAccount is not null);
         ReloadAccounts();
     }
@@ -186,6 +263,7 @@ public sealed partial class OrderBookViewModel
         var generation = ++_accountGeneration;
         var selected = _selectedAccount;
         _trading = null;
+        _leverageText = "";
         _lastTradingState = null;
         Orders = []; Executions = []; SelectedOrder = null;
         _priceText = ""; _amountText = ""; _tradeStatus = "";
@@ -257,6 +335,53 @@ public sealed partial class OrderBookViewModel
         finally {
             _tradeBusy = false;
             if (!_disposed) {
+                Changed();
+            }
+        }
+    }
+
+    /// <summary>Applies leverage once and releases the form after success, rejection or transport failure.</summary>
+    internal async Task ApplyLeverageAsync()
+    {
+        if (!CanApplyLeverage || _trading is null || !int.TryParse(LeverageText, out var leverage))
+        {
+            return;
+        }
+
+        var session = _trading;
+        var generation = _accountGeneration;
+        _tradeBusy = true;
+        Changed();
+
+        try
+        {
+            await Task.Run(() => session.SetLeverageAsync(TradingInstrument, leverage, _stop.Token));
+
+            if (!_disposed && generation == _accountGeneration)
+            {
+                _tradeStatus = $"Leverage set to {leverage}x for {Symbol}.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!_disposed && generation == _accountGeneration)
+            {
+                _tradeStatus = "Leverage response not received; check the exchange setting before trying again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!_disposed && generation == _accountGeneration)
+            {
+                _tradeStatus = TradingErrorText.FromException(ex);
+            }
+        }
+        finally
+        {
+            _tradeBusy = false;
+
+            if (!_disposed)
+            {
                 Changed();
             }
         }

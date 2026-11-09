@@ -36,21 +36,49 @@ public sealed class FuturesTradingService : AbstractTradingService
             return positions.Select(position => Position(position, key)).ToArray();
         }, ct);
 
+    /// <summary>Sets the instrument leverage once; Bybit applies the same value to both hedge sides.</summary>
+    public override Task SetLeverageAsync(InstrumentKey key, int leverage, CancellationToken ct = default) =>
+        ExecuteAsync(async () =>
+        {
+            ValidateInstrument(key);
+
+            if (leverage < 1)
+            {
+                throw new ArgumentException("Leverage must be a whole number greater than or equal to 1.", nameof(leverage));
+            }
+
+            var parameters = new Dictionary<string, object>();
+
+            if (Venue == "bybit")
+            {
+                parameters["category"] = "linear";
+            }
+
+            await Exchange.SetLeverage(leverage, key.SecurityId, parameters).ConfigureAwait(false);
+            return true;
+        }, ct);
+
     /// <summary>Selects the linear USDT futures account route.</summary>
     protected override Dictionary<string, object> CreateParameters() => Venue == "binance"
         ? new() { ["type"] = "future" } : new() { ["category"] = "linear", ["type"] = "swap" };
 
-    /// <summary>Maps the selected position side directly; the exchange validates account mode and Reduce-only.</summary>
+    /// <summary>Requires an explicit hedge side and maps it to the venue's two-way order parameters.</summary>
     private Dictionary<string, object> OrderParameters(bool reduceOnly, PositionSide? side)
     {
+        if (side is not (PositionSide.Long or PositionSide.Short))
+        {
+            throw new TradingServiceException(new("PositionSideRequired", "Select Long or Short for a hedge-mode futures order."));
+        }
+
         var parameters = CreateParameters();
+
         if (Venue == "binance")
         {
-            parameters["positionSide"] = side == PositionSide.Long ? "LONG" : side == PositionSide.Short ? "SHORT" : "BOTH";
+            parameters["positionSide"] = side == PositionSide.Long ? "LONG" : "SHORT";
         }
         else
         {
-            parameters["positionIdx"] = side == PositionSide.Long ? 1 : side == PositionSide.Short ? 2 : 0;
+            parameters["positionIdx"] = side == PositionSide.Long ? 1 : 2;
         }
 
         if (reduceOnly)

@@ -5,6 +5,57 @@ namespace BotView.Tests;
 
 public sealed class TradingServiceTests
 {
+    /// <summary>Leverage reaches the futures route exactly once without order-specific flags.</summary>
+    [Theory]
+    [InlineData("binance", false)]
+    [InlineData("bybit", false)]
+    [InlineData("binance", true)]
+    [InlineData("bybit", true)]
+    public async Task FuturesLeverageUsesOneNativeCall(string venue, bool timeout)
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await using var service = new FuturesTradingService(profile, native);
+        var key = new InstrumentKey(venue, "futures", "", "BTC/USDT:USDT");
+
+        if (timeout)
+        {
+            native.Failure = new TimeoutException("Response not received.");
+            await Assert.ThrowsAsync<TradingServiceException>(() => service.SetLeverageAsync(key, 10));
+        }
+        else
+        {
+            await service.SetLeverageAsync(key, 10);
+        }
+
+        Assert.Equal(1, native.LeverageCalls);
+        Assert.Equal(10, native.Leverage);
+        Assert.Equal(key.SecurityId, native.Symbol);
+        Assert.DoesNotContain("type", native.Parameters.Keys);
+        if (venue == "bybit") Assert.Equal("linear", native.Parameters["category"]);
+        Assert.DoesNotContain("positionIdx", native.Parameters.Keys);
+        Assert.DoesNotContain("positionSide", native.Parameters.Keys);
+        Assert.Equal(0, native.Calls);
+    }
+
+    /// <summary>Invalid leverage and spot operations are rejected before any native request.</summary>
+    [Fact]
+    public async Task LeverageRejectsInvalidInputAndSpot()
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await using var futures = new FuturesTradingService(profile, native);
+        var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
+        await Assert.ThrowsAsync<TradingServiceException>(() => futures.SetLeverageAsync(key, 0));
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => futures.SetLeverageAsync(key, 10, canceled.Token));
+
+        await using var spot = new SpotTradingService(profile with { Market = TradingMarket.Spot }, new CapturingExchange());
+        await Assert.ThrowsAsync<NotSupportedException>(() => spot.SetLeverageAsync(key with { Market = "spot" }, 10));
+        Assert.Equal(0, native.LeverageCalls);
+    }
+
     /// <summary>Checks the actual native CCXT call without sending any HTTP or WebSocket traffic.</summary>
     [Theory]
     [InlineData("binance", false, false, "buy")]
@@ -60,6 +111,53 @@ public sealed class TradingServiceTests
             Assert.Equal(true, native.Parameters["reduceOnly"]);
             if (venue == "binance") Assert.Equal("SHORT", native.Parameters["positionSide"]);
             else Assert.Equal(2, native.Parameters["positionIdx"]);
+        }
+    }
+
+    /// <summary>Every futures order has an explicit hedge leg; missing sides never reach CCXT.</summary>
+    [Theory]
+    [InlineData("binance", false, PositionSide.Long)]
+    [InlineData("binance", false, PositionSide.Short)]
+    [InlineData("binance", true, PositionSide.Long)]
+    [InlineData("binance", true, PositionSide.Short)]
+    [InlineData("bybit", false, PositionSide.Long)]
+    [InlineData("bybit", false, PositionSide.Short)]
+    [InlineData("bybit", true, PositionSide.Long)]
+    [InlineData("bybit", true, PositionSide.Short)]
+    [InlineData("binance", false, null)]
+    [InlineData("binance", true, null)]
+    [InlineData("bybit", false, null)]
+    [InlineData("bybit", true, null)]
+    public async Task FuturesOrdersAlwaysUseHedgeSides(string venue, bool market, PositionSide? side)
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await using var service = new FuturesTradingService(profile, native);
+        var key = new InstrumentKey(venue, "futures", "", "BTC/USDT:USDT");
+
+        // Exercise both creation paths through their application-model requests.
+        Task<OrderSnapshot> SendAsync() => market
+            ? service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, PositionSide: side))
+            : service.CreateLimitOrderAsync(new(key, OrderSide.Sell, 1, 100, PositionSide: side));
+
+        if (side is null)
+        {
+            var error = await Assert.ThrowsAsync<TradingServiceException>(SendAsync);
+            Assert.Contains("Select Long or Short", error.Message);
+            Assert.Equal(0, native.Calls);
+            return;
+        }
+
+        await SendAsync();
+        Assert.Equal(1, native.Calls);
+
+        if (venue == "binance")
+        {
+            Assert.Equal(side == PositionSide.Long ? "LONG" : "SHORT", native.Parameters["positionSide"]);
+        }
+        else
+        {
+            Assert.Equal(side == PositionSide.Long ? 1 : 2, native.Parameters["positionIdx"]);
         }
     }
 
@@ -198,6 +296,8 @@ public sealed class TradingServiceTests
     internal sealed class CapturingExchange : ccxt.Exchange
     {
         public int Calls;
+        public int LeverageCalls;
+        public int Leverage;
         public string? Symbol;
         public string? Type;
         public string? Side;
@@ -225,6 +325,19 @@ public sealed class TradingServiceTests
                     ["precision"] = new Dictionary<string, object> { ["amount"] = .0001, ["price"] = .01 }
                 }
             });
+        }
+
+        /// <summary>Captures leverage changes without contacting the exchange.</summary>
+        public override Task<Dictionary<string, object>> SetLeverage(object leverage, string symbol = null!, object parameters = null!)
+        {
+            LeverageCalls++;
+            Leverage = Convert.ToInt32(leverage);
+            Symbol = symbol;
+            Parameters = new((Dictionary<string, object>)parameters);
+
+            return Failure is null
+                ? Task.FromResult(new Dictionary<string, object>())
+                : Task.FromException<Dictionary<string, object>>(Failure);
         }
 
         /// <summary>Captures the exact payload handed to the library's unified create operation.</summary>

@@ -186,6 +186,108 @@ public sealed class TradingAccountSessionTests
         adapters[0].Verify(s => s.DisposeAsync(), Times.Once);
     }
 
+    /// <summary>Leverage is explicit, blocks concurrent actions and restores the form after a timeout.</summary>
+    [Fact]
+    public async Task FuturesLeverageAppliesOnceAndUnblocksTheForm()
+    {
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        var contract = Key with { Market = "futures", SecurityId = "BTC/USDT:USDT" };
+        var store = new Mock<ITradingAccountStore>();
+        store.Setup(s => s.Load()).Returns(new TradingAccountsSettings([profile], new Dictionary<string, Guid> { ["binance"] = profile.Id }));
+        using var keys = new InMemoryCredentialStore();
+        using (var credentials = new AccountCredentials("fake", "fake")) keys.Write(profile.Id, credentials);
+        var adapter = Adapter(profile);
+        adapter.SetupGet(s => s.Account).Returns(new TradingAccountContext(profile.Id.ToString(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures));
+        adapter.Setup(s => s.FetchInstrumentAsync(contract, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Instrument(contract, contract.SecurityId, "Bitcoin futures"));
+        adapter.Setup(s => s.FetchPositionsAsync(contract, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<PositionSnapshot>());
+        var response = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        adapter.Setup(s => s.SetLeverageAsync(contract, 10, It.IsAny<CancellationToken>())).Returns(response.Task);
+        await using var manager = new TradingSessionManager(store.Object, keys, (_, _) => adapter.Object);
+        await using var vm = new OrderBookViewModel("binance", contract.SecurityId, new Mock<IOrderBookService>().Object,
+            manager, TradingEnvironment.Testnet, market: TradingMarket.UsdtFutures);
+        await UntilAsync(() => vm.AccountStatus == "Connected");
+
+        Assert.Equal("", vm.LeverageText);
+        Assert.False(vm.CanApplyLeverage);
+        adapter.Verify(s => s.SetLeverageAsync(It.IsAny<InstrumentKey>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        vm.LeverageText = "0";
+        Assert.False(vm.CanApplyLeverage);
+        vm.LeverageText = "1.5";
+        Assert.False(vm.CanApplyLeverage);
+        vm.LeverageText = "10";
+        Assert.True(vm.CanApplyLeverage);
+        var applying = vm.ApplyLeverageAsync();
+        Assert.False(vm.IsTradeEditable);
+        Assert.False(vm.CanApplyLeverage);
+        Assert.False(vm.CanTrade);
+        await vm.ApplyLeverageAsync();
+        response.SetException(new TimeoutException("Leverage response timed out."));
+        await applying;
+
+        Assert.True(vm.IsTradeEditable);
+        Assert.True(vm.CanApplyLeverage);
+        Assert.Contains("outcome is unknown", vm.TradeStatus);
+        adapter.Verify(s => s.SetLeverageAsync(contract, 10, It.IsAny<CancellationToken>()), Times.Once);
+        adapter.Setup(s => s.SetLeverageAsync(contract, 10, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        await vm.ApplyLeverageAsync();
+        Assert.Contains("10x", vm.TradeStatus);
+        Assert.True(vm.IsTradeEditable);
+        adapter.Verify(s => s.SetLeverageAsync(contract, 10, It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    /// <summary>Margin preview follows selected leverage and native units, using live depth instead of a stale limit price for Market.</summary>
+    [Fact]
+    public async Task MarginPreviewUsesPreparedInputAndFreshMarketPrices()
+    {
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        var contract = Key with { Market = "futures", SecurityId = "BTC/USDT:USDT" };
+        var store = new Mock<ITradingAccountStore>();
+        store.Setup(s => s.Load()).Returns(new TradingAccountsSettings([profile], new Dictionary<string, Guid> { ["binance"] = profile.Id }));
+        using var keys = new InMemoryCredentialStore();
+        using (var credentials = new AccountCredentials("fake", "fake")) keys.Write(profile.Id, credentials);
+        var adapter = Adapter(profile);
+        adapter.Setup(s => s.FetchInstrumentAsync(contract, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Instrument(contract, contract.SecurityId, "Bitcoin futures",
+                TradingRules: new(QuantityUnit.Contracts, PriceQuotation.CurrencyPerUnit, ContractSize: .01m)));
+        var subscription = new Mock<IOrderBookSubscription>();
+        var snapshot = new OrderBookSnapshot(new(contract.SecurityId, "BTC", "USDT", .01m),
+            [new(90m, 10m)], [new(110m, 10m)], DateTimeOffset.UtcNow);
+        subscription.SetupGet(s => s.Current).Returns(new OrderBookUpdate(snapshot, OrderBookConnection.Live, "Connected"));
+        var feed = new Mock<IOrderBookService>();
+        feed.Setup(s => s.SubscribeAsync("binance", contract.SecurityId, TradingEnvironment.Testnet, TradingMarket.UsdtFutures, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription.Object);
+        await using var manager = new TradingSessionManager(store.Object, keys, (_, _) => adapter.Object);
+        await using var vm = new OrderBookViewModel("binance", contract.SecurityId, feed.Object,
+            manager, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        await UntilAsync(() => vm.AccountStatus == "Connected");
+        vm.PriceText = "100";
+        vm.AmountText = "2";
+        Assert.Contains("Select leverage", vm.MarginPreview);
+        vm.LeverageText = "10";
+        Assert.Contains("≈ 0.2 USDT", vm.MarginPreview);
+        vm.LeverageText = "20";
+        Assert.Contains("≈ 0.1 USDT", vm.MarginPreview);
+        vm.QuantityCurrency = OrderQuantityCurrency.Quote;
+        vm.AmountText = "20";
+        Assert.Contains("≈ 1 USDT", vm.MarginPreview);
+        vm.SelectedOrderType = OrderType.Market;
+        vm.AmountText = "2";
+        vm.PriceText = "99999";
+        Assert.Contains("unavailable", vm.MarginPreview);
+        await vm.StartAsync();
+        vm.Refresh();
+        Assert.Contains("Buy ≈ 0.11 / Sell ≈ 0.09 USDT", vm.MarginPreview);
+        subscription.SetupGet(s => s.Current).Returns(new OrderBookUpdate(snapshot with { ReceivedAt = DateTimeOffset.UtcNow.AddSeconds(-30) }, OrderBookConnection.Live, "Connected"));
+        vm.Refresh();
+        Assert.Contains("unavailable", vm.MarginPreview);
+        Assert.True(vm.CanTrade);
+        vm.ReduceOnly = true;
+        Assert.Contains("not applicable", vm.MarginPreview);
+        adapter.Verify(s => s.SetLeverageAsync(It.IsAny<InstrumentKey>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     /// <summary>Market clears the old budget, ignores limit price and passes native quantity through the common contract.</summary>
     [Fact]
     public async Task OrderBookSwitchesTypesAndUnblocksAfterProviderErrors()

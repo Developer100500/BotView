@@ -260,6 +260,14 @@ public sealed class TradingAccountSession : IAsyncDisposable
         return order;
     }
 
+    /// <summary>Changes futures leverage once and refreshes the account data after acknowledgement.</summary>
+    public async Task SetLeverageAsync(InstrumentKey key, int leverage, CancellationToken ct = default)
+    {
+        _stop.Token.ThrowIfCancellationRequested();
+        await _service.SetLeverageAsync(key, leverage, ct).ConfigureAwait(false);
+        await RefreshAfterActionAsync(key, ct).ConfigureAwait(false);
+    }
+
     /// <summary>Refreshes display state after a successful action; a refresh error does not change the action's result.</summary>
     private async Task RefreshAfterActionAsync(InstrumentKey key, CancellationToken ct)
     {

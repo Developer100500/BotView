@@ -40,6 +40,9 @@ public interface ITradingService : IAsyncDisposable
     /// <summary>Fetches contract positions; spot returns an empty list.</summary>
     Task<IReadOnlyList<PositionSnapshot>> FetchPositionsAsync(InstrumentKey instrument, CancellationToken ct = default);
 
+    /// <summary>Sets leverage for a futures instrument once; spot trading does not support leverage.</summary>
+    Task SetLeverageAsync(InstrumentKey instrument, int leverage, CancellationToken ct = default);
+
     /// <summary>Reports whether this connection supports a private update source.</summary>
     bool SupportsStream(TradingStream stream);
 

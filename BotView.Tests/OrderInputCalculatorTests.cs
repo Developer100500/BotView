@@ -25,6 +25,23 @@ public sealed class OrderInputCalculatorTests
         Assert.Equal(expectedNotional, calculator.OrderNotional(quantity, 300m));
     }
 
+    /// <summary>Initial margin respects contract size and leverage without sending provider requests.</summary>
+    [Theory]
+    [InlineData(1, 10, 40)]
+    [InlineData(0.01, 10, 0.4)]
+    [InlineData(0.01, 20, 0.2)]
+    public void InitialMarginUsesContractValue(decimal contractSize, int leverage, decimal expected)
+    {
+        var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
+        var service = new Mock<ITradingService>(MockBehavior.Strict);
+        var instrument = new Instrument(key, key.SecurityId, "Bitcoin futures",
+            TradingRules: new(QuantityUnit.Contracts, PriceQuotation.CurrencyPerUnit, ContractSize: contractSize));
+        var calculator = new OrderInputCalculator(service.Object, instrument);
+
+        Assert.Equal(expected, calculator.EstimateInitialMargin(2m, 200m, leverage));
+        Assert.Throws<ArgumentException>(() => calculator.EstimateInitialMargin(2m, 200m, 0));
+    }
+
     /// <summary>Market quantities need no price, and spot metadata without contract size defaults to one.</summary>
     [Fact]
     public void BaseQuantityAndPriceUseProviderPrecision()

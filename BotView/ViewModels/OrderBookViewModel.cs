@@ -180,6 +180,7 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
         CancelSelectedCommand?.RaiseCanExecuteChanged();
         CancelAllCommand?.RaiseCanExecuteChanged();
         ReconnectCommand?.RaiseCanExecuteChanged();
+        ApplyLeverageCommand?.RaiseCanExecuteChanged();
     }
 
     public ValueTask DisposeAsync()

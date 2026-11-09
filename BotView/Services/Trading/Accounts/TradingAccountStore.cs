@@ -21,8 +21,10 @@ public sealed class TradingAccountStore : ITradingAccountStore, ITradingProfileN
             if (!File.Exists(_path)) return new([], new Dictionary<string, Guid>());
             var document = JsonSerializer.Deserialize<Document>(File.ReadAllText(_path))
                 ?? throw new InvalidDataException("Invalid account document.");
+
             if (document.Version != 1) throw new InvalidDataException("Unsupported account document version.");
-            return Validate(new(document.Profiles, document.ActiveProfiles));
+
+            return Validate(new(document.Profiles, document.ActiveProfiles)); // Validate() does not change the document
         }
     }
 
@@ -32,34 +34,54 @@ public sealed class TradingAccountStore : ITradingAccountStore, ITradingProfileN
         lock (_sync)
         {
             Validate(settings);
-            var directory = Path.GetDirectoryName(Path.GetFullPath(_path))!;
-            Directory.CreateDirectory(directory);
-            var temporary = Path.Combine(directory, $".trading-accounts-{Guid.NewGuid():N}.tmp");
+            string tmpFile = null!;
             try
             {
+                var directory = Path.GetDirectoryName(Path.GetFullPath(_path))!;
+                Directory.CreateDirectory(directory);
+                tmpFile = Path.Combine(directory, $".trading-accounts-{Guid.NewGuid():N}.tmp");
                 // Explicit projection prevents future profile additions from accidentally writing secrets.
                 var document = new
                 {
                     Version = 1,
-                    Profiles = settings.Profiles.Select(p => new { p.Id, p.Name, p.Exchange, p.Environment, p.Market }).ToArray(),
+                    Profiles = settings.Profiles.Select(p =>
+                        new { p.Id, p.Name, p.Exchange, p.Environment, p.Market })
+                        .ToArray(),
+
                     settings.ActiveProfiles
                 };
-                File.WriteAllText(temporary, JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(temporary, _path, overwrite: true);
+                File.WriteAllText(tmpFile, JsonSerializer.Serialize(document,
+                        new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(tmpFile, _path, overwrite: true);
             }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            finally { if (File.Exists(tmpFile)) File.Delete(tmpFile); }
         }
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Rejects missing collections, invalid profiles, duplicate ids, and active entries that do not match a profile.
+    /// </summary>
     private static TradingAccountsSettings Validate(TradingAccountsSettings settings)
     {
-        if (settings.Profiles is null || settings.ActiveProfiles is null ||
-            settings.Profiles.Any(p => p is null || p.Id == Guid.Empty || string.IsNullOrWhiteSpace(p.Name) ||
-                p.Exchange is not ("binance" or "bybit") || !Enum.IsDefined(p.Environment) || !Enum.IsDefined(p.Market)) ||
-            settings.Profiles.Select(p => p.Id).Distinct().Count() != settings.Profiles.Count ||
-            settings.ActiveProfiles.Any(a => !settings.Profiles.Any(p => p.Id == a.Value && p.Exchange == a.Key)))
+        if (settings.Profiles is null || settings.ActiveProfiles is null)
             throw new InvalidDataException("Invalid account settings.");
+
+        if (settings.Profiles.Any(profile =>
+                profile is null || profile.Id == Guid.Empty || string.IsNullOrWhiteSpace(profile.Name) ||
+                string.IsNullOrWhiteSpace(profile.Name) ||
+                profile.Exchange is not ("binance" or "bybit") || // TODO: Add more exchanges in future
+                !Enum.IsDefined(profile.Environment) ||
+                !Enum.IsDefined(profile.Market)))
+            throw new InvalidDataException("Invalid account settings.");
+
+        if (settings.Profiles.Select(profile => profile.Id).Distinct().Count() != settings.Profiles.Count)
+            throw new InvalidDataException("Invalid account settings.");
+
+        if (settings.ActiveProfiles.Any(active =>
+                !settings.Profiles.Any(profile => profile.Id == active.Value && profile.Exchange == active.Key)))
+            throw new InvalidDataException("Invalid account settings.");
+
         return settings;
     }
 

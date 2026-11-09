@@ -82,7 +82,10 @@ namespace BotView
         {
             if (_tradingAccountsWindow is not null)
             {
-                if (_tradingAccountsWindow.WindowState == WindowState.Minimized) _tradingAccountsWindow.WindowState = WindowState.Normal;
+                if (_tradingAccountsWindow.WindowState == WindowState.Minimized)
+                {
+                    _tradingAccountsWindow.WindowState = WindowState.Normal;
+                }
                 _tradingAccountsWindow.Activate();
                 return;
             }
