@@ -13,7 +13,8 @@ public sealed class TradingAccountSession : IAsyncDisposable
     private readonly Dictionary<OrderReference, OrderSnapshot> _orders = new();
     private readonly Dictionary<(OrderReference Order, string Id), ExecutionSnapshot> _executions = new();
     private readonly Dictionary<InstrumentKey, IReadOnlyList<PositionSnapshot>> _positions = new();
-    private readonly Dictionary<InstrumentKey, bool?> _positionModes = new();
+    private bool? _hedged;
+    private bool _positionModeLoaded;
     private readonly List<Task> _workers = new();
     private readonly Dictionary<(TradingStream Stream, InstrumentKey? Key), Resource> _resources = new();
     private readonly TimeSpan _pollInterval;
@@ -45,7 +46,7 @@ public sealed class TradingAccountSession : IAsyncDisposable
         }
     }
 
-    /// <summary>Loads precision metadata and starts each private resource only once per tracked instrument.</summary>
+    /// <summary>Reads the session mode on first connection, then starts resources once per tracked instrument.</summary>
     public async Task TrackAsync(InstrumentKey key, CancellationToken ct = default)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
@@ -57,23 +58,31 @@ public sealed class TradingAccountSession : IAsyncDisposable
             var instrument = await _service.FetchInstrumentAsync(key, linked.Token).ConfigureAwait(false);
             // Authentication is independent of order/execution endpoint availability.
             var balance = await _service.FetchBalanceAsync(linked.Token).ConfigureAwait(false);
-            bool? hedged = null;
-            if (Account.Market == TradingMarket.UsdtFutures)
+
+            if (Account.Market == TradingMarket.UsdtFutures && !_positionModeLoaded)
             {
+                bool? hedged = null;
+
                 try
                 {
                     hedged = await _service.FetchPositionModeAsync(key, linked.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (linked.Token.IsCancellationRequested) { throw; }
                 catch (Exception ex) { Report(ex); }
+
+                lock (_sync)
+                {
+                    _hedged = hedged;
+                    _positionModeLoaded = true;
+                }
             }
+
             lock (_sync)
             {
                 var first = _orderInputs.Count == 0;
                 _orderInputs[key] = new OrderInputCalculator(_service, instrument);
                 _balance = balance;
                 _connected = true;
-                if (Account.Market == TradingMarket.UsdtFutures) _positionModes[key] = hedged;
                 if (_message == "Connecting account…") _message = "Connected";
                 StartResource(TradingStream.Orders, key);
                 StartResource(TradingStream.MyTrades, key);
@@ -217,11 +226,9 @@ public sealed class TradingAccountSession : IAsyncDisposable
         {
             try
             {
-                var hedged = await _service.FetchPositionModeAsync(key, _stop.Token).ConfigureAwait(false);
                 var positions = await _service.FetchPositionsAsync(key, _stop.Token).ConfigureAwait(false);
                 lock (_sync)
                 {
-                    _positionModes[key] = hedged;
                     _positions[key] = positions;
                 }
             }
@@ -238,12 +245,15 @@ public sealed class TradingAccountSession : IAsyncDisposable
         lock (_sync) _message = TradingErrorText.FromException(error);
     }
 
-    /// <summary>Returns the last exchange position mode for this instrument. Null means it was not reported.</summary>
-    public bool? GetHedged(InstrumentKey key)
+    /// <summary>Returns the position mode read once on the first connection, shared by all session instruments.</summary>
+    public bool? Hedged
     {
-        lock (_sync)
+        get
         {
-            return _positionModes.TryGetValue(key, out var hedged) ? hedged : null;
+            lock (_sync)
+            {
+                return _hedged;
+            }
         }
     }
 
@@ -260,7 +270,7 @@ public sealed class TradingAccountSession : IAsyncDisposable
     public async Task<OrderSnapshot> CreateLimitOrderAsync(LimitOrderRequest request, CancellationToken ct = default)
     {
         _stop.Token.ThrowIfCancellationRequested();
-        var order = await _service.CreateLimitOrderAsync(request, ct).ConfigureAwait(false);
+        var order = await _service.CreateLimitOrderAsync(request with { Hedged = Hedged }, ct).ConfigureAwait(false);
         lock (_sync) _orders[order.Reference] = order;
         await RefreshAfterActionAsync(request.Instrument, ct).ConfigureAwait(false);
         return order;
@@ -270,7 +280,7 @@ public sealed class TradingAccountSession : IAsyncDisposable
     public async Task<OrderSnapshot> CreateMarketOrderAsync(MarketOrderRequest request, CancellationToken ct = default)
     {
         _stop.Token.ThrowIfCancellationRequested();
-        var order = await _service.CreateMarketOrderAsync(request, ct).ConfigureAwait(false);
+        var order = await _service.CreateMarketOrderAsync(request with { Hedged = Hedged }, ct).ConfigureAwait(false);
         lock (_sync) _orders[order.Reference] = order;
         await RefreshAfterActionAsync(request.Instrument, ct).ConfigureAwait(false);
         return order;
@@ -307,11 +317,9 @@ public sealed class TradingAccountSession : IAsyncDisposable
             }
             if (Account.Market == TradingMarket.UsdtFutures)
             {
-                var hedged = await _service.FetchPositionModeAsync(key, ct).ConfigureAwait(false);
                 var positions = await _service.FetchPositionsAsync(key, ct).ConfigureAwait(false);
                 lock (_sync)
                 {
-                    _positionModes[key] = hedged;
                     _positions[key] = positions;
                 }
             }

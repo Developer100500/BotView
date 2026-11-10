@@ -18,7 +18,8 @@ public sealed class TradingAccountSessionTests
     private static Mock<ITradingService> Adapter(TradingAccountProfile? profile = null)
     {
         var adapter = new Mock<ITradingService>();
-        var account = new TradingAccountContext(profile?.Id.ToString() ?? "profile", "Fake", "binance", TradingEnvironment.Testnet);
+        var account = new TradingAccountContext(profile?.Id.ToString() ?? "profile", "Fake", "binance",
+            TradingEnvironment.Testnet, profile?.Market ?? TradingMarket.Spot);
         adapter.SetupGet(s => s.Account).Returns(account);
         adapter.Setup(s => s.FetchInstrumentAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Instrument(Key, "BTC/USDT", "Bitcoin", "USDT", TradingRules: new(QuantityUnit.BaseAsset, PriceQuotation.CurrencyPerUnit)));
@@ -330,6 +331,59 @@ public sealed class TradingAccountSessionTests
         vm.SelectedOrderType = OrderType.Limit;
         Assert.False(vm.CanTrade);
         Assert.Equal("", vm.AmountText);
+    }
+
+    /// <summary>All instruments and orders share the first connection's mode, including a missing or failed report.</summary>
+    [Theory]
+    [InlineData("hedge")]
+    [InlineData("oneway")]
+    [InlineData("unknown")]
+    [InlineData("error")]
+    public async Task PositionModeIsReadOnceForTheWholeSession(string mode)
+    {
+        bool? hedged = mode switch { "hedge" => true, "oneway" => false, _ => null };
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance",
+            TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+        var first = Key with { Market = "futures", SecurityId = "BTC/USDT:USDT" };
+        var second = first with { SecurityId = "ETH/USDT:USDT" };
+        var adapter = Adapter(profile);
+        var modeResponse = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        adapter.Setup(s => s.FetchPositionModeAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
+            .Returns(modeResponse.Task);
+        adapter.Setup(s => s.CreateLimitOrderAsync(It.IsAny<LimitOrderRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Order());
+        adapter.Setup(s => s.CreateMarketOrderAsync(It.IsAny<MarketOrderRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Order());
+        await using var session = new TradingAccountSession(adapter.Object, TimeSpan.FromMilliseconds(10));
+
+        var firstConnection = session.TrackAsync(first);
+        var secondConnection = session.TrackAsync(second);
+
+        if (mode == "error")
+        {
+            modeResponse.SetException(new InvalidOperationException("Mode unavailable."));
+        }
+        else
+        {
+            modeResponse.SetResult(hedged);
+        }
+
+        await Task.WhenAll(firstConnection, secondConnection);
+        await session.TrackAsync(first);
+        Assert.Equal(hedged, session.Hedged);
+
+        // A caller cannot override the session mode, and action refreshes do not reload it.
+        await session.CreateLimitOrderAsync(new(first, OrderSide.Buy, 1, 100, Hedged: hedged != true));
+        await session.CreateMarketOrderAsync(new(second, OrderSide.Sell, 1, Hedged: hedged != true));
+        await UntilAsync(() => adapter.Invocations.Count(i =>
+            i.Method.Name == nameof(ITradingService.FetchPositionsAsync)) >= 4);
+
+        adapter.Verify(s => s.FetchPositionModeAsync(first, It.IsAny<CancellationToken>()), Times.Once);
+        adapter.Verify(s => s.FetchPositionModeAsync(second, It.IsAny<CancellationToken>()), Times.Never);
+        adapter.Verify(s => s.CreateLimitOrderAsync(It.Is<LimitOrderRequest>(r => r.Hedged == hedged),
+            It.IsAny<CancellationToken>()), Times.Once);
+        adapter.Verify(s => s.CreateMarketOrderAsync(It.Is<MarketOrderRequest>(r => r.Hedged == hedged),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>The form follows the exchange mode: hedge keeps a leg, one-way and an unknown mode do not.</summary>

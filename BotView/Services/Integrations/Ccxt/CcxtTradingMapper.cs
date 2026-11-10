@@ -55,7 +55,8 @@ internal static class CcxtTradingMapper
             return null;
         }
 
-        var positionSide = Text(order.info, "positionSide");
+        // Binance REST uses positionSide; private WebSocket order updates use ps.
+        var positionSide = Text(order.info, "positionSide") ?? Text(order.info, "ps");
         if (positionSide is not null)
         {
             if (positionSide.Equals("LONG", StringComparison.OrdinalIgnoreCase))

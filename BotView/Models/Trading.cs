@@ -11,13 +11,13 @@ public enum OrderSide { Buy, Sell }
 public enum PositionSide { Long, Short }
 public enum OrderState { Pending, Open, Filled, Canceled, Expired, Rejected, Unknown }
 
-/// <summary>Limit order in native asset or contract units, with an explicit limit price.</summary>
+/// <summary>Limit order in native units. Hedged is supplied by the session from its connection-time report.</summary>
 public sealed record LimitOrderRequest(InstrumentKey Instrument, OrderSide Side, decimal Quantity, decimal Price,
-    bool PostOnly = false, bool ReduceOnly = false, PositionSide? PositionSide = null);
+    bool PostOnly = false, bool ReduceOnly = false, PositionSide? PositionSide = null, bool? Hedged = null);
 
-/// <summary>Market order in native units; a limit price and Post-only cannot be supplied.</summary>
+/// <summary>Market order in native units, with no price or Post-only. Hedged comes from the session.</summary>
 public sealed record MarketOrderRequest(InstrumentKey Instrument, OrderSide Side, decimal Quantity,
-    bool ReduceOnly = false, PositionSide? PositionSide = null);
+    bool ReduceOnly = false, PositionSide? PositionSide = null, bool? Hedged = null);
 
 /// <summary>Exchange order identity is scoped by the bound account and full listing key.</summary>
 public sealed record OrderReference(InstrumentKey Instrument, string ExchangeOrderId);

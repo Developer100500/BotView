@@ -80,12 +80,12 @@ public sealed class TradingServiceTests
         if (market)
         {
             result = await service.CreateMarketOrderAsync(new(key, direction, 2,
-                ReduceOnly: futures, PositionSide: futures ? PositionSide.Short : null));
+                ReduceOnly: futures, PositionSide: futures ? PositionSide.Short : null, Hedged: futures ? true : null));
         }
         else
         {
             result = await service.CreateLimitOrderAsync(new(key, direction, 2, 100, PostOnly: true,
-                ReduceOnly: futures, PositionSide: futures ? PositionSide.Short : null));
+                ReduceOnly: futures, PositionSide: futures ? PositionSide.Short : null, Hedged: futures ? true : null));
         }
         Assert.Equal(new OrderReference(key, "1"), result.Reference);
         Assert.Equal(1, native.Calls);
@@ -132,13 +132,14 @@ public sealed class TradingServiceTests
         await using var service = new FuturesTradingService(profile, native);
         var key = new InstrumentKey(venue, "futures", "", "BTC/USDT:USDT");
         Task<OrderSnapshot> SendAsync() => market
-            ? service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, PositionSide: side))
-            : service.CreateLimitOrderAsync(new(key, OrderSide.Sell, 1, 100, PositionSide: side));
+            ? service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, PositionSide: side, Hedged: hedged))
+            : service.CreateLimitOrderAsync(new(key, OrderSide.Sell, 1, 100, PositionSide: side, Hedged: hedged));
 
         await SendAsync();
 
         Assert.Equal(1, native.Calls);
-        Assert.Equal(1, native.PositionModeCalls);
+        Assert.Equal(0, native.PositionModeCalls);
+        Assert.Equal(0, native.PositionFetches);
         Assert.DoesNotContain("reduceOnly", native.Parameters.Keys);
         if (venue == "binance") Assert.Equal("future", native.Parameters["type"]);
         if (venue == "bybit") Assert.Equal("linear", native.Parameters["category"]);
@@ -175,7 +176,8 @@ public sealed class TradingServiceTests
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
         await using var service = new FuturesTradingService(profile, native);
         var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
-        var error = await Assert.ThrowsAsync<TradingServiceException>(() => service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, PositionSide: side)));
+        var error = await Assert.ThrowsAsync<TradingServiceException>(() => service.CreateMarketOrderAsync(
+            new(key, OrderSide.Buy, 1, PositionSide: side, Hedged: unavailable ? null : hedged)));
 
         Assert.Equal(0, native.Calls);
         if (unavailable) Assert.Contains("did not report", error.Message);
@@ -195,7 +197,8 @@ public sealed class TradingServiceTests
         await using var service = new FuturesTradingService(profile, native);
         var key = new InstrumentKey("bybit", "futures", "", "BTC/USDT:USDT");
 
-        await service.CreateMarketOrderAsync(new(key, OrderSide.Sell, 1, ReduceOnly: true));
+        var hedged = await service.FetchPositionModeAsync(key);
+        await service.CreateMarketOrderAsync(new(key, OrderSide.Sell, 1, ReduceOnly: true, Hedged: hedged));
 
         Assert.Equal(0, native.PositionModeCalls);
         Assert.Equal(1, native.PositionFetches);
@@ -206,8 +209,9 @@ public sealed class TradingServiceTests
         native.Positions.Add(new ccxt.Position { symbol = "ETH/USDT:USDT", hedged = true });
         native.Positions.Add(new ccxt.Position { symbol = "BTC/USDT:USDT", hedged = true });
         native.Positions.Add(new ccxt.Position { symbol = "BTC/USDT:USDT", hedged = false });
+        var conflictMode = await service.FetchPositionModeAsync(key);
         var conflict = await Assert.ThrowsAsync<TradingServiceException>(() =>
-            service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1)));
+            service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, Hedged: conflictMode)));
         Assert.Contains("did not report", conflict.Message);
         Assert.Equal(1, native.Calls);
     }
@@ -220,7 +224,7 @@ public sealed class TradingServiceTests
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "kraken", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
         await using var service = new FuturesTradingService(profile, native);
         var error = await Assert.ThrowsAsync<TradingServiceException>(() =>
-            service.CreateMarketOrderAsync(new(new("kraken", "futures", "", "BTC/USDT:USDT"), OrderSide.Buy, 1)));
+            service.CreateMarketOrderAsync(new(new("kraken", "futures", "", "BTC/USDT:USDT"), OrderSide.Buy, 1, Hedged: false)));
         Assert.Contains("not supported", error.Message);
         Assert.Equal(0, native.Calls);
         Assert.Equal(0, native.PositionModeCalls);

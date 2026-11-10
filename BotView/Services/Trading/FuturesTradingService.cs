@@ -75,13 +75,6 @@ public sealed class FuturesTradingService : AbstractTradingService
             return await ReadHedgedAsync(key).ConfigureAwait(false);
         }, ct);
 
-    /// <summary>Order creation uses the same exchange report as the account display.</summary>
-    protected override Task<bool?> ResolveHedgedAsync(InstrumentKey key, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        return ReadHedgedAsync(key);
-    }
-
     /// <summary>Prefers the unified position-mode call. Venues that only expose the flag on positions, such as Bybit, use that report instead.</summary>
     private async Task<bool?> ReadHedgedAsync(InstrumentKey key)
     {
@@ -124,6 +117,7 @@ public sealed class FuturesTradingService : AbstractTradingService
     /// <summary>Maps one-way and hedge orders to the venue's explicit parameters. The account mode is never guessed.</summary>
     private Dictionary<string, object> OrderParameters(bool reduceOnly, PositionSide? side, bool? hedged)
     {
+        // The exchange did not report one-way or hedge mode, so the order is refused rather than guessed.
         if (hedged is not bool twoWay)
         {
             throw new TradingServiceException(new("PositionModeUnavailable",
@@ -131,12 +125,16 @@ public sealed class FuturesTradingService : AbstractTradingService
         }
 
         var parameters = CreateParameters();
+        // Reduce-only tells the venue this order may only shrink an existing position.
         if (reduceOnly)
         {
             parameters["reduceOnly"] = true;
         }
+
+        // One-way mode has a single net position, addressed by Buy or Sell alone.
         if (!twoWay)
         {
+            // A Long or Short side belongs to hedge mode and is not accepted here.
             if (side is not null)
             {
                 throw new TradingServiceException(new("PositionSideNotUsed", "One-way mode uses Buy or Sell only."));
@@ -153,6 +151,7 @@ public sealed class FuturesTradingService : AbstractTradingService
             return parameters;
         }
 
+        // Hedge mode keeps long and short open together, so the order must name one of those legs.
         if (side is not (PositionSide.Long or PositionSide.Short))
         {
             throw new TradingServiceException(new("PositionSideRequired", "Select Long or Short for a hedge-mode futures order."));

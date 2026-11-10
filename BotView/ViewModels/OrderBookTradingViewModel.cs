@@ -296,7 +296,7 @@ public sealed partial class OrderBookViewModel
         {
             if (!_disposed && generation == _accountGeneration)
             {
-                _hedged = _trading?.GetHedged(TradingInstrument);
+                _hedged = _trading?.Hedged;
                 _bindingAccount = false;
                 Changed();
             }
@@ -308,7 +308,7 @@ public sealed partial class OrderBookViewModel
     {
         if (!_tradeBusy && _tradingManager is not null && _managerRevision != _tradingManager.Revision) ReloadAccounts();
         if (_trading is null) return;
-        _hedged = _trading.GetHedged(TradingInstrument);
+        _hedged = _trading.Hedged;
         _lastTradingState = _trading.Current;
         var selectedId = SelectedOrder?.Reference;
         var orders = _lastTradingState.Orders.Where(o => o.Reference.Instrument == TradingInstrument)

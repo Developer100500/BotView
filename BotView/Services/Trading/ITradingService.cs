@@ -40,7 +40,7 @@ public interface ITradingService : IAsyncDisposable
     /// <summary>Fetches contract positions; spot returns an empty list.</summary>
     Task<IReadOnlyList<PositionSnapshot>> FetchPositionsAsync(InstrumentKey instrument, CancellationToken ct = default);
 
-    /// <summary>Reads the exchange position mode for one futures instrument.
+    /// <summary>Reads the exchange position mode once when the session first connects, using the initial instrument.
     /// True is hedge (two-way), false is one-way, and null means the exchange did not report it.</summary>
     Task<bool?> FetchPositionModeAsync(InstrumentKey instrument, CancellationToken ct = default);
 

@@ -30,7 +30,8 @@ public abstract class AbstractTradingService : ITradingService
     }
 
     /// <summary>Loads the instrument's units and precision metadata without checking trading funds or limits.</summary>
-    public Task<Instrument> FetchInstrumentAsync(InstrumentKey key, CancellationToken ct = default) => ExecuteAsync(async () =>
+    public Task<Instrument> FetchInstrumentAsync(InstrumentKey key, CancellationToken ct = default) =>
+        ExecuteAsync(async () =>
     {
         ValidateInstrument(key);
         var markets = await Exchange.LoadMarkets().ConfigureAwait(false);
@@ -46,7 +47,8 @@ public abstract class AbstractTradingService : ITradingService
 
     /// <summary>Formats the limit price using the loaded CCXT precision rules.</summary>
     public decimal PriceToPrecision(InstrumentKey key, decimal price) => decimal.Parse(
-        Exchange.priceToPrecision(key.SecurityId, price.ToString(CultureInfo.InvariantCulture))!, CultureInfo.InvariantCulture);
+        Exchange.priceToPrecision(key.SecurityId, price.ToString(CultureInfo.InvariantCulture))!,
+        CultureInfo.InvariantCulture);
 
     /// <summary>Creates one limit order directly through CCXT and returns its detached acknowledgement.</summary>
     public Task<OrderSnapshot> CreateLimitOrderAsync(LimitOrderRequest request, CancellationToken ct = default) =>
@@ -71,8 +73,8 @@ public abstract class AbstractTradingService : ITradingService
         }
 
         var side = request.Side == OrderSide.Buy ? "buy" : "sell";
-        var hedged = await ResolveHedgedAsync(request.Instrument, ct).ConfigureAwait(false);
-        var parameters = CreateLimitOrderParameters(request, hedged);
+        var parameters = CreateLimitOrderParameters(request, request.Hedged);
+        ct.ThrowIfCancellationRequested();
         var order = await Exchange.CreateOrder(request.Instrument.SecurityId, "limit", side,
             (double)amount, (double)price, parameters).ConfigureAwait(false);
         return MapOrder(order, request.Instrument);
@@ -90,9 +92,10 @@ public abstract class AbstractTradingService : ITradingService
         }
 
         var side = request.Side == OrderSide.Buy ? "buy" : "sell";
-        var hedged = await ResolveHedgedAsync(request.Instrument, ct).ConfigureAwait(false);
+        var parameters = CreateMarketOrderParameters(request, request.Hedged);
+        ct.ThrowIfCancellationRequested();
         var order = await Exchange.CreateOrder(request.Instrument.SecurityId, "market", side,
-            (double)amount, null, CreateMarketOrderParameters(request, hedged)).ConfigureAwait(false);
+            (double)amount, null, parameters).ConfigureAwait(false);
         return MapOrder(order, request.Instrument);
     }, ct);
 
@@ -154,14 +157,6 @@ public abstract class AbstractTradingService : ITradingService
         ct.ThrowIfCancellationRequested();
         ValidateInstrument(key);
         throw new NotSupportedException("Position mode applies to futures accounts.");
-    }
-
-    /// <summary>Spot orders are not routed with a futures position mode.</summary>
-    protected virtual Task<bool?> ResolveHedgedAsync(InstrumentKey key, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        ValidateInstrument(key);
-        return Task.FromResult<bool?>(null);
     }
 
     /// <summary>Rejects leverage changes for markets without futures leverage support.</summary>
