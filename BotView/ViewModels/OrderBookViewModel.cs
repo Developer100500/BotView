@@ -139,6 +139,7 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
         Changed();
     }
 
+    /// <summary>Builds visible buckets and marks the current account's live orders independently of Orders windows.</summary>
     public IReadOnlyList<OrderBookRow> GetRows(int count)
     {
         var book = _update?.Snapshot;
@@ -149,7 +150,7 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
         if (_followMarket || _center is null) _center = marketCenter;
         var rows = OrderBookLadder.Build(book, Multiplier, _center.Value, count, _maxVolumes[(int)VolumeCurrency], VolumeCurrency);
         var step = book.Market.TickSize * Multiplier;
-        return rows.Select(row => row with { OwnOrderCount = Orders.Count(o => !TradingAccountSession.Terminal(o.State) && o.Price is { } price &&
+        return rows.Select(row => row with { OwnOrderCount = _ownOrders.Count(o => !TradingAccountSession.Terminal(o.State) && o.Price is { } price &&
             (o.Side == OrderSide.Buy ? decimal.Floor(price / step) : decimal.Ceiling(price / step)) * step == row.Price) }).ToArray();
     }
 
@@ -172,13 +173,12 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
 
     internal static string Format(decimal value) => value.ToString("0.############################", CultureInfo.InvariantCulture);
 
+    /// <summary>Refreshes book bindings and action availability after public or account state changes.</summary>
     private void Changed()
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
         BuyCommand.RaiseCanExecuteChanged();
         SellCommand.RaiseCanExecuteChanged();
-        CancelSelectedCommand?.RaiseCanExecuteChanged();
-        CancelAllCommand?.RaiseCanExecuteChanged();
         ReconnectCommand?.RaiseCanExecuteChanged();
         ApplyLeverageCommand?.RaiseCanExecuteChanged();
     }

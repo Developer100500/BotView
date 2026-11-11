@@ -200,6 +200,7 @@ public sealed class CoinInfoTests
         Assert.Contains("a different coin", vm.StatusText);
     }
 
+    /// <summary>Both Info and the spot-book action target the clicked pair in every supported list.</summary>
     [Fact]
     public void InfoMenuUsesClickedPairAcrossFavoritesMoversAndSearch()
     {
@@ -218,7 +219,7 @@ public sealed class CoinInfoTests
                 item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 Assert.Equal("ENA/USDT", openedPair);
                 var bookItem = Assert.IsType<MenuItem>(menu.Items[1]);
-                Assert.Equal("Order book", bookItem.Header);
+                Assert.Equal("Spot order book", bookItem.Header);
                 bookItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 Assert.Equal("ENA/USDT", bookPair);
             }

@@ -66,7 +66,7 @@ public sealed class OrderPositionDisplayTests
         }
     }
 
-    /// <summary>The real order table must render both Long and Short from mapped exchange replies.</summary>
+    /// <summary>The standalone account-order table must render both Long and Short from mapped exchange replies.</summary>
     [Theory]
     [InlineData("binance", "positionSide", "LONG", "SHORT")]
     [InlineData("binance", "ps", "LONG", "SHORT")]
@@ -77,7 +77,8 @@ public sealed class OrderPositionDisplayTests
         Exception? failure = null;
         var thread = new Thread(() =>
         {
-            OrderBookWindow? window = null;
+            AccountOrdersWindow? window = null;
+            TradingSessionManager? manager = null;
 
             try
             {
@@ -87,8 +88,12 @@ public sealed class OrderPositionDisplayTests
                     MapOrder(key, "long-order", "buy", field, longValue),
                     MapOrder(key, "short-order", "sell", field, shortValue)
                 };
-                window = new OrderBookWindow(venue, key.SecurityId, new Mock<IOrderBookService>().Object,
-                    environment: TradingEnvironment.Testnet, market: TradingMarket.UsdtFutures);
+                var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
+                var store = new Mock<ITradingAccountStore>();
+                store.Setup(s => s.Load()).Returns(new TradingAccountsSettings([profile], new Dictionary<string, Guid>()));
+                using var credentials = new InMemoryCredentialStore();
+                manager = new TradingSessionManager(store.Object, credentials);
+                window = new AccountOrdersWindow(manager, profile, key);
                 var content = (FrameworkElement)window.Content;
                 content.Measure(new Size(1000, 1800));
                 content.Arrange(new Rect(0, 0, 1000, 1800));
@@ -115,8 +120,8 @@ public sealed class OrderPositionDisplayTests
                 if (window is not null)
                 {
                     window.Close();
-                    window.CleanupTask.GetAwaiter().GetResult();
                 }
+                manager?.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
         });
 

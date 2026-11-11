@@ -40,6 +40,8 @@ public sealed class FuturesTradingTests
                 Assert.Contains("USDT", viewModel.QuoteHeader);
                 Assert.False(viewModel.CanTrade);
                 Assert.True(((System.Windows.FrameworkElement)window.FindName("PriceInput")).ActualWidth > 80);
+                var actions = (System.Windows.FrameworkElement)window.FindName("TradeActions");
+                Assert.True(actions.TransformToAncestor(content).Transform(new System.Windows.Point(0, actions.ActualHeight)).Y <= 440);
 
                 var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(320, 440, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
                 bitmap.Render(content);

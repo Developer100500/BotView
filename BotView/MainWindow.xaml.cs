@@ -24,6 +24,7 @@ namespace BotView
         private Point _favoriteDragStart;
         private TradingPairModel? _draggedFavorite;
         private readonly Dictionary<(string Exchange, string Symbol, TradingEnvironment Environment, TradingMarket Market), Windows.OrderBookWindow> _orderBooks = new();
+        private Windows.AccountOrdersWindowRegistry? _ordersWindows;
         private readonly List<Task> _orderBookCleanup = new();
         private Windows.TradingAccountsWindow? _tradingAccountsWindow;
 
@@ -357,7 +358,7 @@ namespace BotView
             menu.IsOpen = true;
         }
 
-        /// <summary>Opens one book per venue/pair/network, using the active profile's environment.</summary>
+        /// <summary>Opens one book per venue/pair/network and routes account windows through MainWindow's registry.</summary>
         private async void OpenOrderBook(string symbol, TradingMarket market)
         {
             if (_viewModel.IsInstrumentCatalogMode) return;
@@ -413,7 +414,8 @@ namespace BotView
                 existing.Activate();
                 return;
             }
-            var window = new Windows.OrderBookWindow(key.Exchange, symbol, App.OrderBookService, App.TradingSessions, environment, market) { Owner = this };
+            var window = new Windows.OrderBookWindow(key.Exchange, symbol, App.OrderBookService, App.TradingSessions, environment, market,
+                (profile, instrument) => (_ordersWindows ??= new(this, App.TradingSessions)).Show(profile, instrument)) { Owner = this };
             _orderBooks.Add(key, window);
             window.Closed += (_, _) =>
             {
@@ -549,10 +551,12 @@ namespace BotView
             }
         }
 
+        /// <summary>Closes all market and account views, then releases application display resources.</summary>
         protected override void OnClosed(EventArgs e)
         {
             try
             {
+                _ordersWindows?.CloseAll();
                 foreach (var window in _orderBooks.Values.ToArray()) window.Close();
                 Task.WhenAll(_orderBookCleanup).GetAwaiter().GetResult();
                 _renderTimeUpdateTimer.Stop();

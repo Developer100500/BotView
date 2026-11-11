@@ -12,16 +12,20 @@ public partial class OrderBookWindow : Window
     private readonly DispatcherTimer _timer;
     public Task CleanupTask { get; private set; } = Task.CompletedTask;
 
-    /// <summary>Opens a network-specific public book with an optional shared account session manager.</summary>
+    /// <summary>Opens a network-specific book and delegates standalone account windows to its MainWindow owner.</summary>
     public OrderBookWindow(string exchange, string symbol, IOrderBookService service,
-        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot)
+        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot,
+        Action<TradingAccountProfile, InstrumentKey>? showOrders = null)
     {
         InitializeComponent();
         _viewModel = new(exchange, symbol, service, trading, environment, market);
-        _viewModel.ConfirmCancelAllAsync = batch => Task.FromResult(MessageBox.Show(this,
-            $"Cancel {batch.Orders.Count} orders for {symbol}?\n{_viewModel.SelectedAccount?.DisplayName}\nAccount: {batch.Account.AccountId}\nIncludes orders created outside BotView.",
-            "Cancel all orders for pair", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes);
+        OrdersButton.Click += (_, _) =>
+        {
+            if (_viewModel.CanOpenOrders && _viewModel.SelectedAccount is { } profile)
+                showOrders?.Invoke(profile, _viewModel.TradingInstrument);
+        };
         DataContext = _viewModel;
+        Root.Configure(BookHeader, DepthSettings, ConnectionStatus, TradeActions, TradeScroll);
         // update order book every 50ms
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(50) };
         _timer.Tick += (_, _) => _viewModel.Refresh();
@@ -32,6 +36,7 @@ public partial class OrderBookWindow : Window
         };
     }
 
+    /// <summary>Stops the public book and UI timer while independent account windows remain open.</summary>
     protected override void OnClosed(EventArgs e)
     {
         _timer.Stop();

@@ -23,6 +23,7 @@ public sealed class OrderBookLadderControl : FrameworkElement
     private IReadOnlyList<OrderBookRow> _rows = [];
     private OrderBookViewModel? _viewModel;
 
+    /// <summary>Attaches to the displayed book and invalidates only the visible ladder.</summary>
     public OrderBookLadderControl()
     {
         ClipToBounds = true;
@@ -97,12 +98,29 @@ public sealed class OrderBookLadderControl : FrameworkElement
         e.Handled = true;
     }
 
-    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    /// <summary>Captures the rendered level before asynchronously selecting its price or placing a limit order.</summary>
+    protected override async void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
-        var index = (int)(e.GetPosition(this).Y / RowHeight);
-        if (index >= 0 && index < _rows.Count) _viewModel?.SelectPrice(_rows[index].Price);
+        var position = e.GetPosition(this);
         Focus();
         e.Handled = true;
+        await ClickAtAsync(position, e.ClickCount);
+    }
+
+    /// <summary>Hit-tests all three columns against the last painted rows, excluding margins and unused space.</summary>
+    internal async Task ClickAtAsync(Point position, int clickCount)
+    {
+        if (position.X < 0 || position.X >= ActualWidth || position.Y < 0 || position.Y >= ActualHeight)
+        {
+            return;
+        }
+
+        var index = (int)(position.Y / RowHeight);
+        if (index >= 0 && index < _rows.Count && _viewModel is { } viewModel)
+        {
+            var row = _rows[index];
+            await viewModel.ClickLevelAsync(row, clickCount);
+        }
     }
 
     private static Brush Frozen(string color)

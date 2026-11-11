@@ -1,210 +1,140 @@
-﻿<Window x:Class="BotView.Windows.OrderBookWindow"
+<Window x:Class="BotView.Windows.OrderBookWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:BotView.Views"
         Title="{Binding Title}" Width="420" Height="820" MinWidth="340" MinHeight="480"
-        Background="#0B1120" Foreground="#E5E7EB" FontFamily="Segoe UI"
-        WindowStartupLocation="CenterOwner">
+        Background="#0B1120" Foreground="#E5E7EB" FontFamily="Segoe UI" WindowStartupLocation="CenterOwner">
     <Window.Resources>
-        <Style TargetType="Button">
-            <Setter Property="Padding" Value="10,6"/>
-            <Setter Property="Background" Value="#263449"/>
-            <Setter Property="Foreground" Value="#F3F4F6"/>
-            <Setter Property="BorderBrush" Value="#475569"/>
-            <Setter Property="Cursor" Value="Hand"/>
-        </Style>
-        <Style TargetType="TextBox">
-            <Setter Property="Padding" Value="6,5"/>
-            <Setter Property="Background" Value="#182235"/>
-            <Setter Property="Foreground" Value="#F3F4F6"/>
-            <Setter Property="BorderBrush" Value="#475569"/>
-        </Style>
+        <ResourceDictionary Source="TradingWindowStyles.xaml"/>
     </Window.Resources>
-    <Grid Margin="10">
+    <views:OrderBookLayoutGrid x:Name="Root" Margin="8" Background="#0B1120">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*" MinHeight="80"/>
+            <RowDefinition Height="*" MinHeight="88"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="1.1*" MinHeight="190"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <Grid Margin="0,0,0,8">
+        <Grid x:Name="BookHeader" Margin="0,0,0,4">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel>
-                <TextBlock Text="{Binding Symbol}" FontSize="19" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding Symbol}" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding Exchange}" Foreground="#94A3B8" FontSize="11"/>
-                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontWeight="Bold" FontSize="11" Margin="5,0,0,0"/>
+                    <TextBlock Text="{Binding EnvironmentText}" Foreground="#FBBF24" FontWeight="SemiBold" FontSize="11" Margin="5,0,0,0"/>
                 </StackPanel>
-                <TextBlock Text="{Binding SelectedAccount.Name}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis">
-                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
-                        <DataTrigger Binding="{Binding SelectedAccount}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
-                    </Style.Triggers></Style></TextBlock.Style>
-                </TextBlock>
             </StackPanel>
-            <Button Grid.Column="1" Content="Center on market" Command="{Binding CenterCommand}" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="Center" Command="{Binding CenterCommand}" VerticalAlignment="Center" ToolTip="Center on market"/>
         </Grid>
-        <Expander Grid.Row="1" Header="Depth display settings" Foreground="#94A3B8" Margin="0,0,0,5">
-        <StackPanel>
-        <Grid Margin="0,0,0,8">
-            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="65"/></Grid.ColumnDefinitions>
-            
-            <TextBlock Grid.Column="1" Text="{Binding StepText}" VerticalAlignment="Center" Margin="4,0,8,0" FontSize="11"/>
-            <ComboBox Grid.Column="2" ItemsSource="{Binding Multipliers}" SelectedItem="{Binding Multiplier}" VerticalContentAlignment="Center"
-                      ToolTip="Exchange price step multiplier">
-                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding StringFormat=×{0}}"/></DataTemplate></ComboBox.ItemTemplate>
-            </ComboBox>
-        </Grid>
-        <Grid Margin="0,0,0,8">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition />
-                <ColumnDefinition Width="105"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Margin="0,0,8,0">
-                <TextBlock Text="{Binding MaxVolumeHeader}" FontSize="10" Margin="0,0,0,2"/>
-                <ComboBox x:Name="VolumeCurrencySelector" ItemsSource="{Binding VolumeCurrencyOptions}"
-                          SelectedValuePath="Currency" DisplayMemberPath="Label" SelectedValue="{Binding VolumeCurrency}"
-                          MinHeight="24" VerticalContentAlignment="Center" ToolTip="Currency used for volume bars and the fill threshold"/>
-            </StackPanel>
-            <TextBox x:Name="MaxVolumeInput" Grid.Column="1" Text="{Binding MaxVolumeText, UpdateSourceTrigger=PropertyChanged}"
-                     VerticalAlignment="Center" ToolTip="Volume in the selected currency for a full-width bar. Leave blank for automatic scaling.">
-                <TextBox.Style>
-                    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding HasVolumeScaleError}" Value="True">
-                                <Setter Property="BorderBrush" Value="#F87171"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TextBox.Style>
-            </TextBox>
-            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding VolumeScaleHint}" FontSize="10" Foreground="#94A3B8"
-                       TextWrapping="Wrap" Margin="0,3,0,0"/>
-        </Grid>
-        </StackPanel>
+        <Expander x:Name="DepthSettings" Grid.Row="1" Header="Depth display settings" Foreground="#94A3B8" Margin="0,0,0,4" MaxHeight="150">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="4,4,0,2">
+                    <WrapPanel Margin="0,0,0,4">
+                        <TextBlock Text="{Binding StepText}" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="11"/>
+                        <ComboBox Width="65" ItemsSource="{Binding Multipliers}" SelectedItem="{Binding Multiplier}" ToolTip="Exchange price step multiplier">
+                            <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding StringFormat=×{0}}"/></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding MaxVolumeHeader}" FontSize="11" Margin="0,0,0,3"/>
+                    <WrapPanel>
+                        <ComboBox x:Name="VolumeCurrencySelector" Width="140" ItemsSource="{Binding VolumeCurrencyOptions}"
+                                  SelectedValuePath="Currency" DisplayMemberPath="Label" SelectedValue="{Binding VolumeCurrency}"
+                                  ToolTip="Currency used for volume bars and the fill threshold" Margin="0,0,6,0"/>
+                        <TextBox x:Name="MaxVolumeInput" Width="100" Text="{Binding MaxVolumeText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Volume for a full-width bar. Blank means automatic scaling.">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasVolumeScaleError}" Value="True"><Setter Property="BorderBrush" Value="#F87171"/></DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding VolumeScaleHint}" Style="{StaticResource OptionalText}" Margin="0,3,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
         </Expander>
-        <Grid Grid.Row="2" Background="#182235" Height="26">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="34*"/>
-                <ColumnDefinition Width="34*"/>
-                <ColumnDefinition Width="32*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
+        <Grid Grid.Row="2" Background="#182235" Height="24">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="34*"/><ColumnDefinition Width="34*"/><ColumnDefinition Width="32*"/></Grid.ColumnDefinitions>
             <TextBlock Text="{Binding BaseHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
             <TextBlock Grid.Column="1" Text="Price" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
             <TextBlock Grid.Column="2" Text="{Binding QuoteHeader}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="4,0,6,0"/>
         </Grid>
-        <views:OrderBookLadderControl x:Name="Ladder" Grid.Row="3" ToolTip="Scroll to browse prices. Click to select an order price. An em dash means depth or monetary valuation data is unavailable."/>
-        <TextBlock Grid.Row="4" Text="{Binding StatusText}" Foreground="#94A3B8" FontSize="10" TextWrapping="Wrap" MaxHeight="44" Margin="0,6"/>
+        <views:OrderBookLadderControl x:Name="Ladder" Grid.Row="3"
+            ToolTip="Scroll to browse prices. Click to select a price. Mouse trading: bid rows Buy, ask rows Sell; spread selects price only. An em dash means depth is unavailable."/>
+        <TextBlock x:Name="ConnectionStatus" Grid.Row="4" Text="{Binding StatusText}" Style="{StaticResource OptionalText}" FontSize="10" MaxHeight="32" Margin="0,4"/>
         <Grid Grid.Row="5">
-        <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel>
-        <ComboBox ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}" DisplayMemberPath="DisplayName"
-                  IsEnabled="{Binding IsTradeEditable}" ToolTip="Accounts for this exchange and network" Margin="0,0,0,4"/>
-        <TextBlock Text="{Binding AccountStatus}" FontSize="10" TextWrapping="Wrap" Foreground="#94A3B8"/>
-        <Button Content="Reconnect account" Command="{Binding ReconnectCommand}" HorizontalAlignment="Left" Padding="5,2" Margin="0,3"/>
-        <TextBlock Text="{Binding AccountIdentity}" FontSize="10" Foreground="#94A3B8"/>
-        <TextBlock Text="{Binding BalanceText}" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,5"/>
-        <ComboBox ItemsSource="{Binding OrderTypes}" SelectedItem="{Binding SelectedOrderType}"
-                  IsEnabled="{Binding IsTradeEditable}" ToolTip="Order type: Limit or Market" Margin="0,4"/>
-        <Grid IsEnabled="{Binding IsTradeEditable}">
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
-            <TextBlock Text="Order price" Foreground="#94A3B8" FontSize="11"/>
-            <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Foreground="#94A3B8" FontSize="11"/>
-            <TextBox x:Name="PriceInput" IsEnabled="{Binding IsLimitOrder}" Grid.Row="1" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
-            <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,7"/>
-            <CheckBox Grid.Row="2" Content="Post-only" IsEnabled="{Binding IsLimitOrder}" IsChecked="{Binding PostOnly}" Foreground="#E5E7EB" ToolTip="Unchecked: ordinary GTC limit order"/>
-            <ComboBox Grid.Row="2" Grid.Column="2" IsEnabled="{Binding CanSelectQuantityCurrency}" ItemsSource="{Binding QuantityCurrencies}" SelectedItem="{Binding QuantityCurrency}" ToolTip="Order quantity unit; independent of depth volume bars"/>
-            <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding OrderPreview}" FontSize="10" TextWrapping="Wrap" Margin="0,4"/>
-        </Grid>
-        <StackPanel IsEnabled="{Binding IsTradeEditable}" Margin="0,4">
-            <StackPanel.Style>
-                <Style TargetType="StackPanel">
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsFutures}" Value="False">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </StackPanel.Style>
-            <TextBlock Text="Leverage (x)" Foreground="#94A3B8" FontSize="11"/>
-            <Grid Margin="0,3,0,5">
-                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <ComboBox x:Name="LeverageInput" IsEditable="True" ItemsSource="{Binding LeverageOptions}"
-                          Text="{Binding LeverageText, UpdateSourceTrigger=PropertyChanged}"
-                          ToolTip="Enter a whole number of at least 1. The exchange checks the allowed maximum. One value applies to this instrument."/>
-                <Button Grid.Column="1" Content="Apply leverage" Command="{Binding ApplyLeverageCommand}" Margin="6,0,0,0" Padding="6,2"/>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <ScrollViewer x:Name="TradeScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <ComboBox x:Name="AccountSelector" ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
+                                  IsEnabled="{Binding IsTradeEditable}" MaxWidth="240" HorizontalAlignment="Stretch"
+                                  ToolTip="{Binding SelectedAccount.DisplayName}" Margin="0,0,6,0">
+                            <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}"/></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button x:Name="OrdersButton" Grid.Column="1" Content="Orders" IsEnabled="{Binding CanOpenOrders}"/>
+                    </Grid>
+                    <TextBlock Text="{Binding BalanceText}" Style="{StaticResource OptionalText}" Foreground="#E5E7EB" Margin="0,0,0,3"/>
+                    <Expander Header="{Binding AccountConnectionText}" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,4">
+                        <StackPanel Margin="4,3,0,3">
+                            <TextBlock Text="{Binding AccountStatus}" Style="{StaticResource OptionalText}"/>
+                            <TextBlock Text="{Binding AccountIdentity}" Style="{StaticResource OptionalText}"/>
+                            <Button Content="Reconnect" Command="{Binding ReconnectCommand}" HorizontalAlignment="Left" Margin="0,3,0,0"/>
+                        </StackPanel>
+                    </Expander>
+                    <WrapPanel IsEnabled="{Binding IsTradeEditable}" Margin="0,0,0,4">
+                        <ComboBox Width="85" ItemsSource="{Binding OrderTypes}" SelectedItem="{Binding SelectedOrderType}" ToolTip="Order type" Margin="0,0,6,0"/>
+                        <ComboBox Width="85" IsEnabled="{Binding CanSelectQuantityCurrency}" ItemsSource="{Binding QuantityCurrencies}" SelectedItem="{Binding QuantityCurrency}" ToolTip="Quantity unit; independent of volume bars" Margin="0,0,10,0"/>
+                        <CheckBox Content="Post-only" IsEnabled="{Binding IsLimitOrder}" IsChecked="{Binding PostOnly}" VerticalAlignment="Center" ToolTip="Unchecked: ordinary GTC limit order"/>
+                    </WrapPanel>
+                    <Grid IsEnabled="{Binding IsTradeEditable}">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="8"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                        <TextBlock Text="Order price" Foreground="#94A3B8" FontSize="11"/>
+                        <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Foreground="#94A3B8" FontSize="11"/>
+                        <TextBox x:Name="PriceInput" Grid.Row="1" IsEnabled="{Binding IsLimitOrder}" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,4"/>
+                        <TextBox x:Name="QuantityInput" Grid.Row="1" Grid.Column="2" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,4"/>
+                    </Grid>
+                    <CheckBox x:Name="MouseTradingCheckBox" Content="Mouse trading" IsChecked="{Binding MouseTrading}" IsEnabled="{Binding CanSelectMouseTrading}"
+                              ToolTip="Left click on bid rows sends Buy; ask rows send Sell. Spread selects price only. Uses Quantity and current order options." Margin="0,0,0,4"/>
+                    <StackPanel>
+                        <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers>
+                            <DataTrigger Binding="{Binding IsFutures}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                        </Style.Triggers></Style></StackPanel.Style>
+                        <WrapPanel IsEnabled="{Binding IsTradeEditable}" Margin="0,0,0,4">
+                            <CheckBox Content="Reduce-only" IsChecked="{Binding ReduceOnly}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox Width="85" ItemsSource="{Binding PositionTargets}" SelectedItem="{Binding PositionTarget}" ToolTip="Hedge-mode position leg">
+                                <ComboBox.Style><Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowPositionSide}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                                </Style.Triggers></Style></ComboBox.Style>
+                            </ComboBox>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding PositionModeText}" Style="{StaticResource OptionalText}"/>
+                        <Expander Header="Leverage and positions" Foreground="#94A3B8" FontSize="11" Margin="0,3,0,4">
+                            <StackPanel Margin="4,3,0,0">
+                                <WrapPanel IsEnabled="{Binding IsTradeEditable}">
+                                    <ComboBox x:Name="LeverageInput" Width="70" IsEditable="True" ItemsSource="{Binding LeverageOptions}" Text="{Binding LeverageText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Leverage (x)" Margin="0,0,6,0"/>
+                                    <Button Content="Apply leverage" Command="{Binding ApplyLeverageCommand}"/>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding PositionsText}" Style="{StaticResource OptionalText}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </Expander>
+                        <TextBlock Text="{Binding MarginPreview}" Style="{StaticResource OptionalText}"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding OrderPreview}" Style="{StaticResource OptionalText}" FontSize="10" Margin="0,2"/>
+                    <TextBlock Text="{Binding TradingInputHint}" Style="{StaticResource OptionalText}" Foreground="#FBBF24"/>
+                    <TextBlock Text="{Binding TradeStatus}" Style="{StaticResource OptionalText}" Foreground="#FBBF24" Margin="0,2"/>
+                </StackPanel>
+            </ScrollViewer>
+            <Grid x:Name="TradeActions" Grid.Row="1" Margin="0,5,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="8"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <Button Content="Buy" Command="{Binding BuyCommand}" Background="#22613B"/>
+                <Button Grid.Column="2" Content="Sell" Command="{Binding SellCommand}" Background="#873C43"/>
             </Grid>
-            <TextBlock Text="{Binding MarginPreview}" TextWrapping="Wrap" FontSize="10" Foreground="#94A3B8" Margin="0,2,0,5"
-                       ToolTip="Opening margin estimate = formatted quantity × contract size × price / selected leverage. Apply leverage separately. Exchange requirements depend on positions and margin mode; fees and maintenance margin are excluded."/>
-            <TextBlock Text="{Binding PositionModeText}" TextWrapping="Wrap" FontSize="10" Foreground="#94A3B8" Margin="0,0,0,3"/>
-            <CheckBox Content="Reduce-only" IsChecked="{Binding ReduceOnly}" Foreground="#E5E7EB"/>
-            <ComboBox ItemsSource="{Binding PositionTargets}" SelectedItem="{Binding PositionTarget}"
-                      ToolTip="Hedge mode: the Long or Short position this order changes.">
-                <ComboBox.Style>
-                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
-                        <Setter Property="Visibility" Value="Visible"/>
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding ShowPositionSide}" Value="False">
-                                <Setter Property="Visibility" Value="Collapsed"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </ComboBox.Style>
-            </ComboBox>
-            <TextBlock Text="{Binding PositionsText}" TextWrapping="Wrap" FontSize="10"/>
-        </StackPanel>
-        <TextBlock Text="{Binding TradingInputHint}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11"/>
-        <TextBlock Text="{Binding TradeStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="0,4"/>
-        <TextBlock Text="Account orders for this pair" FontSize="11" Margin="0,5"/>
-        <DataGrid ItemsSource="{Binding Orders}" SelectedItem="{Binding SelectedOrder}" IsReadOnly="True" AutoGenerateColumns="False"
-                  MaxHeight="150" MinHeight="55" Background="#182235" Foreground="#172033" SelectionMode="Single"
-                  CanUserAddRows="False" HeadersVisibility="Column" HorizontalScrollBarVisibility="Auto">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Side" Binding="{Binding Side}"/>
-                <DataGridTextColumn Header="Position" Binding="{Binding PositionSide}"/>
-                <DataGridTextColumn Header="Reduce-only" Binding="{Binding ReduceOnly}"/>
-                <DataGridTextColumn Header="Price" Binding="{Binding Price}"/>
-                <DataGridTextColumn Header="Quantity" Binding="{Binding Quantity}"/>
-                <DataGridTextColumn Header="Filled" Binding="{Binding FilledQuantity}"/>
-                <DataGridTextColumn Header="Remaining" Binding="{Binding RemainingQuantity}"/>
-                <DataGridTextColumn Header="State" Binding="{Binding State}"/>
-                <DataGridTextColumn Header="Reason" Binding="{Binding StatusReason}"/>
-                <DataGridTextColumn Header="Order ID" Binding="{Binding Reference.ExchangeOrderId}"/>
-            </DataGrid.Columns>
-        </DataGrid>
-        <WrapPanel Margin="0,5">
-            <Button Content="Cancel selected" Command="{Binding CancelSelectedCommand}" Margin="0,0,5,0"/>
-            <Button Content="Cancel all for pair" Command="{Binding CancelAllCommand}"/>
-        </WrapPanel>
-        <TextBlock Text="Recent executions" FontSize="11" Margin="0,5"/>
-        <ItemsControl ItemsSource="{Binding Executions}">
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <TextBlock FontSize="10" TextWrapping="Wrap">
-                        <Run Text="{Binding ExecutedAt, StringFormat=HH:mm:ss}"/><Run Text=" "/>
-                        <Run Text="{Binding Side}"/><Run Text=" "/><Run Text="{Binding Quantity}"/>
-                        <Run Text=" @ "/><Run Text="{Binding Price}"/>
-                        <Run Text=" · Fee: "/><Run Text="{Binding Fee.Amount}"/><Run Text=" "/>
-                        <Run Text="{Binding Fee.Currency}"/>
-                    </TextBlock>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        </StackPanel>
-        </ScrollViewer>
-        <Grid Grid.Row="1" Margin="0,4,0,0">
-            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
-            <Button Content="Buy" Command="{Binding BuyCommand}" Background="#22613B"/>
-            <Button Grid.Column="2" Content="Sell" Command="{Binding SellCommand}" Background="#873C43"/>
         </Grid>
-        </Grid>
-    </Grid>
+    </views:OrderBookLayoutGrid>
 </Window>
