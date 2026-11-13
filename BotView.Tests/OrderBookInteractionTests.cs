@@ -110,6 +110,7 @@ public sealed class OrderBookInteractionTests
     [Theory]
     [InlineData("stale")]
     [InlineData("reconnecting")]
+    [InlineData("missing")]
     [InlineData("quantity")]
     [InlineData("account")]
     public async Task UnavailableInputsBlockMouseOrdersWithoutDisarming(string failure)
@@ -119,6 +120,7 @@ public sealed class OrderBookInteractionTests
         fixture.Book.MouseTrading = true;
         if (failure == "stale") fixture.Update = fixture.Update with { Snapshot = fixture.Update.Snapshot! with { ReceivedAt = DateTimeOffset.UtcNow.AddSeconds(-30) } };
         if (failure == "reconnecting") fixture.Update = fixture.Update with { Connection = OrderBookConnection.Reconnecting };
+        if (failure == "missing") fixture.Update = fixture.Update with { Snapshot = null };
         if (failure == "quantity") fixture.Book.AmountText = "0";
         if (failure == "account") fixture.Keys.Delete(fixture.Profile.Id);
 
@@ -126,7 +128,30 @@ public sealed class OrderBookInteractionTests
 
         Assert.Empty(fixture.Sent);
         Assert.NotEmpty(fixture.Book.TradeStatus);
+        if (failure == "stale") Assert.Contains("no order-book update for 30.", fixture.Book.TradeStatus);
+        if (failure == "reconnecting") Assert.Contains("feed is Reconnecting", fixture.Book.TradeStatus);
+        if (failure == "missing") Assert.Contains("depth snapshot", fixture.Book.TradeStatus);
         Assert.True(fixture.Book.MouseTrading);
+    }
+
+    /// <summary>Fresh subscription data clears the block on the next explicit click, even before the UI timer runs.</summary>
+    [Fact]
+    public async Task FreshDepthAfterAPauseAllowsAnExplicitMouseOrder()
+    {
+        await using var fixture = new Fixture();
+        await fixture.ReadyAsync();
+        fixture.Book.MouseTrading = true;
+        fixture.Update = fixture.Update with { Snapshot = fixture.Update.Snapshot! with { ReceivedAt = DateTimeOffset.UtcNow.AddSeconds(-30) } };
+        fixture.Book.Refresh();
+        await fixture.Book.ClickLevelAsync(Row(90, OrderBookSide.Bid));
+        Assert.Empty(fixture.Sent);
+        Assert.Contains("no order-book update", fixture.Book.TradeStatus);
+
+        fixture.Update = fixture.Update with { Snapshot = fixture.Update.Snapshot! with { ReceivedAt = DateTimeOffset.UtcNow } };
+        await fixture.Book.ClickLevelAsync(Row(90, OrderBookSide.Bid));
+
+        Assert.Single(fixture.Sent);
+        Assert.DoesNotContain("no order-book update", fixture.Book.TradeStatus);
     }
 
     /// <summary>Market cannot arm mouse trading; account changes and reconnects retain the explicit choice.</summary>

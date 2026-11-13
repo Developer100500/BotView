@@ -348,10 +348,10 @@ public sealed partial class OrderBookViewModel
         }
 
         var latest = _subscription?.Current ?? _update;
-        if (latest?.Connection != OrderBookConnection.Live || latest.Snapshot is not { } snapshot ||
-            DateTimeOffset.UtcNow - snapshot.ReceivedAt > TimeSpan.FromSeconds(10))
+        var unavailableReason = MouseTradingUnavailableReason(latest);
+        if (unavailableReason is not null)
         {
-            _tradeStatus = "Mouse trading requires a fresh, connected order book.";
+            _tradeStatus = unavailableReason;
             Changed();
             return;
         }
@@ -364,6 +364,33 @@ public sealed partial class OrderBookViewModel
         }
 
         await TradeAsync(row.Side == OrderBookSide.Bid ? OrderSide.Buy : OrderSide.Sell);
+    }
+
+    /// <summary>Distinguishes a disconnected public subscription from missing or stale depth, independently of account health.</summary>
+    private static string? MouseTradingUnavailableReason(OrderBookUpdate? update)
+    {
+        if (update is null)
+        {
+            return "Mouse trading: waiting for the first order-book update.";
+        }
+
+        if (update.Connection != OrderBookConnection.Live)
+        {
+            return $"Mouse trading: order-book feed is {update.Connection}. {update.Message}";
+        }
+
+        if (update.Snapshot is not { } snapshot)
+        {
+            return "Mouse trading: the order-book feed has not supplied a depth snapshot yet.";
+        }
+
+        var age = DateTimeOffset.UtcNow - snapshot.ReceivedAt;
+        if (age > TimeSpan.FromSeconds(10))
+        {
+            return FormattableString.Invariant($"Mouse trading: no order-book update for {age.TotalSeconds:0.0} s (limit: 10 s). Last received at {snapshot.ReceivedAt.ToLocalTime():HH:mm:ss}.");
+        }
+
+        return null;
     }
 
     /// <summary>Freezes a request before awaiting, preventing edits or another Buy/Sell from changing the request.</summary>
