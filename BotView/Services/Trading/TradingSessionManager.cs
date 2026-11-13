@@ -7,7 +7,7 @@ public sealed class TradingSessionManager : IAsyncDisposable
 {
     private readonly ITradingAccountStore _profiles;
     private readonly ICredentialStore _credentials;
-    private readonly Func<TradingAccountProfile, AccountCredentials, ITradingService> _factory;
+    private readonly Func<TradingAccountProfile, AccountCredentials?, ITradingService> _factory;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sync = new();
     private readonly Dictionary<Guid, TradingAccountSession> _sessions = new();
@@ -24,7 +24,7 @@ public sealed class TradingSessionManager : IAsyncDisposable
 
     /// <summary>Injects a deterministic exchange adapter factory for tests.</summary>
     internal TradingSessionManager(ITradingAccountStore profiles, ICredentialStore credentials,
-        Func<TradingAccountProfile, AccountCredentials, ITradingService> factory)
+        Func<TradingAccountProfile, AccountCredentials?, ITradingService> factory)
     {
         _profiles = profiles;
         _credentials = credentials;
@@ -50,8 +50,9 @@ public sealed class TradingSessionManager : IAsyncDisposable
             var revision = Revision;
             var profile = _profiles.Load().Profiles.SingleOrDefault(p => p.Id == profileId)
                 ?? throw new TradingServiceException(new("ProfileMissing", "The selected account no longer exists."));
-            using var credentials = _credentials.Read(profileId)
-                ?? throw new TradingServiceException(new("KeysRequired", "Enter and save this account's API keys first."));
+            using var credentials = profile.Exchange == "quik" ? null : _credentials.Read(profileId);
+            if (profile.Exchange != "quik" && credentials is null)
+                throw new TradingServiceException(new("KeysRequired", "Enter and save this account's API keys first."));
             ITradingService? client = null;
             try
             {

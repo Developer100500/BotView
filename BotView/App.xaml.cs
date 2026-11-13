@@ -7,6 +7,7 @@ using BotView.Configuration;
 using BotView.Services;
 using BotView.Services.Integrations.Ccxt;
 using BotView.Services.Integrations.Quik;
+using BotView.Services.Commands;
 
 namespace BotView
 {
@@ -25,6 +26,8 @@ namespace BotView
         public static ICredentialStore TradingCredentials { get; } = new WindowsCredentialStore();
         public static IAccountConnectionVerifier AccountVerifier { get; } = new AccountConnectionVerifier();
         public static TradingSessionManager TradingSessions { get; } = new(TradingAccounts, TradingCredentials);
+        public static BookCommandSettingsStore BookCommands { get; } = new();
+        public static BookCommandInputRouter? CommandInput { get; private set; }
         private static readonly HttpClient QuoteHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
         private static readonly HttpClient CoinInfoHttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
         public static TimeSpan RealtimePollInterval { get; set; } = TimeSpan.FromSeconds(1);
@@ -42,6 +45,7 @@ namespace BotView
             
             // Инициализация сервисов при запуске приложения
             InitializeServices();
+            CommandInput = new BookCommandInputRouter();
         }
 
         /// <summary>
@@ -105,6 +109,7 @@ namespace BotView
         /// <summary>Stops account supervision and closes credential storage; saved keys and exchange orders remain.</summary>
         protected override void OnExit(ExitEventArgs e)
         {
+            CommandInput?.Dispose();
             TradingSessions.DisposeAsync().AsTask().GetAwaiter().GetResult();
             TradingCredentials.Dispose();
             // Логирование завершения приложения

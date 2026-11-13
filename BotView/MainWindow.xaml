@@ -261,6 +261,7 @@
                 </Grid>
                 <StackPanel Grid.Column="4" Orientation="Horizontal"
                         HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                <Button Content="Горячие клавиши" Click="OpenHotkeys" Margin="0,0,6,5" Padding="10,4"/>
                 <Button Content="Trading accounts" Click="OpenTradingAccounts"
                         VerticalAlignment="Bottom" Margin="0,0,0,5"
                         FontSize="14" Padding="10,4"/>
@@ -567,6 +568,7 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                     <TextBlock Text="{Binding CatalogErrorText}" Foreground="#FBBF24" TextWrapping="Wrap"/>
                 </StackPanel>
                 <DataGrid Grid.Row="2" ItemsSource="{Binding CatalogRows}" AutoGenerateColumns="False" IsReadOnly="True"
+                          PreviewMouseRightButtonDown="CatalogContextMenu"
                           CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="True"
                           EnableRowVirtualization="True" EnableColumnVirtualization="True"
                           VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
@@ -600,7 +602,7 @@ Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="2,0,0,10"/>
                 </DataGrid>
                 <DockPanel Grid.Row="3" Margin="0,10,0,0">
                     <TextBlock Text="{Binding CatalogCountText}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                    <TextBlock Text="Terminal catalog · Charts and trading are not yet available"
+                    <TextBlock Text="ПКМ → Стакан · QUIK только чтение · новые команды: stubs"
                                Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
                 </DockPanel>
             </Grid>

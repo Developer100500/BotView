@@ -23,6 +23,14 @@ public sealed class OrderBookLadderControl : FrameworkElement
     private IReadOnlyList<OrderBookRow> _rows = [];
     private OrderBookViewModel? _viewModel;
 
+    /// <summary>Returns only an actually painted row; margins and unloaded depth remain unknown.</summary>
+    internal decimal? PriceAt(Point position)
+    {
+        var index = (int)(position.Y / RowHeight);
+        return position.X >= 0 && position.X < ActualWidth && position.Y >= 0 && position.Y < ActualHeight &&
+            index >= 0 && index < _rows.Count ? _rows[index].Price : null;
+    }
+
     /// <summary>Attaches to the displayed book and invalidates only the visible ladder.</summary>
     public OrderBookLadderControl()
     {

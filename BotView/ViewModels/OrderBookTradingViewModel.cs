@@ -19,9 +19,10 @@ public sealed partial class OrderBookViewModel
     private Task _bindTask = Task.CompletedTask;
 
     public TradingEnvironment Environment { get; private set; }
-    public string EnvironmentText => Environment == TradingEnvironment.Testnet ? "Testnet" : "MAINNET · live trading";
-    public bool IsFutures => Market == TradingMarket.UsdtFutures;
-    public InstrumentKey TradingInstrument => new(Exchange, IsFutures ? "futures" : "spot", "", Symbol);
+    public string EnvironmentText => IsQuik ? "QUIK · только чтение" : Environment == TradingEnvironment.Testnet ? "Testnet" : "MAINNET · live trading";
+    public bool IsQuik => Market is TradingMarket.MoexShares or TradingMarket.MoexFutures;
+    public bool IsFutures => Market is TradingMarket.UsdtFutures or TradingMarket.MoexFutures;
+    public InstrumentKey TradingInstrument => _listedInstrument?.Key ?? new(Exchange, IsFutures ? "futures" : "spot", "", Symbol);
     private bool _reduceOnly;
     private bool? _hedged;
     private string _positionTarget = "Long";
@@ -39,9 +40,10 @@ public sealed partial class OrderBookViewModel
     private PositionSide? SelectedPositionSide => ShowPositionSide
         ? PositionTarget == "Long" ? PositionSide.Long : PositionSide.Short
         : null;
-    public string PositionsText => !IsFutures ? "" : string.Join(" · ", (_trading?.Current.Balance?.Positions ?? [])
+    public string PositionsText => !IsFutures && !IsQuik ? "" : string.Join(" · ", (_trading?.Current.Balance?.Positions ?? [])
         .Where(p => p.Instrument == TradingInstrument)
-        .Select(p => $"{p.Side}: {p.Quantity} contracts · {p.Leverage}x · {p.MarginMode} · PnL {p.UnrealizedPnl?.Amount} USDT"));
+        .Select(p => IsQuik ? $"{p.Side}: {p.Quantity} {p.QuantityUnit} · average {p.AveragePrice?.ToString() ?? "?"}"
+            : $"{p.Side}: {p.Quantity} contracts · {p.Leverage}x · {p.MarginMode} · PnL {p.UnrealizedPnl?.Amount} USDT"));
     private string _leverageText = "";
     public string[] LeverageOptions { get; } = ["1", "2", "3", "5", "10", "20", "25", "50", "100"];
     public RelayCommand ApplyLeverageCommand { get; private set; } = null!;
@@ -62,7 +64,7 @@ public sealed partial class OrderBookViewModel
         }
     }
 
-    public bool CanApplyLeverage => !_disposed && IsFutures && IsTradeEditable &&
+    public bool CanApplyLeverage => !IsQuik && !_disposed && IsFutures && IsTradeEditable &&
         _trading?.Current.Connected == true && int.TryParse(LeverageText, out var leverage) && leverage >= 1;
 
     public ObservableCollection<TradingAccountProfile> Accounts { get; } = new();
@@ -70,8 +72,9 @@ public sealed partial class OrderBookViewModel
     public OrderQuantityCurrency[] QuantityCurrencies { get; } = [OrderQuantityCurrency.Base, OrderQuantityCurrency.Quote];
     public RelayCommand ReconnectCommand { get; private set; } = null!;
     public bool CanOpenOrders => !_disposed && SelectedAccount is not null && _tradingManager is not null;
+    internal string? ConnectedAccountId => _trading?.Account.AccountId;
     public bool IsTradeEditable => !_tradeBusy && !_bindingAccount;
-    public bool CanSelectMouseTrading => !_disposed && IsLimitOrder && !_tradeBusy;
+    public bool CanSelectMouseTrading => !IsQuik && !_disposed && IsLimitOrder && !_tradeBusy;
 
     /// <summary>Keeps the explicit mouse-trading choice across account changes, but never enables it for Market.</summary>
     public bool MouseTrading
@@ -93,7 +96,9 @@ public sealed partial class OrderBookViewModel
         : _trading?.Current.Connected == true ? "Account: connected" : "Account: disconnected";
     public string AccountIdentity => _trading is null ? "" : _trading.Account.AccountId.StartsWith("key:", StringComparison.Ordinal)
         ? "Account verified by this API key" : _trading.Account.AccountId;
-    public string BalanceText => IsFutures ? $"Available margin: {_trading?.Current.Balance?.Margins?.FirstOrDefault(m => m.Currency == "USDT")?.AvailableFunds?.ToString() ?? "?"} USDT" : _trading?.Current.Balance?.Balances is { } balances
+    public string BalanceText => IsQuik ? string.Join(" · ", (_trading?.Current.Balance?.Balances ?? []).Select(b => $"{b.Currency}: {b.Total} / free {b.Available}")
+        .Concat((_trading?.Current.Balance?.Margins ?? []).Select(m => $"{m.Currency}: margin available {m.AvailableFunds}")))
+        : IsFutures ? $"Available margin: {_trading?.Current.Balance?.Margins?.FirstOrDefault(m => m.Currency == "USDT")?.AvailableFunds?.ToString() ?? "?"} USDT" : _trading?.Current.Balance?.Balances is { } balances
         ? string.Join(" · ", balances.Where(b => b.Currency == Symbol.Split('/')[0] || b.Currency == Symbol.Split('/').Last().Split(':')[0])
             .Select(b => $"{b.Currency}: {b.Available?.ToString() ?? "?"} free")) : "Balance unavailable";
 
@@ -175,6 +180,7 @@ public sealed partial class OrderBookViewModel
         get
         {
             if (_bindingAccount) return "Connecting account…";
+            if (IsQuik) return "QUIK: только чтение. Новые команды вызывают заглушки.";
             if (_trading is null) return "Select an account with API keys.";
             if (!_trading.Current.Connected) return "Reconnect the trading account.";
             if (IsFutures && _hedged is null) return "The exchange did not report whether this account is in one-way or hedge mode.";
@@ -207,7 +213,7 @@ public sealed partial class OrderBookViewModel
     {
         get
         {
-            if (!IsFutures)
+            if (!IsFutures || IsQuik)
             {
                 return "";
             }
@@ -274,7 +280,8 @@ public sealed partial class OrderBookViewModel
             var settings = _tradingManager.Settings();
             var oldId = _selectedAccount?.Id;
             Accounts.Clear();
-            foreach (var profile in settings.Profiles.Where(p => p.Exchange == Exchange && p.Environment == Environment && p.Market == Market)) Accounts.Add(profile);
+            foreach (var profile in settings.Profiles.Where(p => p.Exchange == Exchange && p.Environment == Environment && p.Market == Market &&
+                (!IsQuik || p.Quik is { } q && ConnectionId == $"quik:{q.Host}:{q.Port}"))) Accounts.Add(profile);
             _selectedAccount = Accounts.FirstOrDefault(p => p.Id == oldId)
                 ?? Accounts.FirstOrDefault(p => p.Id == settings.ActiveProfiles.GetValueOrDefault(Exchange));
             _bindTask = BindAccountAsync();

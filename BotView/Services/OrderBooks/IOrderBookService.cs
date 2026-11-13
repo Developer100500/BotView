@@ -4,6 +4,11 @@ namespace BotView.Services.OrderBooks;
 
 public interface IOrderBookService
 {
+    /// <summary>Routes a complete listing and connection without discarding the MOEX trading class.</summary>
+    Task<IOrderBookSubscription> SubscribeAsync(string connection, Instrument instrument, TradingEnvironment environment,
+        TradingMarket market, CancellationToken ct = default) =>
+        SubscribeAsync(instrument.Key.Venue, instrument.Symbol, environment, market, ct);
+
     Task<IOrderBookSubscription> SubscribeAsync(string exchange, string symbol, CancellationToken ct = default);
 
     /// <summary>Testnet requests must never fall back to production market depth.</summary>

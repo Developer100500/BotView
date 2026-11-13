@@ -29,6 +29,8 @@
                     <DataGrid x:Name="OrdersTable" ItemsSource="{Binding Orders}" SelectedItem="{Binding SelectedOrder}"
                               IsReadOnly="True" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single">
                         <DataGrid.Columns>
+                            <DataGridTextColumn Header="Type" Binding="{Binding Type}"/>
+                            <DataGridTextColumn Header="Category" Binding="{Binding Reference.Category}"/>
                             <DataGridTextColumn Header="Side" Binding="{Binding Side}"/>
                             <DataGridTextColumn Header="Position" Binding="{Binding PositionSide}"/>
                             <DataGridTextColumn Header="Reduce-only" Binding="{Binding ReduceOnly}"/>

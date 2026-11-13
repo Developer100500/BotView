@@ -69,6 +69,13 @@
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <ScrollViewer x:Name="TradeScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
+                    <WrapPanel>
+                        <Button x:Name="CommandSettingsButton" Content="Настройки (F4)" Margin="0,0,4,4"/>
+                        <Button x:Name="HotkeysButton" Content="Горячие клавиши" Margin="0,0,0,4"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="WorkingVolumeUnits" Foreground="#94A3B8" FontSize="11"/>
+                    <WrapPanel x:Name="WorkingVolumes"/>
+                    <TextBlock x:Name="CommandStatus" Foreground="#FBBF24" TextWrapping="Wrap" MaxHeight="78" FontSize="10" Margin="0,2,0,6"/>
                     <Grid Margin="0,0,0,4">
                         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <ComboBox x:Name="AccountSelector" ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
@@ -79,6 +86,7 @@
                         <Button x:Name="OrdersButton" Grid.Column="1" Content="Orders" IsEnabled="{Binding CanOpenOrders}"/>
                     </Grid>
                     <TextBlock Text="{Binding BalanceText}" Style="{StaticResource OptionalText}" Foreground="#E5E7EB" Margin="0,0,0,3"/>
+                    <TextBlock Text="{Binding PositionsText}" Style="{StaticResource OptionalText}" Margin="0,0,0,3"/>
                     <Expander Header="{Binding AccountConnectionText}" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,4">
                         <StackPanel Margin="4,3,0,3">
                             <TextBlock Text="{Binding AccountStatus}" Style="{StaticResource OptionalText}"/>

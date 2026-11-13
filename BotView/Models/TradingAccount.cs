@@ -4,10 +4,14 @@ using System.Text.Json.Serialization;
 namespace BotView.Models;
 
 public enum TradingEnvironment { Testnet, Production }
-public enum TradingMarket { Spot, UsdtFutures }
+public enum TradingMarket { Spot, UsdtFutures, MoexShares, MoexFutures }
+
+/// <summary>Terminal routing metadata; it contains no API credentials.</summary>
+public sealed record QuikAccountOptions(string Host, int Port, string FirmId, string ClientCode,
+    string TradeAccount, int LimitKind);
 
 public sealed record TradingAccountProfile(Guid Id, string Name, string Exchange,
-    TradingEnvironment Environment, TradingMarket Market = TradingMarket.Spot)
+    TradingEnvironment Environment, TradingMarket Market = TradingMarket.Spot, QuikAccountOptions? Quik = null)
 {
     public string DisplayName => @$"{Name} · {Exchange} · {Market} · 
             {(Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet")}";

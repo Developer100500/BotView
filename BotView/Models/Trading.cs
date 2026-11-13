@@ -20,7 +20,8 @@ public sealed record MarketOrderRequest(InstrumentKey Instrument, OrderSide Side
     bool ReduceOnly = false, PositionSide? PositionSide = null, bool? Hedged = null);
 
 /// <summary>Exchange order identity is scoped by the bound account and full listing key.</summary>
-public sealed record OrderReference(InstrumentKey Instrument, string ExchangeOrderId);
+public enum OrderCategory { Regular, Conditional }
+public sealed record OrderReference(InstrumentKey Instrument, string ExchangeOrderId, OrderCategory Category = OrderCategory.Regular);
 
 /// <summary>All quantities use the same unit. Open orders can be partially filled; canceled/expired
 /// orders can retain fills. Unknown fields remain null, not zero.</summary>

@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using BotView.Services;
 using BotView.Models;
+using BotView.Configuration;
+using BotView.Services.Integrations.Quik;
 
 namespace BotView.ViewModels;
 
@@ -33,8 +35,8 @@ public sealed class TradingAccountItem : INotifyPropertyChanged
     public bool IsChecking { get; private set; }
     public AccountVerificationResult? Result { get; private set; }
     public string DisplayName => Profile.DisplayName;
-    public string EnvironmentText => Profile.Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet";
-    public string Status => IsChecking ? "Verifying…" : !HasCredentials ? "Keys required"
+    public string EnvironmentText => Profile.Exchange == "quik" ? "Терминал QUIK · чтение" : Profile.Environment == TradingEnvironment.Testnet ? "Testnet" : "Mainnet";
+    public string Status => IsChecking ? "Verifying…" : !HasCredentials && Profile.Exchange != "quik" ? "Keys required"
         : Result is null ? "Not verified" : Result.Connected ? "Connected" : "Error";
     public string ActiveText => IsActive ? "Selected for exchange" : "";
     public string PermissionText => $"Trading: {Permission(Result?.Permissions.CanTrade)} · Withdrawals: {Permission(Result?.Permissions.CanWithdraw)}";
@@ -71,6 +73,11 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     private string _message = "Add an account profile or select an existing one.";
     private bool _hasCredentialInput; // whether the user has entered any credentials in the input fields
     private bool _hasCompleteCredentials; // all required credentials have been entered
+    private string _quikHost = "127.0.0.1";
+    private int _quikPort = 34130;
+    private string _quikPortText = "34130";
+    private QuikRoutingChoice? _quikRoute;
+    private CancellationTokenSource? _routeRequest;
 
     public TradingAccountsViewModel(
         ITradingAccountStore store,
@@ -84,8 +91,9 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         DeleteCommand = new RelayCommand(_ => DeleteSelected(), _ => CanModifySelected);
         ActivateCommand = new RelayCommand(_ => ActivateSelected(), _ => CanModifySelected);
         VerifyCommand = new RelayCommand(_ => VerifySelectedAsync(),
-                _ => !_disposed && _request is null && _selected?.HasCredentials == true);
-        CancelCommand = new RelayCommand(_ => CancelVerification(), _ => _request is not null);
+                _ => !_disposed && _request is null && (_selected?.HasCredentials == true || _selected?.Profile.Exchange == "quik"));
+        LoadQuikRoutesCommand = new RelayCommand(_ => LoadQuikRoutesAsync(), _ => IsQuik && !IsBusy);
+        CancelCommand = new RelayCommand(_ => CancelVerification(), _ => IsBusy);
         try
         {
             var settings = _store.Load();
@@ -93,7 +101,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
 
             foreach (var profile in settings.Profiles)
             {
-                var item = new TradingAccountItem(profile, _credentials.Contains(profile.Id));
+                var item = new TradingAccountItem(profile, profile.Exchange != "quik" && _credentials.Contains(profile.Id));
                 item.SetActive(_active.GetValueOrDefault(profile.Exchange) == profile.Id);
                 Profiles.Add(item);
             }
@@ -107,7 +115,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     }
 
     public ObservableCollection<TradingAccountItem> Profiles { get; } = new();
-    public ExchangeOption[] Exchanges { get; } = [new("binance", "Binance"), new("bybit", "Bybit")];
+    public ExchangeOption[] Exchanges { get; } = [new("binance", "Binance"), new("bybit", "Bybit"), new("quik", "QUIK / Мосбиржа")];
     public TradingEnvironmentOption[] Environments { get; } = [
         new(TradingEnvironment.Testnet, "Testnet"),
         new(TradingEnvironment.Production, "Mainnet")
@@ -124,6 +132,17 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             _exchange = value?.Profile.Exchange ?? "binance";
             _environment = value?.Profile.Environment ?? TradingEnvironment.Testnet;
             _market = value?.Profile.Market ?? TradingMarket.Spot;
+            QuikRoutes.Clear();
+            if (value?.Profile.Quik is { } route)
+            {
+                _quikHost = route.Host;
+                _quikPort = route.Port;
+                _quikPortText = route.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                _quikRoute = new(route.FirmId, route.ClientCode, route.TradeAccount, route.LimitKind,
+                    _market == TradingMarket.MoexFutures ? "SPBFUT" : "TQBR");
+                QuikRoutes.Add(_quikRoute);
+            }
+            else _quikRoute = null;
             ResetEditor();
             _message = value is null ? "New account profile." : value.Result?.Message ?? "Profile selected. Verify the connection manually.";
             Notify();
@@ -131,7 +150,29 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     }
     /// <summary>The name of the account profile.</summary>
     public string Name { get => _name; set { _name = value; Notify(); } }
-    public string Exchange { get => _exchange; set { if (IsNewProfile && Exchanges.Any(e => e.Id == value)) { _exchange = value; Notify(); } } }
+    public string Exchange
+    {
+        get => _exchange;
+        set
+        {
+            if (!IsNewProfile || !Exchanges.Any(e => e.Id == value)) return;
+            _exchange = value;
+            _market = IsQuik ? TradingMarket.MoexShares : TradingMarket.Spot;
+            if (IsQuik) _environment = TradingEnvironment.Production;
+            if (IsQuik)
+            {
+                try
+                {
+                    var options = QuikConnectionOptions.Load();
+                    _quikHost = options.Host;
+                    _quikPort = options.Port;
+                    _quikPortText = options.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+                catch (Exception ex) when (ex is System.IO.IOException or System.IO.InvalidDataException or System.Text.Json.JsonException) { }
+            }
+            Notify();
+        }
+    }
     /// <summary>The environment to apply when the new or existing profile is saved.</summary>
     public TradingEnvironment Environment
     {
@@ -146,7 +187,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         }
     }
     private TradingMarket _market;
-    public TradingMarket[] Markets { get; } = [TradingMarket.Spot, TradingMarket.UsdtFutures];
+    public TradingMarket[] Markets => IsQuik ? [TradingMarket.MoexShares, TradingMarket.MoexFutures] : [TradingMarket.Spot, TradingMarket.UsdtFutures];
     /// <summary>The market to apply when the new or existing profile is saved.</summary>
     public TradingMarket Market
     {
@@ -162,13 +203,37 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     }
 
     public bool IsNewProfile => _selected is null;
-    public bool IsBusy => _request is not null;
+    public bool IsQuik => Exchange == "quik";
+    public bool UsesApiKeys => !IsQuik;
+    public ObservableCollection<QuikRoutingChoice> QuikRoutes { get; } = [];
+    public RelayCommand LoadQuikRoutesCommand { get; }
+    public string QuikHost { get => _quikHost; set { if (_quikHost == value) return; _routeRequest?.Cancel(); _quikHost = value; _quikRoute = null; QuikRoutes.Clear(); Notify(); } }
+    public int QuikPort => _quikPort;
+    public string QuikPortText
+    {
+        get => _quikPortText;
+        set
+        {
+            if (_quikPortText == value) return;
+            _routeRequest?.Cancel();
+            _quikPortText = value;
+            _quikPort = int.TryParse(value, out var port) ? port : 0;
+            _quikRoute = null;
+            QuikRoutes.Clear();
+            Notify();
+        }
+    }
+    public QuikRoutingChoice? QuikRoute { get => _quikRoute; set { _quikRoute = value; Notify(); } }
+    public bool IsBusy => _request is not null || _routeRequest is not null;
     public bool CanSave => !_disposed && _storageAvailable && !IsBusy && !string.IsNullOrWhiteSpace(Name)
-        && (IsNewProfile ? _hasCompleteCredentials : !_hasCredentialInput || _hasCompleteCredentials);
+        && (IsQuik ? !string.IsNullOrWhiteSpace(QuikHost) && QuikPort is >= 1 and <= 65534 && QuikRoute is not null &&
+            QuikRoute.Classes.Contains(Market == TradingMarket.MoexFutures ? "SPBFUT" : "TQBR", StringComparison.Ordinal)
+            : IsNewProfile ? _hasCompleteCredentials : !_hasCredentialInput || _hasCompleteCredentials);
     private bool CanModifySelected => !_disposed && _storageAvailable && !IsBusy && _selected is not null;
-    public bool CanReplaceCredentials => !_disposed && !IsBusy && _selected is not null;
+    public bool CanReplaceCredentials => !IsQuik && !_disposed && !IsBusy && _selected is not null;
     public string Message => _message;
-    public string CredentialStatus => _selected?.HasCredentials == true
+    public string CredentialStatus => IsQuik ? "QUIK: ключи не нужны. Выберите счёт и вид лимитов; доступ только на чтение."
+        : _selected?.HasCredentials == true
         ? "Keys are saved. Enter both values to replace them."
         : "Enter the API key and secret to save them.";
     public string SelectedPermissions => _selected?.PermissionText ?? "Trading: unknown · Withdrawals: unknown";
@@ -181,6 +246,30 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     public RelayCommand CancelCommand { get; }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? EditorResetRequested;
+
+    /// <summary>Loads concrete terminal routing choices and never selects an ambiguous result automatically.</summary>
+    private async Task LoadQuikRoutesAsync()
+    {
+        using var request = new CancellationTokenSource();
+        var host = QuikHost.Trim();
+        var port = QuikPort;
+        _routeRequest = request;
+        Notify();
+        try
+        {
+            await using var client = new QuikReadClient(new QuikConnectionOptions { Host = host, Port = port });
+            if (!await client.ConnectedAsync(request.Token)) throw new InvalidOperationException("QUIK не подключён к брокеру.");
+            var routes = await client.RoutesAsync(request.Token);
+            if (_disposed || request.IsCancellationRequested || !IsQuik || host != QuikHost.Trim() || port != QuikPort) return;
+            QuikRoutes.Clear();
+            _quikRoute = null;
+            foreach (var route in routes) QuikRoutes.Add(route);
+            _message = routes.Count == 0 ? "QUIK не вернул доступные маршруты счёта и лимитов." : "Выберите фирму, счёт, клиентский код и вид лимитов.";
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        catch (Exception ex) { if (!_disposed) _message = $"QUIK: {ex.Message}"; }
+        finally { _routeRequest = null; if (!_disposed) Notify(); }
+    }
 
     public void SetCredentialInputState(bool hasAny, bool complete)
     {
@@ -214,13 +303,16 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
     /// it is never stored in the view model. Saves the profile to storage.</summary>
     public void Save(AccountCredentials? replacement)
     {
-        if (!CanSave || IsNewProfile && replacement is null || _hasCredentialInput && replacement is null) return;
+        if (!CanSave || !IsQuik && (IsNewProfile && replacement is null || _hasCredentialInput && replacement is null)) return;
+
+        var quik = IsQuik ? new QuikAccountOptions(QuikHost.Trim(), QuikPort, QuikRoute!.Firm, QuikRoute.Client,
+            QuikRoute.Account, QuikRoute.LimitKind) : null;
 
         var connectionChanged = _selected is { } existing
-            && (existing.Profile.Market != Market || existing.Profile.Environment != Environment);
+            && (existing.Profile.Market != Market || existing.Profile.Environment != Environment || existing.Profile.Quik != quik);
         var profile = _selected is { } selected
-            ? selected.Profile with { Name = Name.Trim(), Market = Market, Environment = Environment }
-            : new TradingAccountProfile(Guid.NewGuid(), Name.Trim(), Exchange, Environment, Market);
+            ? selected.Profile with { Name = Name.Trim(), Market = Market, Environment = Environment, Quik = quik }
+            : new TradingAccountProfile(Guid.NewGuid(), Name.Trim(), Exchange, Environment, Market, quik);
         var profiles = Profiles.Select(p => p.Profile.Id == profile.Id ? profile : p.Profile).ToList();
 
         if (_selected is null) profiles.Add(profile);
@@ -281,7 +373,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
 
             try
             {
-                _credentials.Delete(item.Profile.Id);
+                if (item.Profile.Exchange != "quik") _credentials.Delete(item.Profile.Id);
             }
             catch
             {
@@ -325,7 +417,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
 
         try
         {
-            credentials = _credentials.Read(item.Profile.Id);
+            credentials = item.Profile.Exchange == "quik" ? null : _credentials.Read(item.Profile.Id);
         }
         catch (Exception)
         {
@@ -336,7 +428,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
 
         using var ownedCredentials = credentials;
 
-        if (credentials is null) {
+        if (credentials is null && item.Profile.Exchange != "quik") {
             _message = "Saved keys were not found. Enter and save them again."; Notify(); return;
         }
 
@@ -382,6 +474,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
 
     public void CancelVerification()
     {
+        _routeRequest?.Cancel();
         ++_requestVersion;
         var request = _request;
         _request = null;
@@ -404,12 +497,14 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
         DeleteCommand.RaiseCanExecuteChanged(); ActivateCommand.RaiseCanExecuteChanged();
         VerifyCommand.RaiseCanExecuteChanged(); CancelCommand.RaiseCanExecuteChanged();
+        LoadQuikRoutesCommand.RaiseCanExecuteChanged();
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        _routeRequest?.Cancel();
         CancelVerification();
         ResetEditor();
     }

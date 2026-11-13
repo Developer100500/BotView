@@ -23,6 +23,7 @@ public sealed class TradingAccountSession : IAsyncDisposable
     private bool _connected;
     private bool _disposed;
     public TradingAccountContext Account => _service.Account;
+    public bool CanExecuteTrades => _service.CanExecuteTrades;
 
     /// <summary>Owns the adapter; an injectable polling interval keeps session tests deterministic and fast.</summary>
     public TradingAccountSession(ITradingService service, TimeSpan? pollInterval = null)
@@ -87,7 +88,8 @@ public sealed class TradingAccountSession : IAsyncDisposable
                 StartResource(TradingStream.Orders, key);
                 StartResource(TradingStream.MyTrades, key);
                 if (first) StartResource(TradingStream.Balance, key);
-                if (Account.Market == TradingMarket.UsdtFutures) _workers.Add(Task.Run(() => PollPositionsAsync(key)));
+                if (Account.Market is TradingMarket.UsdtFutures or TradingMarket.MoexFutures or TradingMarket.MoexShares)
+                    _workers.Add(Task.Run(() => PollPositionsAsync(key)));
             }
         }
         finally { _tracking.Release(); }

@@ -14,11 +14,23 @@ public sealed class AccountConnectionVerifier : IAccountConnectionVerifier
     internal AccountConnectionVerifier(Func<TradingAccountProfile, AccountCredentials, IAccountVerificationClient> create,
         TimeSpan? timeout = null) { _create = create; _timeout = timeout ?? TimeSpan.FromSeconds(15); }
 
-    public async Task<AccountVerificationResult> VerifyAsync(TradingAccountProfile profile, AccountCredentials credentials,
+    public async Task<AccountVerificationResult> VerifyAsync(TradingAccountProfile profile, AccountCredentials? credentials,
         CancellationToken ct = default)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(_timeout);
+        if (profile.Exchange == "quik")
+        {
+            try
+            {
+                await using var reader = new BotView.Services.Integrations.Quik.QuikReadOnlyTradingService(profile);
+                await reader.FetchBalanceAsync(timeout.Token).ConfigureAwait(false);
+                return new(true, new(null, null), "QUIK: чтение счёта доступно. Торговое исполнение не реализовано; права брокера не проверены.");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception) { return Failure("QUIK: не удалось прочитать выбранный счёт. Проверьте подключение и маршрут."); }
+        }
+        ArgumentNullException.ThrowIfNull(credentials);
         using var copy = credentials.Copy();
         return await Task.Run(async () =>
         {

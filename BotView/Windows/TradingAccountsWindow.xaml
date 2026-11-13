@@ -90,6 +90,7 @@
                         <StackPanel Grid.Row="0" Grid.Column="2">
                             <TextBlock Text="Environment" Foreground="#94A3B8" Margin="0,0,0,4"/>
                             <ComboBox x:Name="EnvironmentInput" ItemsSource="{Binding Environments}"
+                                    IsEnabled="{Binding UsesApiKeys}"
                                     DisplayMemberPath="Label" SelectedValuePath="Environment"
                                     SelectedValue="{Binding Environment}" HorizontalAlignment="Left"/>
                         </StackPanel>
@@ -99,10 +100,20 @@
                         </StackPanel>
                     </Grid>
                     
+                    <StackPanel>
+                        <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers>
+                            <DataTrigger Binding="{Binding IsQuik}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                        </Style.Triggers></Style></StackPanel.Style>
+                        <TextBlock Text="QUIK host / request port" Foreground="#94A3B8"/>
+                        <TextBox Text="{Binding QuikHost, UpdateSourceTrigger=PropertyChanged}" Margin="0,4"/>
+                        <TextBox Text="{Binding QuikPortText, UpdateSourceTrigger=PropertyChanged}" Margin="0,4"/>
+                        <Button Content="Загрузить счета и виды лимитов" Command="{Binding LoadQuikRoutesCommand}"/>
+                        <ComboBox ItemsSource="{Binding QuikRoutes}" SelectedItem="{Binding QuikRoute}" DisplayMemberPath="Label" Margin="0,4,0,12"/>
+                    </StackPanel>
                     <TextBlock Text="API key" Foreground="#94A3B8"/>
-                    <PasswordBox x:Name="ApiKeyInput" PasswordChanged="CredentialsChanged" Margin="0,4,0,10"/>
+                    <PasswordBox x:Name="ApiKeyInput" IsEnabled="{Binding UsesApiKeys}" PasswordChanged="CredentialsChanged" Margin="0,4,0,10"/>
                     <TextBlock Text="API secret" Foreground="#94A3B8"/>
-                    <PasswordBox x:Name="SecretInput" PasswordChanged="CredentialsChanged" Margin="0,4,0,8"/>
+                    <PasswordBox x:Name="SecretInput" IsEnabled="{Binding UsesApiKeys}" PasswordChanged="CredentialsChanged" Margin="0,4,0,8"/>
                     <TextBlock Text="{Binding CredentialStatus}" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,12"/>
                     <WrapPanel>
                         <Button x:Name="SaveButton" Content="Save" Click="SaveAccount" IsEnabled="{Binding CanSave}"/>

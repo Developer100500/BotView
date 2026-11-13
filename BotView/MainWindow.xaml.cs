@@ -27,6 +27,58 @@ namespace BotView
         private Windows.AccountOrdersWindowRegistry? _ordersWindows;
         private readonly List<Task> _orderBookCleanup = new();
         private Windows.TradingAccountsWindow? _tradingAccountsWindow;
+        private readonly Dictionary<(string Connection, InstrumentKey Instrument), Windows.OrderBookWindow> _quikBooks = new();
+
+        /// <summary>Opens the shared binding editor independently of a selected instrument.</summary>
+        private void OpenHotkeys(object sender, RoutedEventArgs e)
+        {
+            try { new Windows.HotkeysSettingsWindow(App.BookCommands) { Owner = this }.ShowDialog(); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Горячие клавиши"); }
+        }
+
+        /// <summary>Offers only supported MOEX boards; bonds remain catalog-only.</summary>
+        private void CatalogContextMenu(object sender, MouseButtonEventArgs e)
+        {
+            if (FindAncestor<DataGridRow>(e.OriginalSource as DependencyObject)?.DataContext is not InstrumentCatalogRow row ||
+                row.ClassCode is not ("TQBR" or "SPBFUT")) return;
+            var menu = new ContextMenu();
+            var book = new MenuItem { Header = "Стакан · только чтение" };
+            book.Click += (_, _) => OpenQuikBook(row.Instrument);
+            menu.Items.Add(book);
+            ((FrameworkElement)sender).ContextMenu = menu;
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+
+        /// <summary>Opens a full MOEX listing against an explicit configured terminal endpoint.</summary>
+        private void OpenQuikBook(Instrument instrument)
+        {
+            try
+            {
+                var options = Configuration.QuikConnectionOptions.Load();
+                var accounts = App.TradingAccounts.Load();
+                var profile = accounts.Profiles.SingleOrDefault(p => p.Id == accounts.ActiveProfiles.GetValueOrDefault("quik"));
+                if (profile?.Quik is { } route) options = options with { Host = route.Host, Port = route.Port };
+                var connection = $"quik:{options.Host}:{options.Port}";
+                var key = (connection, instrument.Key);
+                if (_quikBooks.TryGetValue(key, out var existing))
+                {
+                    if (existing.WindowState == WindowState.Minimized) existing.WindowState = WindowState.Normal;
+                    existing.Activate();
+                    return;
+                }
+                var market = instrument.Key.Market == "futures" ? TradingMarket.MoexFutures : TradingMarket.MoexShares;
+                var window = new Windows.OrderBookWindow("quik", instrument.Symbol,
+                    new Services.Integrations.Quik.QuikOrderBookService(options), App.TradingSessions,
+                    profile?.Environment ?? TradingEnvironment.Production, market,
+                    (selected, listing) => (_ordersWindows ??= new(this, App.TradingSessions)).Show(selected, listing),
+                    instrument, connection) { Owner = this };
+                _quikBooks.Add(key, window);
+                window.Closed += (_, _) => { _quikBooks.Remove(key); _orderBookCleanup.Add(window.CleanupTask); };
+                window.Show();
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "QUIK"); }
+        }
 
         public MainWindow()
         {
@@ -558,6 +610,7 @@ namespace BotView
             {
                 _ordersWindows?.CloseAll();
                 foreach (var window in _orderBooks.Values.ToArray()) window.Close();
+                foreach (var window in _quikBooks.Values.ToArray()) window.Close();
                 Task.WhenAll(_orderBookCleanup).GetAwaiter().GetResult();
                 _renderTimeUpdateTimer.Stop();
                 _quoteUpdateTimer.Stop();

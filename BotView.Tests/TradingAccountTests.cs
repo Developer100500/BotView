@@ -58,7 +58,7 @@ public sealed class TradingAccountTests
             Assert.DoesNotContain("test-api-key", json);
             Assert.DoesNotContain("test-secret", json);
             using var parsed = JsonDocument.Parse(json);
-            Assert.Equal(new[] { "Id", "Name", "Exchange", "Environment", "Market" },
+            Assert.Equal(new[] { "Id", "Name", "Exchange", "Environment", "Market", "Quik" },
                 parsed.RootElement.GetProperty("Profiles")[0].EnumerateObject().Select(p => p.Name));
             var settings = new TradingAccountStore(path).Load();
             Assert.Equal(profile, Assert.Single(settings.Profiles));

@@ -11,9 +11,17 @@
 - `TradingAccountSession` — снимок данных для UI, приватные подписки и резервный REST-опрос.
 - `TradingSessionManager` — одна сессия на профиль для всех его окон, замена соединения при изменении ключей или профиля.
 
-`SpotTradingService` и `FuturesTradingService` наследуют `AbstractTradingService`. В первом остаются параметры спотовой маршрутизации и Post-only, во втором — параметры позиции, контрактные единицы, запрос позиций и публичный каталог USDT-контрактов. `TradingServiceFactory.Create` возвращает базовый класс; сессия стакана принимает интерфейс `ITradingService` и не зависит от конкретного наследника.
+`SpotTradingService` и `FuturesTradingService` наследуют `AbstractTradingService`. В первом остаются параметры спотовой маршрутизации и Post-only, во втором — параметры позиции, контрактные единицы, запрос позиций и публичный каталог USDT-контрактов. `TradingServiceFactory.Create` возвращает `ITradingService`; сессия стакана не зависит от конкретного наследника.
 
-Торговля через QUIK пока не реализована. Будущая обёртка QuikSharp и её адаптер смогут использовать контракт стакана. Каталог QUIK работает независимо.
+`QuikReadOnlyTradingService` реализует `ITradingService` для чтения TQBR/SPBFUT,
+явно возвращает `CanExecuteTrades = false` и отклоняет все методы мутации до доступа
+к транспорту. `TradingServiceFactory.Create` возвращает `ITradingService`, сохраняя
+CCXT-наследование внутри криптовалютных адаптеров. Профилям QUIK ключи не требуются.
+Каталог, счёт и стакан используют общий владелец соединения QUIK.
+
+Новые горячие клавиши используют отдельный `ICommandInvocationHandler` и
+`StubCommandInvocationHandler`, которые не зависят от `ITradingService` и не
+вызывают существующий торговый код. См. [BookCommands.md](BookCommands.md).
 
 ## Заявки
 

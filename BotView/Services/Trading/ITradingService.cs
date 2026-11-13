@@ -7,6 +7,9 @@ public interface ITradingService : IAsyncDisposable
 {
     TradingAccountContext Account { get; }
 
+    /// <summary>Read-only adapters explicitly disable mutations while retaining account display support.</summary>
+    bool CanExecuteTrades => true;
+
     /// <summary>Loads native units and precision metadata for the selected listing.</summary>
     Task<Instrument> FetchInstrumentAsync(InstrumentKey instrument, CancellationToken ct = default);
 

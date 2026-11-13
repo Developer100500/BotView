@@ -261,7 +261,7 @@ public sealed class TradingServiceTests
     public async Task FactorySelectsTheServiceByMarket(TradingMarket market)
     {
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, market);
-        await using AbstractTradingService service = TradingServiceFactory.Create(profile);
+        await using ITradingService service = TradingServiceFactory.Create(profile);
         Assert.Equal(market, service.Account.Market);
         if (market == TradingMarket.Spot) Assert.IsType<SpotTradingService>(service);
         else Assert.IsType<FuturesTradingService>(service);

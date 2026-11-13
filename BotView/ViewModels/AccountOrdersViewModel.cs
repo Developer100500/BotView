@@ -33,7 +33,7 @@ public sealed class AccountOrdersViewModel : INotifyPropertyChanged, IDisposable
     public TradingAccountProfile Profile { get; }
     public InstrumentKey Instrument { get; }
     public string Title => $"Orders · {Instrument.SecurityId} · {Profile.Name} · {Profile.Exchange} · {Profile.Market} · {Network}";
-    public string Network => Profile.Environment == TradingEnvironment.Testnet ? "Testnet" : "MAINNET · live trading";
+    public string Network => Profile.Exchange == "quik" ? "QUIK · read only" : Profile.Environment == TradingEnvironment.Testnet ? "Testnet" : "MAINNET · live trading";
     public string ContextText => $"{Profile.Name} · {Profile.Exchange} · {Profile.Market} · {Network} · {Instrument.SecurityId}";
     public string AccountIdentity => _session?.Account.AccountId is { } id
         ? id.StartsWith("key:", StringComparison.Ordinal) ? "Account verified by this API key" : id
@@ -46,7 +46,7 @@ public sealed class AccountOrdersViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand CancelAllCommand { get; }
     public RelayCommand ReconnectCommand { get; }
     public Func<CancelBatch, Task<bool>>? ConfirmCancelAllAsync { get; set; }
-    private bool CanCancel => !_disposed && !_busy && !_binding && _session?.Current.Connected == true && _revision == _manager.Revision;
+    private bool CanCancel => Profile.Exchange != "quik" && !_disposed && !_busy && !_binding && _session?.Current.Connected == true && _revision == _manager.Revision;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>Preserves selection by exchange reference when periodic snapshots replace row objects.</summary>

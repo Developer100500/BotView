@@ -15,6 +15,6 @@ public interface ITradingAccountStore
 /// and reports whether the account has access and trading permissions.</summary>
 public interface IAccountConnectionVerifier
 {
-    Task<AccountVerificationResult> VerifyAsync(TradingAccountProfile profile, AccountCredentials credentials,
+    Task<AccountVerificationResult> VerifyAsync(TradingAccountProfile profile, AccountCredentials? credentials,
         CancellationToken ct = default);
 }

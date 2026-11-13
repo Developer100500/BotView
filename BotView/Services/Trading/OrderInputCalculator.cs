@@ -25,7 +25,12 @@ public sealed class OrderInputCalculator
 
         if (currency == OrderQuantityCurrency.Quote)
         {
-            quantity /= price * ContractSize;
+            var one = _instrument.Key.Venue == "MOEX"
+                ? TradingValueCalculator.Calculate(_instrument, 1, price)?.Amount
+                    ?? throw new ArgumentException("Monetary valuation metadata is unavailable.")
+                : price * ContractSize;
+            if (one <= 0) throw new ArgumentException("The monetary value must be positive.");
+            quantity /= one;
         }
 
         return _service.AmountToPrecision(_instrument.Key, quantity);
@@ -40,7 +45,10 @@ public sealed class OrderInputCalculator
     /// <summary>Calculates preview notional, without treating it as required margin.</summary>
     public decimal OrderNotional(decimal quantity, decimal price)
     {
-        return quantity * price * ContractSize;
+        return _instrument.Key.Venue == "MOEX"
+            ? TradingValueCalculator.Calculate(_instrument, quantity, price)?.Amount
+                ?? throw new ArgumentException("Monetary valuation metadata is unavailable.")
+            : quantity * price * ContractSize;
     }
 
     /// <summary>Estimates initial margin for linear contracts, excluding fees and exchange adjustments.</summary>

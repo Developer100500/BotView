@@ -22,7 +22,7 @@ public sealed class TradingAccountStore : ITradingAccountStore, ITradingProfileN
             var document = JsonSerializer.Deserialize<Document>(File.ReadAllText(_path))
                 ?? throw new InvalidDataException("Invalid account document.");
 
-            if (document.Version != 1) throw new InvalidDataException("Unsupported account document version.");
+            if (document.Version is not (1 or 2)) throw new InvalidDataException("Unsupported account document version.");
 
             return Validate(new(document.Profiles, document.ActiveProfiles)); // Validate() does not change the document
         }
@@ -43,9 +43,9 @@ public sealed class TradingAccountStore : ITradingAccountStore, ITradingProfileN
                 // Explicit projection prevents future profile additions from accidentally writing secrets.
                 var document = new
                 {
-                    Version = 1,
+                    Version = 2,
                     Profiles = settings.Profiles.Select(p =>
-                        new { p.Id, p.Name, p.Exchange, p.Environment, p.Market })
+                        new { p.Id, p.Name, p.Exchange, p.Environment, p.Market, p.Quik })
                         .ToArray(),
 
                     settings.ActiveProfiles
@@ -70,10 +70,25 @@ public sealed class TradingAccountStore : ITradingAccountStore, ITradingProfileN
         if (settings.Profiles.Any(profile =>
                 profile is null || profile.Id == Guid.Empty || string.IsNullOrWhiteSpace(profile.Name) ||
                 string.IsNullOrWhiteSpace(profile.Name) ||
-                profile.Exchange is not ("binance" or "bybit") || // TODO: Add more exchanges in future
+                profile.Exchange is not ("binance" or "bybit" or "quik") ||
                 !Enum.IsDefined(profile.Environment) ||
                 !Enum.IsDefined(profile.Market)))
             throw new InvalidDataException("Invalid account settings.");
+
+        foreach (var profile in settings.Profiles)
+        {
+            if (profile.Exchange == "quik")
+            {
+                var quik = profile.Quik;
+                if (profile.Market is not (TradingMarket.MoexShares or TradingMarket.MoexFutures) || quik is null ||
+                    string.IsNullOrWhiteSpace(quik.Host) || quik.Port is < 1 or > 65534 ||
+                    string.IsNullOrWhiteSpace(quik.FirmId) || string.IsNullOrWhiteSpace(quik.TradeAccount) ||
+                    quik.ClientCode is null || quik.LimitKind < 0)
+                    throw new InvalidDataException("Select QUIK routing and limit kind explicitly.");
+            }
+            else if (profile.Market is not (TradingMarket.Spot or TradingMarket.UsdtFutures) || profile.Quik is not null)
+                throw new InvalidDataException("The profile market does not match its connection.");
+        }
 
         if (settings.Profiles.Select(profile => profile.Id).Distinct().Count() != settings.Profiles.Count)
             throw new InvalidDataException("Invalid account settings.");

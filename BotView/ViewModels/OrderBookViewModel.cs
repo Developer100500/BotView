@@ -26,11 +26,20 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
     private int _multiplier = 1;
     private decimal? _center;
     private bool _followMarket = true;
+    private readonly Instrument? _listedInstrument;
+    public string ConnectionId { get; }
+    public Instrument ListedInstrument => _update?.Snapshot?.Market.Instrument ?? _listedInstrument ??
+        new(TradingInstrument, Symbol, Symbol, Symbol.Split('/').Last().Split(':')[0],
+            TradingRules: new(IsFutures ? QuantityUnit.Contracts : QuantityUnit.BaseAsset,
+                PriceQuotation.CurrencyPerUnit, SettlementCurrency: Symbol.Split('/').Last().Split(':')[0]));
 
     /// <summary>Creates a book fixed to one network; trading sessions are owned by the application manager.</summary>
     public OrderBookViewModel(string exchange, string symbol, IOrderBookService service,
-        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot)
+        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot,
+        Instrument? instrument = null, string? connectionId = null)
     {
+        _listedInstrument = instrument;
+        ConnectionId = connectionId ?? $"{exchange}:{environment}";
         Market = market;
         Exchange = exchange;
         Symbol = symbol;
@@ -106,7 +115,7 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
     public string PriceText { get => _priceText; set { _priceText = value; Changed(); } }
     public string AmountText { get => _amountText; set { _amountText = value; Changed(); } }
     public string TradeStatus => _tradeStatus;
-    public bool CanTrade => !_disposed && !_tradeBusy && !_bindingAccount && _trading?.Current.Connected == true
+    public bool CanTrade => !IsQuik && !_disposed && !_tradeBusy && !_bindingAccount && _trading?.Current.Connected == true
         && TradingInputValid;
     public RelayCommand BuyCommand { get; }
     public RelayCommand SellCommand { get; }
@@ -119,7 +128,9 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
     {
         try
         {
-            var subscription = IsFutures
+            var subscription = _listedInstrument is not null
+                ? await _service.SubscribeAsync(ConnectionId, _listedInstrument, Environment, Market, _stop.Token).ConfigureAwait(false)
+                : IsFutures
                 ? await _service.SubscribeAsync(Exchange, Symbol, Environment, Market, _stop.Token).ConfigureAwait(false)
                 : Environment == TradingEnvironment.Production
                 ? await _service.SubscribeAsync(Exchange, Symbol, _stop.Token).ConfigureAwait(false)

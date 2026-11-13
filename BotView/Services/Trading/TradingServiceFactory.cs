@@ -7,8 +7,9 @@ namespace BotView.Services.Trading;
 public static class TradingServiceFactory
 {
     /// <summary>Creates one direct trading service for the profile's market.</summary>
-    public static AbstractTradingService Create(TradingAccountProfile profile, AccountCredentials? credentials = null) => profile.Market switch
+    public static ITradingService Create(TradingAccountProfile profile, AccountCredentials? credentials = null) => profile.Market switch
     {
+        TradingMarket.MoexShares or TradingMarket.MoexFutures => new BotView.Services.Integrations.Quik.QuikReadOnlyTradingService(profile),
         TradingMarket.Spot => new SpotTradingService(profile, CreateExchange(profile, credentials)),
         TradingMarket.UsdtFutures => CreateFutures(profile, credentials),
         _ => throw new NotSupportedException("Unsupported trading market.")
