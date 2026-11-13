@@ -53,7 +53,7 @@ public sealed class MarketDataProviderTests
         Assert.Equal("vtb-quik", vm.SelectedExchange);
         Assert.Equal("TESTF", vm.SelectedSymbol);
         Assert.Equal(new[] { "1m", "1d" }, vm.Timeframes);
-        Assert.Equal("MOEX", Assert.Single(exchange.GetExchanges()).Venue);
+        Assert.Equal("MOEX", Assert.Single(exchange.GetExchanges()).Name);
         Assert.Equal(provider.Instrument.Key, Assert.Single(await exchange.GetInstrumentsAsync("VTB-QUIK", Ct)).Key);
         Assert.NotNull(vm.CurrentSeries);
         var controller = new ChartController();

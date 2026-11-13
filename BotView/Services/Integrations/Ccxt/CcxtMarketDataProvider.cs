@@ -47,7 +47,7 @@ public sealed class CcxtMarketDataProvider : IMarketDataProvider, IMarketMoversP
             ct.ThrowIfCancellationRequested();
             _instruments = markets.Values.Where(m => m.active != false && m.spot == true &&
                     !string.IsNullOrWhiteSpace(m.symbol))
-                .Select(m => MapInstrument(Definition.Venue, m, Convert.ToInt32(_client.Value.precisionMode)))
+                .Select(m => MapInstrument(Definition.Name, m, Convert.ToInt32(_client.Value.precisionMode)))
                 .DistinctBy(m => m.Symbol, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(m => m.Symbol, StringComparer.OrdinalIgnoreCase).ToArray();
             return _instruments;
@@ -90,7 +90,7 @@ public sealed class CcxtMarketDataProvider : IMarketDataProvider, IMarketMoversP
     {
         if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
         if (!Definition.SupportsTimeframe(timeframe)) throw new NotSupportedException($"Unsupported timeframe '{timeframe}'.");
-        if (instrument.Venue != Definition.Venue || instrument.Market != "spot" || instrument.Board != "")
+        if (instrument.Venue != Definition.Name || instrument.Market != "spot" || instrument.Board != "")
             throw new NotSupportedException("This CCXT connection provides spot candles only.");
         var result = new SortedDictionary<long, Candle>();
         var before = beforeExclusive?.ToUnixTimeMilliseconds();

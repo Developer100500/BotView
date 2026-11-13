@@ -17,7 +17,7 @@ public sealed class ExchangeDefinition
         ApiUrl = apiUrl;
         IsActive = isActive;
         ProviderId = providerId;
-        Venue = venue ?? id;
+        Name = venue ?? id;
         SupportedTimeframes = Array.AsReadOnly(supportedTimeframes.ToArray());
     }
 
@@ -27,7 +27,7 @@ public sealed class ExchangeDefinition
     public bool IsActive { get; }
     public IReadOnlyList<string> SupportedTimeframes { get; }
     public string ProviderId { get; }
-    public string Venue { get; }
+    public string Name { get; }
 
     public bool SupportsTimeframe(string timeframe) =>
         SupportedTimeframes.Contains(timeframe, StringComparer.Ordinal);

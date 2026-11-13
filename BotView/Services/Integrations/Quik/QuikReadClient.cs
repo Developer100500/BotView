@@ -107,13 +107,21 @@ internal sealed class QuikReadClient : IQuikReadClient
     {
         try
         {
+            // Request the parameter for this board and security, bounded by the client timeout and cancellation.
             var result = await client.Trading.GetParamEx2(key.Board, key.SecurityId, parameter).WaitAsync(_timeout, ct);
-            if (result is null) return null;
+            
+            if (result is null) return null; // A missing terminal response stays unknown.
+
+            // CURRENCYID carries the currency code in ParamImage; ParamValue may only be a numeric id.
             if (parameter == "CURRENCYID")
             {
+                // Prefer the displayed code and fall back to the raw value when the image is blank.
                 var currency = string.IsNullOrWhiteSpace(result.ParamImage) ? result.ParamValue : result.ParamImage;
+
+                // Blank text, "0", and an em dash mean the currency was not reported.
                 return string.IsNullOrWhiteSpace(currency) || currency is "0" or "—" ? null : currency.Trim();
             }
+            // Other parameters are read from ParamValue; blank text stays unknown.
             return string.IsNullOrWhiteSpace(result.ParamValue) ? null : result.ParamValue;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -194,6 +202,7 @@ internal sealed class QuikReadClient : IQuikReadClient
         var orders = await client.Orders.GetOrders().WaitAsync(_timeout, ct);
         var trades = await client.Trading.GetTrades().WaitAsync(_timeout, ct);
         var result = new List<QuikRoutingChoice>();
+        
         foreach (var account in accounts)
         {
             if (account.ClassCodes.Contains("TQBR", StringComparison.Ordinal))
