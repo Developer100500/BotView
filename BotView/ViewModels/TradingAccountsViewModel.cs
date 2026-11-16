@@ -131,7 +131,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
             _name = value?.Profile.Name ?? "";
             _exchange = value?.Profile.Exchange ?? "binance";
             _environment = value?.Profile.Environment ?? TradingEnvironment.Testnet;
-            _market = value?.Profile.Market ?? TradingMarket.Spot;
+            _market = value?.Profile.Market ?? TradingMarket.CryptoSpot;
             QuikRoutes.Clear();
             if (value?.Profile.Quik is { } route)
             {
@@ -157,7 +157,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         {
             if (!IsNewProfile || !Exchanges.Any(e => e.Id == value)) return;
             _exchange = value;
-            _market = IsQuik ? TradingMarket.MoexShares : TradingMarket.Spot;
+            _market = IsQuik ? TradingMarket.MoexShares : TradingMarket.CryptoSpot;
             if (IsQuik) _environment = TradingEnvironment.Production;
             if (IsQuik)
             {
@@ -187,7 +187,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         }
     }
     private TradingMarket _market;
-    public TradingMarket[] Markets => IsQuik ? [TradingMarket.MoexShares, TradingMarket.MoexFutures] : [TradingMarket.Spot, TradingMarket.UsdtFutures];
+    public TradingMarket[] Markets => IsQuik ? [TradingMarket.MoexShares, TradingMarket.MoexFutures] : [TradingMarket.CryptoSpot, TradingMarket.UsdtFutures];
     /// <summary>The market to apply when the new or existing profile is saved.</summary>
     public TradingMarket Market
     {
@@ -293,7 +293,7 @@ public sealed class TradingAccountsViewModel : INotifyPropertyChanged, IDisposab
         _name = "";
         _exchange = "binance";
         _environment = TradingEnvironment.Testnet;
-        _market = TradingMarket.Spot;
+        _market = TradingMarket.CryptoSpot;
         _message = "New account profile.";
         ResetEditor();
         Notify();

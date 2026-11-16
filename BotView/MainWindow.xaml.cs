@@ -383,6 +383,7 @@ namespace BotView
             return null;
         }
 
+        // RMB on a trading pair item
         private void Pair_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (_viewModel.IsInstrumentCatalogMode) return;
@@ -430,7 +431,7 @@ namespace BotView
                 try
                 {
                     var profile = new TradingAccountProfile(Guid.NewGuid(), "Catalog", exchange, environment, TradingMarket.UsdtFutures);
-                    await using var service = TradingServiceFactory.CreateFutures(profile);
+                    await using var service = TradingServiceFactory.CreateCryptoService(profile);
                     var contracts = await service.FetchTradingPairsAsync(symbol);
 
                     if (!this.IsLoaded)

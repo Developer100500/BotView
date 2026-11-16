@@ -182,11 +182,18 @@ public sealed class QuikReadOnlyTests
         var calculator = new OrderInputCalculator(service, shares);
         Assert.Equal(2, calculator.ConvertQuantity(2500, 100, OrderQuantityCurrency.Quote));
         Assert.Equal(2000, calculator.OrderNotional(2, 100));
-        var future = Instrument(Future) with { PriceStep = 10, TradingRules = new(QuantityUnit.Contracts, PriceQuotation.Points, TickValue: 20, SettlementCurrency: "RUB") };
+        var future = Instrument(Future) with
+        {
+            PriceStep = 10,
+            QuantityUnit = QuantityUnit.Contracts,
+            PriceQuotation = PriceQuotation.Points,
+            TickValue = 20,
+            SettlementCurrency = "RUB"
+        };
         calculator = new(service, future);
         Assert.Equal(3, calculator.ConvertQuantity(650, 100, OrderQuantityCurrency.Quote));
         Assert.Equal(600, calculator.OrderNotional(3, 100));
-        calculator = new(service, future with { TradingRules = future.TradingRules! with { TickValue = null } });
+        calculator = new OrderInputCalculator(service, future with { TickValue = null });
         Assert.Throws<ArgumentException>(() => calculator.ConvertQuantity(1000, 100, OrderQuantityCurrency.Quote));
     }
 
@@ -235,9 +242,9 @@ public sealed class QuikReadOnlyTests
     }
 
     /// <summary>Creates deterministic listing metadata with no dependency on the live terminal.</summary>
-    private static Instrument Instrument(InstrumentKey key) => new(key, $"{key.Board}:{key.SecurityId}", "Instrument", "RUB", 1, 1,
-        TradingRules: new(key == Future ? QuantityUnit.Contracts : QuantityUnit.Lots,
-            key == Future ? PriceQuotation.Points : PriceQuotation.CurrencyPerUnit, SettlementCurrency: "RUB"));
+    private static Instrument Instrument(InstrumentKey key) => new Instrument(key, $"{key.Board}:{key.SecurityId}", "Instrument", "RUB", 1, 1,
+        QuantityUnit: key == Future ? QuantityUnit.Contracts : QuantityUnit.Lots,
+        PriceQuotation: key == Future ? PriceQuotation.Points : PriceQuotation.CurrencyPerUnit, SettlementCurrency: "RUB");
 
     /// <summary>Creates detached depth for event ordering and recovery scenarios.</summary>
     private static OrderBookSnapshot Book(InstrumentKey key, decimal price) => new(

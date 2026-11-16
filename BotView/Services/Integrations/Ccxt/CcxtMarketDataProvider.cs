@@ -47,7 +47,7 @@ public sealed class CcxtMarketDataProvider : IMarketDataProvider, IMarketMoversP
             ct.ThrowIfCancellationRequested();
             _instruments = markets.Values.Where(m => m.active != false && m.spot == true &&
                     !string.IsNullOrWhiteSpace(m.symbol))
-                .Select(m => MapInstrument(Definition.Name, m, Convert.ToInt32(_client.Value.precisionMode)))
+                .Select(m => MapInstrument(m, Definition.Name, Convert.ToInt32(_client.Value.precisionMode)))
                 .DistinctBy(m => m.Symbol, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(m => m.Symbol, StringComparer.OrdinalIgnoreCase).ToArray();
             return _instruments;
@@ -55,16 +55,33 @@ public sealed class CcxtMarketDataProvider : IMarketDataProvider, IMarketMoversP
         finally { _instrumentGate.Release(); }
     }
 
-    /// <summary>Maps spot quote/amount units and known precision/limits without exposing CCXT models.</summary>
-    internal static Instrument MapInstrument(string venue, ccxt.MarketInterface market, int precisionMode) => new(
-        new InstrumentKey(venue, "spot", "", market.symbol!), market.symbol!, market.symbol!, market.quote,
-        PriceStep: PrecisionStep(market.precision?.price, precisionMode),
-        TradingRules: new(QuantityUnit.BaseAsset, PriceQuotation.CurrencyPerUnit,
+    /// <summary>Maps the native spot or contract listing, units, settlement and known precision/limits.</summary>
+    internal static Instrument MapInstrument(ccxt.MarketInterface market, string venue, int precisionMode)
+    {
+        var isContract = market.contract == true;
+        if (!isContract && market.spot != true)
+        {
+            throw new NotSupportedException("The CCXT market does not describe a spot or contract listing.");
+        }
+
+        var instrumentMarket = isContract ? "futures" : "spot";
+        var quantityUnit = isContract ? QuantityUnit.Contracts : QuantityUnit.BaseAsset;
+        var priceQuotation = isContract && market.linear != true
+            ? PriceQuotation.ProviderSpecific
+            : PriceQuotation.CurrencyPerUnit;
+        var contractSize = isContract ? DecimalValue(market.contractSize) : null;
+        var settlementCurrency = isContract ? market.settle : market.quote;
+
+        return new Instrument(
+            new InstrumentKey(venue, instrumentMarket, "", market.symbol!), market.symbol!, market.symbol!, market.quote,
+            PriceStep: PrecisionStep(market.precision?.price, precisionMode),
+            QuantityUnit: quantityUnit, PriceQuotation: priceQuotation,
             QuantityStep: PrecisionStep(market.precision?.amount, precisionMode),
             MinQuantity: DecimalValue(market.limits?.amount?.min), MaxQuantity: DecimalValue(market.limits?.amount?.max),
             MinPrice: DecimalValue(market.limits?.price?.min), MaxPrice: DecimalValue(market.limits?.price?.max),
             MinNotional: DecimalValue(market.limits?.cost?.min), MaxNotional: DecimalValue(market.limits?.cost?.max),
-            SettlementCurrency: market.quote));
+            ContractSize: contractSize, SettlementCurrency: settlementCurrency);
+    }
 
     /// <summary>Converts fixed tick/decimal-place precision; significant digits have no fixed step.</summary>
     private static decimal? PrecisionStep(double? precision, int mode)

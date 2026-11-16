@@ -29,13 +29,13 @@ public sealed partial class OrderBookViewModel : INotifyPropertyChanged, IAsyncD
     private readonly Instrument? _listedInstrument;
     public string ConnectionId { get; }
     public Instrument ListedInstrument => _update?.Snapshot?.Market.Instrument ?? _listedInstrument ??
-        new(TradingInstrument, Symbol, Symbol, Symbol.Split('/').Last().Split(':')[0],
-            TradingRules: new(IsFutures ? QuantityUnit.Contracts : QuantityUnit.BaseAsset,
-                PriceQuotation.CurrencyPerUnit, SettlementCurrency: Symbol.Split('/').Last().Split(':')[0]));
+        new Instrument(TradingInstrument, Symbol, Symbol, Symbol.Split('/').Last().Split(':')[0],
+            QuantityUnit: IsFutures ? QuantityUnit.Contracts : QuantityUnit.BaseAsset,
+            PriceQuotation: PriceQuotation.CurrencyPerUnit, SettlementCurrency: Symbol.Split('/').Last().Split(':')[0]);
 
     /// <summary>Creates a book fixed to one network; trading sessions are owned by the application manager.</summary>
     public OrderBookViewModel(string exchange, string symbol, IOrderBookService service,
-        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot,
+        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.CryptoSpot,
         Instrument? instrument = null, string? connectionId = null)
     {
         _listedInstrument = instrument;

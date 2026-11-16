@@ -34,7 +34,7 @@ internal static class CoinInfoContextMenu
         menu.Items.Add(info);
 
         var spotOrderBook = new MenuItem { Header = "Spot order book" };
-        spotOrderBook.Click += (_, _) => openOrderBook(pair, TradingMarket.Spot);
+        spotOrderBook.Click += (_, _) => openOrderBook(pair, TradingMarket.CryptoSpot);
         menu.Items.Add(spotOrderBook);
 
         var futuresOrderBook = new MenuItem { Header = "Futures order book" };

@@ -69,8 +69,8 @@ public sealed class InstrumentCommandSettingsWindow : Window
         var volumes = Page(tabs, "Объёмы");
         volumes.Children.Add(new TextBlock
         {
-            Text = $"Количество: {instrument.TradingRules?.QuantityUnit.ToString() ?? "по метаданным"}; " +
-                $"валюта суммы: {instrument.TradingRules?.SettlementCurrency ?? instrument.Currency ?? "неизвестна"}.",
+            Text = $"Количество: {instrument.QuantityUnit?.ToString() ?? "по метаданным"}; " +
+                $"валюта суммы: {instrument.SettlementCurrency ?? instrument.Currency ?? "неизвестна"}.",
             TextWrapping = TextWrapping.Wrap, Margin = new(6)
         });
         for (var index = 0; index < 5; index++)

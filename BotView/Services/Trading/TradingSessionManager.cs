@@ -20,7 +20,16 @@ public sealed class TradingSessionManager : IAsyncDisposable
 
     /// <summary>Builds the application manager without reading credentials or connecting until requested.</summary>
     public TradingSessionManager(ITradingAccountStore profiles, ICredentialStore credentials)
-        : this(profiles, credentials, (p, c) => TradingServiceFactory.Create(p, c)) { }
+        : this(profiles, credentials, CreateService) { }
+
+    /// <summary>Selects the market service. Credentials are unused for QUIK.</summary>
+    private static ITradingService CreateService(TradingAccountProfile profile, AccountCredentials? credentials) =>
+        profile.Market switch
+        {
+            TradingMarket.CryptoSpot or TradingMarket.UsdtFutures => TradingServiceFactory.CreateCryptoService(profile, credentials),
+            TradingMarket.MoexShares or TradingMarket.MoexFutures => TradingServiceFactory.CreateMoexService(profile),
+            _ => throw new NotSupportedException("Unsupported trading market.")
+        };
 
     /// <summary>Injects a deterministic exchange adapter factory for tests.</summary>
     internal TradingSessionManager(ITradingAccountStore profiles, ICredentialStore credentials,

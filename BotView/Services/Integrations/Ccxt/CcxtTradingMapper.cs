@@ -196,7 +196,7 @@ internal static class CcxtTradingMapper
     internal static AccountSnapshot Balance(ccxt.Balances balance, TradingAccountContext account)
     {
         var snapshot = MapBalance(balance, account);
-        if (account.Market == TradingMarket.Spot)
+        if (account.Market == TradingMarket.CryptoSpot)
         {
             return snapshot;
         }

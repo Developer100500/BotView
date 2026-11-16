@@ -62,5 +62,5 @@ public sealed class OrderInputCalculator
         return OrderNotional(quantity, price) / leverage;
     }
 
-    private decimal ContractSize => _instrument.TradingRules?.ContractSize ?? 1m;
+    private decimal ContractSize => _instrument.ContractSize ?? 1m;
 }

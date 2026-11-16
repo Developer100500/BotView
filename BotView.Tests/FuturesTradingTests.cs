@@ -77,7 +77,7 @@ public sealed class FuturesTradingTests
     {
         var legacy = System.Text.Json.JsonSerializer.Deserialize<TradingAccountProfile>(
             "{\"Id\":\"00000000-0000-0000-0000-000000000001\",\"Name\":\"Legacy\",\"Exchange\":\"binance\",\"Environment\":0}")!;
-        Assert.Equal(TradingMarket.Spot, legacy.Market);
+        Assert.Equal(TradingMarket.CryptoSpot, legacy.Market);
         var profile = legacy with { Market = TradingMarket.UsdtFutures };
         var path = Path.Combine(AppContext.BaseDirectory, "futures-" + Guid.NewGuid().ToString("N"), "profiles.json");
         var store = new TradingAccountStore(path);

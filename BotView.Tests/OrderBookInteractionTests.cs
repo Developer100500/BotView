@@ -408,7 +408,7 @@ public sealed class OrderBookInteractionTests
         public Fixture(bool futures = false)
         {
             Profile = new(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet,
-                futures ? TradingMarket.UsdtFutures : TradingMarket.Spot);
+                futures ? TradingMarket.UsdtFutures : TradingMarket.CryptoSpot);
             Key = new("binance", futures ? "futures" : "spot", "", futures ? "BTC/USDT:USDT" : "BTC/USDT");
             Store.Settings = new([Profile], new Dictionary<string, Guid> { ["binance"] = Profile.Id });
             using (var credentials = new AccountCredentials("fake", "fake")) Keys.Write(Profile.Id, credentials);
@@ -416,7 +416,8 @@ public sealed class OrderBookInteractionTests
             Adapter.SetupGet(s => s.Account).Returns(account);
             Adapter.Setup(s => s.FetchInstrumentAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((InstrumentKey key, CancellationToken _) => new Instrument(key, key.SecurityId, "Fake",
-                    TradingRules: new(futures ? QuantityUnit.Contracts : QuantityUnit.BaseAsset, PriceQuotation.CurrencyPerUnit, ContractSize: 1)));
+                    QuantityUnit: futures ? QuantityUnit.Contracts : QuantityUnit.BaseAsset,
+                    PriceQuotation: PriceQuotation.CurrencyPerUnit, ContractSize: 1));
             Adapter.Setup(s => s.FetchBalanceAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new AccountSnapshot(account, [new("USDT", 1000, 1000, 0)], [], [], DateTimeOffset.UtcNow));
             Adapter.Setup(s => s.FetchOpenOrdersAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<OrderSnapshot>());

@@ -16,7 +16,7 @@ public sealed class OrderInputCalculatorTests
         service.Setup(s => s.AmountToPrecision(key, It.IsAny<decimal>()))
             .Returns((InstrumentKey _, decimal value) => decimal.Floor(value * 1000) / 1000);
         var instrument = new Instrument(key, "BTC/USDT", "Bitcoin", "USDT",
-            TradingRules: new(QuantityUnit.Contracts, PriceQuotation.CurrencyPerUnit, ContractSize: contractSize));
+            QuantityUnit: QuantityUnit.Contracts, PriceQuotation: PriceQuotation.CurrencyPerUnit, ContractSize: contractSize);
         var calculator = new OrderInputCalculator(service.Object, instrument);
 
         var quantity = calculator.ConvertQuantity(100m, 300m, OrderQuantityCurrency.Quote);
@@ -35,7 +35,7 @@ public sealed class OrderInputCalculatorTests
         var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
         var service = new Mock<ITradingService>(MockBehavior.Strict);
         var instrument = new Instrument(key, key.SecurityId, "Bitcoin futures",
-            TradingRules: new(QuantityUnit.Contracts, PriceQuotation.CurrencyPerUnit, ContractSize: contractSize));
+            QuantityUnit: QuantityUnit.Contracts, PriceQuotation: PriceQuotation.CurrencyPerUnit, ContractSize: contractSize);
         var calculator = new OrderInputCalculator(service.Object, instrument);
 
         Assert.Equal(expected, calculator.EstimateInitialMargin(2m, 200m, leverage));

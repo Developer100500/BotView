@@ -124,9 +124,9 @@ public sealed class TradingAccountTests
 
     /// <summary>Market and environment edits retain keys and require verification for the new connection.</summary>
     [Theory]
-    [InlineData(TradingMarket.Spot, TradingMarket.UsdtFutures, TradingEnvironment.Testnet, TradingEnvironment.Testnet)]
-    [InlineData(TradingMarket.UsdtFutures, TradingMarket.Spot, TradingEnvironment.Testnet, TradingEnvironment.Testnet)]
-    [InlineData(TradingMarket.Spot, TradingMarket.Spot, TradingEnvironment.Testnet, TradingEnvironment.Production)]
+    [InlineData(TradingMarket.CryptoSpot, TradingMarket.UsdtFutures, TradingEnvironment.Testnet, TradingEnvironment.Testnet)]
+    [InlineData(TradingMarket.UsdtFutures, TradingMarket.CryptoSpot, TradingEnvironment.Testnet, TradingEnvironment.Testnet)]
+    [InlineData(TradingMarket.CryptoSpot, TradingMarket.CryptoSpot, TradingEnvironment.Testnet, TradingEnvironment.Production)]
     [InlineData(TradingMarket.UsdtFutures, TradingMarket.UsdtFutures, TradingEnvironment.Production, TradingEnvironment.Testnet)]
     public async Task SavedProfileConnectionCanChangeWithoutReplacingCredentials(
         TradingMarket originalMarket,

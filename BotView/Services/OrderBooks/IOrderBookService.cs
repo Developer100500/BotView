@@ -17,7 +17,7 @@ public interface IOrderBookService
             : throw new NotSupportedException("This source does not support Testnet depth.");
     /// <summary>Requests depth for a specific derivatives or spot market.</summary>
     Task<IOrderBookSubscription> SubscribeAsync(string exchange, string symbol, TradingEnvironment environment,
-        TradingMarket market, CancellationToken ct = default) => market == TradingMarket.Spot
+        TradingMarket market, CancellationToken ct = default) => market == TradingMarket.CryptoSpot
             ? SubscribeAsync(exchange, symbol, environment, ct)
             : throw new NotSupportedException("Futures depth is not supported by this source.");
 }

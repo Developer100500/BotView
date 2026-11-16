@@ -3,42 +3,55 @@ using static BotView.Services.Integrations.Ccxt.CcxtTradingMapper;
 
 namespace BotView.Services.Trading;
 
-/// <summary>USDT contract metadata, position queries and futures-specific CCXT order options.</summary>
-public sealed class FuturesTradingService : AbstractTradingService
+/// <summary>Crypto spot and linear USDT futures routing, metadata and order options.</summary>
+public sealed class CryptoTradingService : TradingServiceBase
 {
-    /// <summary>Uses the shared trading implementation with a futures account and contract instrument identifiers.</summary>
-    public FuturesTradingService(TradingAccountProfile profile, ccxt.Exchange exchange)
-        : base(profile, exchange, TradingMarket.UsdtFutures, "futures")
+    private bool IsFutures => Account.Market == TradingMarket.UsdtFutures;
+
+    /// <summary>Binds crypto operations to the profile's spot or futures market.</summary>
+    public CryptoTradingService(TradingAccountProfile profile, ccxt.Exchange exchange)
+        : base(profile, exchange, GetInstrumentMarket(profile))
     {
     }
 
-    /// <summary>Enriches shared listing metadata with native contract units and USDT settlement.</summary>
-    protected override Instrument DescribeInstrument(ccxt.MarketInterface market, InstrumentKey key)
+    /// <summary>Rejects non-crypto profiles before binding the transport.</summary>
+    private static string GetInstrumentMarket(TradingAccountProfile profile)
     {
-        var instrument = base.DescribeInstrument(market, key);
-        return instrument with
+        ArgumentNullException.ThrowIfNull(profile);
+
+        return profile.Market switch
         {
-            TradingRules = instrument.TradingRules! with
-            {
-                QuantityUnit = QuantityUnit.Contracts,
-                ContractSize = Number(market.contractSize),
-                SettlementCurrency = "USDT"
-            }
+            TradingMarket.CryptoSpot => "spot",
+            TradingMarket.UsdtFutures => "futures",
+            _ => throw new ArgumentException("A crypto spot or USDT futures profile is required.", nameof(profile))
         };
     }
 
-    /// <summary>Fetches contract positions, keeping hedge legs and margin information.</summary>
-    public override Task<IReadOnlyList<PositionSnapshot>> FetchPositionsAsync(InstrumentKey key, CancellationToken ct = default) =>
-        ExecuteAsync<IReadOnlyList<PositionSnapshot>>(async () =>
+    /// <summary>Returns no separate spot positions or fetches futures hedge legs and margin information.</summary>
+    public override Task<IReadOnlyList<PositionSnapshot>> FetchPositionsAsync(InstrumentKey key, CancellationToken ct = default)
+    {
+        if (!IsFutures)
+        {
+            return base.FetchPositionsAsync(key, ct);
+        }
+
+        return ExecuteAsync<IReadOnlyList<PositionSnapshot>>(async () =>
         {
             ValidateInstrument(key);
             var positions = await Exchange.FetchPositions(new List<string> { key.SecurityId }, CreateParameters()).ConfigureAwait(false);
             return positions.Select(position => Position(position, key)).ToArray();
         }, ct);
+    }
 
-    /// <summary>Sets one leverage value for the instrument. Bybit applies that value to both hedge legs.</summary>
-    public override Task SetLeverageAsync(InstrumentKey key, int leverage, CancellationToken ct = default) =>
-        ExecuteAsync(async () =>
+    /// <summary>Sets futures leverage once, applying it to both Bybit hedge legs; spot remains unsupported.</summary>
+    public override Task SetLeverageAsync(InstrumentKey key, int leverage, CancellationToken ct = default)
+    {
+        if (!IsFutures)
+        {
+            return base.SetLeverageAsync(key, leverage, ct);
+        }
+
+        return ExecuteAsync(async () =>
         {
             ValidateInstrument(key);
 
@@ -57,23 +70,41 @@ public sealed class FuturesTradingService : AbstractTradingService
             await Exchange.SetLeverage(leverage, key.SecurityId, parameters).ConfigureAwait(false);
             return true;
         }, ct);
+    }
 
-    /// <summary>Selects the linear USDT futures account route for a supported venue.</summary>
-    protected override Dictionary<string, object> CreateParameters() => Venue switch
+    /// <summary>Selects spot routing or the venue's linear USDT futures account route.</summary>
+    protected override Dictionary<string, object> CreateParameters()
     {
-        "binance" => new() { ["type"] = "future" },
-        "bybit" => new() { ["category"] = "linear", ["type"] = "swap" },
-        "okx" => new() { ["type"] = "swap" },
-        _ => throw new TradingServiceException(new("VenueUnsupported", $"Futures trading is not supported for {Venue}."))
-    };
+        if (!IsFutures)
+        {
+            return Venue == "bybit"
+                ? new Dictionary<string, object> { ["category"] = "spot" }
+                : new Dictionary<string, object>();
+        }
 
-    /// <summary>Reads hedge versus one-way from the exchange. A missing report stays null and blocks new orders.</summary>
-    public override Task<bool?> FetchPositionModeAsync(InstrumentKey key, CancellationToken ct = default) =>
-        ExecuteAsync(async () =>
+        return Venue switch
+        {
+            "binance" => new Dictionary<string, object> { ["type"] = "future" },
+            "bybit" => new Dictionary<string, object> { ["category"] = "linear", ["type"] = "swap" },
+            "okx" => new Dictionary<string, object> { ["type"] = "swap" },
+            _ => throw new TradingServiceException(new TradingError("VenueUnsupported", $"Futures trading is not supported for {Venue}."))
+        };
+    }
+
+    /// <summary>Reads the reported futures position mode; spot has no position mode.</summary>
+    public override Task<bool?> FetchPositionModeAsync(InstrumentKey key, CancellationToken ct = default)
+    {
+        if (!IsFutures)
+        {
+            return base.FetchPositionModeAsync(key, ct);
+        }
+
+        return ExecuteAsync(async () =>
         {
             ValidateInstrument(key);
             return await ReadHedgedAsync(key).ConfigureAwait(false);
         }, ct);
+    }
 
     /// <summary>Prefers the unified position-mode call. Venues that only expose the flag on positions, such as Bybit, use that report instead.</summary>
     private async Task<bool?> ReadHedgedAsync(InstrumentKey key)
@@ -120,7 +151,7 @@ public sealed class FuturesTradingService : AbstractTradingService
         // The exchange did not report one-way or hedge mode, so the order is refused rather than guessed.
         if (hedged is not bool twoWay)
         {
-            throw new TradingServiceException(new("PositionModeUnavailable",
+            throw new TradingServiceException(new TradingError("PositionModeUnavailable",
                 "The exchange did not report whether this account is in one-way or hedge mode."));
         }
 
@@ -137,7 +168,7 @@ public sealed class FuturesTradingService : AbstractTradingService
             // A Long or Short side belongs to hedge mode and is not accepted here.
             if (side is not null)
             {
-                throw new TradingServiceException(new("PositionSideNotUsed", "One-way mode uses Buy or Sell only."));
+                throw new TradingServiceException(new TradingError("PositionSideNotUsed", "One-way mode uses Buy or Sell only."));
             }
 
             switch (Venue)
@@ -154,7 +185,7 @@ public sealed class FuturesTradingService : AbstractTradingService
         // Hedge mode keeps long and short open together, so the order must name one of those legs.
         if (side is not (PositionSide.Long or PositionSide.Short))
         {
-            throw new TradingServiceException(new("PositionSideRequired", "Select Long or Short for a hedge-mode futures order."));
+            throw new TradingServiceException(new TradingError("PositionSideRequired", "Select Long or Short for a hedge-mode futures order."));
         }
 
         switch (Venue)
@@ -177,24 +208,51 @@ public sealed class FuturesTradingService : AbstractTradingService
 
     /// <summary>Keeps an unknown venue from receiving another exchange's position fields.</summary>
     private TradingServiceException UnsupportedVenue() =>
-        new(new("VenueUnsupported", $"Futures position mode is not supported for {Venue}."));
+        new TradingServiceException(new TradingError("VenueUnsupported", $"Futures position mode is not supported for {Venue}."));
 
-    /// <summary>Applies the venue's maker-only duration to a futures limit order.</summary>
+    /// <summary>Preserves spot maker-only intent or applies futures position and duration parameters.</summary>
     protected override Dictionary<string, object> CreateLimitOrderParameters(LimitOrderRequest request, bool? hedged)
     {
-        var parameters = OrderParameters(request.ReduceOnly, request.PositionSide, hedged);
-        parameters["timeInForce"] = request.PostOnly ? Venue == "binance" ? "GTX" : "PostOnly" : "GTC";
+        if (IsFutures)
+        {
+            var futuresParameters = OrderParameters(request.ReduceOnly, request.PositionSide, hedged);
+            futuresParameters["timeInForce"] = request.PostOnly ? Venue == "binance" ? "GTX" : "PostOnly" : "GTC";
+            return futuresParameters;
+        }
+
+        if (hedged is not null)
+        {
+            throw new NotSupportedException("Spot orders do not use a position mode.");
+        }
+
+        var parameters = CreateParameters();
+        if (request.PostOnly)
+        {
+            parameters["postOnly"] = true;
+        }
+        else
+        {
+            parameters["timeInForce"] = "GTC";
+        }
+
         return parameters;
     }
 
-    /// <summary>Adds the reported position mode and Reduce-only flag to a futures market order.</summary>
+    /// <summary>Uses ordinary spot routing or adds the reported futures position mode and Reduce-only flag.</summary>
     protected override Dictionary<string, object> CreateMarketOrderParameters(MarketOrderRequest request, bool? hedged) =>
-        OrderParameters(request.ReduceOnly, request.PositionSide, hedged);
+        IsFutures
+            ? OrderParameters(request.ReduceOnly, request.PositionSide, hedged)
+            : base.CreateMarketOrderParameters(request, hedged);
 
     /// <summary>Loads the public list of linear USDT contracts matching a spot pair without requiring keys.</summary>
     public Task<IReadOnlyList<string>> FetchTradingPairsAsync(string spotSymbol, CancellationToken ct = default) =>
         ExecuteAsync<IReadOnlyList<string>>(async () =>
         {
+            if (!IsFutures)
+            {
+                throw new NotSupportedException("The contract catalog requires a USDT futures profile.");
+            }
+
             var markets = await Exchange.LoadMarkets().ConfigureAwait(false);
             var pair = spotSymbol.Split(':')[0];
             return markets.Values.Where(m => m.contract == true && m.linear == true && m.settle == "USDT"

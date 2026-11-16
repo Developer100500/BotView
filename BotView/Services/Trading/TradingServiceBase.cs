@@ -5,39 +5,40 @@ using static BotView.Services.Integrations.Ccxt.CcxtTradingMapper;
 
 namespace BotView.Services.Trading;
 
-/// <summary>Shared CCXT operations, application-model mapping and lifetime for market-specific trading services.</summary>
-public abstract class AbstractTradingService : ITradingService
+/// <summary>Shared CCXT operations, application-model mapping and transport lifetime.</summary>
+public abstract class TradingServiceBase : ITradingService
 {
     private readonly string _instrumentMarket;
     protected ccxt.Exchange Exchange { get; }
     protected string Venue => Account.Venue; // exchange name
     public TradingAccountContext Account { get; }
 
-    /// <summary>Binds a transport to the expected profile market without making a network request.</summary>
-    protected AbstractTradingService(TradingAccountProfile profile, ccxt.Exchange exchange,
-        TradingMarket expectedMarket, string instrumentMarket)
+    /// <summary>Binds a transport to the profile and listing market without making a network request.</summary>
+    protected TradingServiceBase(TradingAccountProfile profile, ccxt.Exchange exchange, string instrumentMarket)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(exchange);
-        if (profile.Market != expectedMarket)
-        {
-            throw new ArgumentException($"This service requires a {expectedMarket} profile.", nameof(profile));
-        }
-
         Exchange = exchange;
         _instrumentMarket = instrumentMarket;
-        Account = new(profile.Id.ToString(), profile.Name, profile.Exchange, profile.Environment, profile.Market);
+        Account = new TradingAccountContext(profile.Id.ToString(), profile.Name, profile.Exchange, profile.Environment, profile.Market);
     }
 
     /// <summary>Loads the instrument's units and precision metadata without checking trading funds or limits.</summary>
     public Task<Instrument> FetchInstrumentAsync(InstrumentKey key, CancellationToken ct = default) =>
         ExecuteAsync(async () =>
-    {
-        ValidateInstrument(key);
-        var markets = await Exchange.LoadMarkets().ConfigureAwait(false);
-        var market = markets[key.SecurityId];
-        return DescribeInstrument(market, key);
-    }, ct);
+        {
+            ValidateInstrument(key);
+            var markets = await Exchange.LoadMarkets().ConfigureAwait(false);
+            var market = markets[key.SecurityId];
+            var instrument = CcxtMarketDataProvider.MapInstrument(market, Venue, Convert.ToInt32(Exchange.precisionMode));
+
+            if (instrument.Key != key)
+            {
+                throw new ArgumentException("The exchange listing does not match the requested instrument.", nameof(key));
+            }
+
+            return instrument;
+        }, ct);
 
     /// <summary>Formats the native quantity using the loaded CCXT precision rules.</summary>
     public decimal AmountToPrecision(InstrumentKey key, decimal quantity) =>
@@ -214,10 +215,6 @@ public abstract class AbstractTradingService : ITradingService
 
         return CreateParameters();
     }
-
-    /// <summary>Maps common listing metadata; subclasses can enrich it with contract-specific units.</summary>
-    protected virtual Instrument DescribeInstrument(ccxt.MarketInterface market, InstrumentKey key) =>
-        CcxtMarketDataProvider.MapInstrument(Venue, market, Convert.ToInt32(Exchange.precisionMode)) with { Key = key };
 
     /// <summary>Rejects missing fields and incorrectly routed instruments without imposing exchange trading policy.</summary>
     private void ValidateRequest(InstrumentKey key, OrderSide side, decimal quantity)

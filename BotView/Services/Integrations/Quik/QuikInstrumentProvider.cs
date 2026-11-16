@@ -53,15 +53,15 @@ public sealed class QuikInstrumentProvider : IInstrumentProvider
                             : !string.IsNullOrWhiteSpace(info.Name) ? info.Name.Trim() : code;
                         if (info.LotSize < 0 || !double.IsFinite(info.PriceStep) || info.PriceStep < 0)
                             throw new InvalidOperationException($"Invalid instrument description {classCode}:{code}.");
-                        return new Instrument(new("MOEX", market, classCode, code), $"{classCode}:{code}", name,
+                        return new Instrument(new InstrumentKey("MOEX", market, classCode, code), $"{classCode}:{code}", name,
                             LotSize: info.LotSize, PriceStep: info.PriceStep > 0 ? (decimal)info.PriceStep : null,
-                            TradingRules: new(market == "futures" ? QuantityUnit.Contracts : QuantityUnit.Lots,
-                                market switch
-                                {
-                                    "bonds" => PriceQuotation.PercentOfFaceValue,
-                                    "futures" => PriceQuotation.Points,
-                                    _ => PriceQuotation.CurrencyPerUnit
-                                }));
+                            QuantityUnit: market == "futures" ? QuantityUnit.Contracts : QuantityUnit.Lots,
+                            PriceQuotation: market switch
+                            {
+                                "bonds" => PriceQuotation.PercentOfFaceValue,
+                                "futures" => PriceQuotation.Points,
+                                _ => PriceQuotation.CurrencyPerUnit
+                            });
                     })).ConfigureAwait(false);
                     instruments.AddRange(items);
                 }

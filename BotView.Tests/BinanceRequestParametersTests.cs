@@ -13,7 +13,7 @@ public sealed class BinanceRequestParametersTests
         var transport = new CapturingBinance();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Production);
         using var credentials = new AccountCredentials("fake", "fake");
-        await using var client = new SpotTradingService(profile, transport);
+        await using var client = new CryptoTradingService(profile, transport);
         var instrument = new InstrumentKey("binance", "spot", "", "BTC/USDT");
 
         await client.FetchOpenOrdersAsync(instrument);

@@ -4,7 +4,7 @@ namespace BotView.Models;
 /// Provider routing (QUIK firm/client codes or crypto account type) belongs inside its adapter.</summary>
 public sealed record TradingAccountContext(
                     string ConnectionId, string AccountId,
-                    string Venue, TradingEnvironment Environment, TradingMarket Market = TradingMarket.Spot);
+                    string Venue, TradingEnvironment Environment, TradingMarket Market = TradingMarket.CryptoSpot);
 
 public enum OrderType { Market, Limit, Stop, StopLimit }
 public enum OrderSide { Buy, Sell }

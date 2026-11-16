@@ -35,7 +35,7 @@ public sealed class LeverageRequestTests
             }
         });
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
-        await using var service = new FuturesTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
 
         await service.SetLeverageAsync(new(venue, "futures", "", "BTC/USDT:USDT"), 10);
 

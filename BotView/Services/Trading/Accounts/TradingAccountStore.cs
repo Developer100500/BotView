@@ -86,7 +86,7 @@ public sealed class TradingAccountStore : ITradingAccountStore, ITradingProfileN
                     quik.ClientCode is null || quik.LimitKind < 0)
                     throw new InvalidDataException("Select QUIK routing and limit kind explicitly.");
             }
-            else if (profile.Market is not (TradingMarket.Spot or TradingMarket.UsdtFutures) || profile.Quik is not null)
+            else if (profile.Market is not (TradingMarket.CryptoSpot or TradingMarket.UsdtFutures) || profile.Quik is not null)
                 throw new InvalidDataException("The profile market does not match its connection.");
         }
 

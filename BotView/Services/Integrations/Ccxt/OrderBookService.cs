@@ -43,7 +43,7 @@ public sealed class OrderBookService : IOrderBookService
     public Task<IOrderBookSubscription> SubscribeAsync(string exchange, string symbol, TradingEnvironment environment,
         TradingMarket market, CancellationToken ct = default)
     {
-        if (market == TradingMarket.Spot)
+        if (market == TradingMarket.CryptoSpot)
         {
             return SubscribeAsync(exchange, symbol, environment, ct);
         }
@@ -147,12 +147,14 @@ internal interface IOrderBookClient : IAsyncDisposable
 internal sealed class ProOrderBookClient : IOrderBookClient
 {
     private readonly ccxt.Exchange _client;
+    private readonly string _venue;
     private readonly int _subscriptionDepth;
     private readonly TradingMarket _marketType;
 
     public ProOrderBookClient(string id, TradingEnvironment environment = TradingEnvironment.Production,
-            TradingMarket marketType = TradingMarket.Spot)
+            TradingMarket marketType = TradingMarket.CryptoSpot)
     {
+        _venue = id;
         _marketType = marketType;
         var settings = CreateSettings();
         // Bybit spot streams accept 1/50/200/1000, so receive 200 and retain the nearest 100.
@@ -193,6 +195,7 @@ internal sealed class ProOrderBookClient : IOrderBookClient
             }
         };
 
+    /// <summary>Loads the selected market and uses its mapped listing without changing native metadata.</summary>
     public async Task<OrderBookMarket> LoadMarketAsync(string symbol, CancellationToken ct)
     {
         if (!_client.has.TryGetValue("watchOrderBook", out var supported) || supported is not true)
@@ -200,19 +203,12 @@ internal sealed class ProOrderBookClient : IOrderBookClient
         
         var markets = await AwaitAsync(_client.LoadMarkets(), ct).ConfigureAwait(false);
 
-        if (!markets.TryGetValue(symbol, out var market) || (_marketType == TradingMarket.Spot ? market.spot != true : market.linear != true || market.contract != true || market.settle != "USDT") || market.active == false)
+        if (!markets.TryGetValue(symbol, out var market) || (_marketType == TradingMarket.CryptoSpot ? market.spot != true : market.linear != true || market.contract != true || market.settle != "USDT") || market.active == false)
             throw new NotSupportedException($"Spot pair {symbol} is unavailable on this exchange.");
         
         var precision = market.precision?.price;
         var tick = GetTickSize(precision, Convert.ToInt32(_client.precisionMode, CultureInfo.InvariantCulture));
-        var instrument = CcxtMarketDataProvider.MapInstrument(_client.id, market, Convert.ToInt32(_client.precisionMode));
-        if (_marketType == TradingMarket.UsdtFutures)
-        {
-            instrument = instrument with
-            {
-                TradingRules = instrument.TradingRules! with { QuantityUnit = QuantityUnit.Contracts, ContractSize = CcxtTradingMapper.Number(market.contractSize), SettlementCurrency = "USDT" }
-            };
-        }
+        var instrument = CcxtMarketDataProvider.MapInstrument(market, _venue, Convert.ToInt32(_client.precisionMode));
 
         return new OrderBookMarket(symbol, market.baseCurrency!, market.quote!, tick, instrument);
     }

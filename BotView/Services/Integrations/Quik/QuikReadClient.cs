@@ -94,10 +94,10 @@ internal sealed class QuikReadClient : IQuikReadClient
         var tickValueText = key.Market == "futures" ? await ParameterAsync(client, key, "STEPPRICE", ct) : null;
         decimal? tickValue = decimal.TryParse(tickValueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && value > 0 ? value : null;
         var instrument = new Instrument(key, $"{key.Board}:{key.SecurityId}", info.ShortName ?? info.Name ?? key.SecurityId,
-            currency, info.LotSize, (decimal)info.MinPriceStep, TradingRules: new(
-                key.Market == "futures" ? QuantityUnit.Contracts : QuantityUnit.Lots,
-                key.Market == "futures" ? PriceQuotation.Points : PriceQuotation.CurrencyPerUnit,
-                TickValue: tickValue, SettlementCurrency: currency));
+            currency, info.LotSize, (decimal)info.MinPriceStep,
+            QuantityUnit: key.Market == "futures" ? QuantityUnit.Contracts : QuantityUnit.Lots,
+            PriceQuotation: key.Market == "futures" ? PriceQuotation.Points : PriceQuotation.CurrencyPerUnit,
+            TickValue: tickValue, SettlementCurrency: currency);
         _instruments[key] = instrument;
         return instrument;
     }
@@ -342,7 +342,7 @@ internal sealed class QuikReadClient : IQuikReadClient
 
     /// <summary>Copies, sorts and groups levels; QUIK Level II quantities already use lots/contracts.</summary>
     internal static OrderBookSnapshot MapBook(QuikSharp.DataStructures.OrderBook book, Instrument instrument) => new(
-        new(instrument.Symbol, instrument.TradingRules!.QuantityUnit == QuantityUnit.Contracts ? "contracts" : "lots",
+        new(instrument.Symbol, instrument.QuantityUnit == QuantityUnit.Contracts ? "contracts" : "lots",
             instrument.Currency ?? "—", instrument.PriceStep!.Value, instrument),
         (book.bid ?? []).Select(l => new OrderBookLevel((decimal)l.price, (decimal)l.quantity)).GroupBy(l => l.Price)
             .Select(g => new OrderBookLevel(g.Key, g.Sum(l => l.Amount))).OrderByDescending(l => l.Price).ToArray(),

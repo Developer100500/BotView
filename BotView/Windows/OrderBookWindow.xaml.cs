@@ -18,7 +18,7 @@ public partial class OrderBookWindow : Window
 
     /// <summary>Opens a network-specific book and delegates standalone account windows to its MainWindow owner.</summary>
     public OrderBookWindow(string exchange, string symbol, IOrderBookService service,
-        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.Spot,
+        TradingSessionManager? trading = null, TradingEnvironment environment = TradingEnvironment.Production, TradingMarket market = TradingMarket.CryptoSpot,
         Action<TradingAccountProfile, InstrumentKey>? showOrders = null, Instrument? instrument = null, string? connectionId = null)
     {
         InitializeComponent();
@@ -104,8 +104,8 @@ public partial class OrderBookWindow : Window
             WorkingVolumes.Children.Add(button);
         }
         WorkingVolumeUnits.Text = settings.Monetary
-            ? $"Сумма ({_viewModel.ListedInstrument.TradingRules?.SettlementCurrency ?? _viewModel.ListedInstrument.Currency ?? "неизвестна"})"
-            : $"Количество ({_viewModel.ListedInstrument.TradingRules?.QuantityUnit})";
+            ? $"Сумма ({_viewModel.ListedInstrument.SettlementCurrency ?? _viewModel.ListedInstrument.Currency ?? "неизвестна"})"
+            : $"Количество ({_viewModel.ListedInstrument.QuantityUnit})";
         CommandStatus.Text = commands.ActiveMode is { } mode ? $"Режим: {mode} · Esc — отмена" :
             commands.LastResult is { } result ? $"{result.Message}\n{BookCommandCatalog.All.Single(d => d.Id == result.Invocation.Command).Label} · " +
                 $"объём: {result.Invocation.Volume?.ToString() ?? "не задан"} · цена: {result.Invocation.Price?.ToString() ?? "не задана"}" +

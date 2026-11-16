@@ -15,7 +15,7 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
-        await using var service = new FuturesTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         var key = new InstrumentKey(venue, "futures", "", "BTC/USDT:USDT");
 
         if (timeout)
@@ -44,14 +44,14 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
-        await using var futures = new FuturesTradingService(profile, native);
+        await using var futures = new CryptoTradingService(profile, native);
         var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
         await Assert.ThrowsAsync<TradingServiceException>(() => futures.SetLeverageAsync(key, 0));
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => futures.SetLeverageAsync(key, 10, canceled.Token));
 
-        await using var spot = new SpotTradingService(profile with { Market = TradingMarket.Spot }, new CapturingExchange());
+        await using var spot = new CryptoTradingService(profile with { Market = TradingMarket.CryptoSpot }, new CapturingExchange());
         await Assert.ThrowsAsync<NotSupportedException>(() => spot.SetLeverageAsync(key with { Market = "spot" }, 10));
         Assert.Equal(0, native.LeverageCalls);
     }
@@ -70,9 +70,8 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet,
-            futures ? TradingMarket.UsdtFutures : TradingMarket.Spot);
-        await using AbstractTradingService service = futures
-            ? new FuturesTradingService(profile, native) : new SpotTradingService(profile, native);
+            futures ? TradingMarket.UsdtFutures : TradingMarket.CryptoSpot);
+        await using TradingServiceBase service = new CryptoTradingService(profile, native);
         var symbol = futures ? "BTC/USDT:USDT" : "BTC/USDT";
         var key = new InstrumentKey(venue, futures ? "futures" : "spot", "", symbol);
         var direction = side == "sell" ? OrderSide.Sell : OrderSide.Buy;
@@ -129,7 +128,7 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange { ReportedHedged = hedged };
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
-        await using var service = new FuturesTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         var key = new InstrumentKey(venue, "futures", "", "BTC/USDT:USDT");
         Task<OrderSnapshot> SendAsync() => market
             ? service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1, PositionSide: side, Hedged: hedged))
@@ -174,7 +173,7 @@ public sealed class TradingServiceTests
         }
 
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
-        await using var service = new FuturesTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
         var error = await Assert.ThrowsAsync<TradingServiceException>(() => service.CreateMarketOrderAsync(
             new(key, OrderSide.Buy, 1, PositionSide: side, Hedged: unavailable ? null : hedged)));
@@ -194,7 +193,7 @@ public sealed class TradingServiceTests
         native.has["fetchPositions"] = true;
         native.Positions.Add(new ccxt.Position { symbol = "BTC/USDT:USDT", hedged = false });
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "bybit", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
-        await using var service = new FuturesTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         var key = new InstrumentKey("bybit", "futures", "", "BTC/USDT:USDT");
 
         var hedged = await service.FetchPositionModeAsync(key);
@@ -222,7 +221,7 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "kraken", TradingEnvironment.Testnet, TradingMarket.UsdtFutures);
-        await using var service = new FuturesTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         var error = await Assert.ThrowsAsync<TradingServiceException>(() =>
             service.CreateMarketOrderAsync(new(new("kraken", "futures", "", "BTC/USDT:USDT"), OrderSide.Buy, 1, Hedged: false)));
         Assert.Contains("not supported", error.Message);
@@ -254,60 +253,158 @@ public sealed class TradingServiceTests
         Assert.Equal(expected == "" ? null : Enum.Parse<PositionSide>(expected), snapshot.PositionSide);
     }
 
-    /// <summary>Market selection creates a concrete direct service without an intermediate trading client.</summary>
+    /// <summary>Both crypto markets use the unified service while preserving the profile's market.</summary>
     [Theory]
-    [InlineData(TradingMarket.Spot)]
+    [InlineData(TradingMarket.CryptoSpot)]
     [InlineData(TradingMarket.UsdtFutures)]
-    public async Task FactorySelectsTheServiceByMarket(TradingMarket market)
+    public async Task FactoryCreatesCryptoServiceForBothMarkets(TradingMarket market)
     {
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, market);
-        await using ITradingService service = TradingServiceFactory.Create(profile);
+        await using ITradingService service = TradingServiceFactory.CreateCryptoService(profile);
+
         Assert.Equal(market, service.Account.Market);
-        if (market == TradingMarket.Spot) Assert.IsType<SpotTradingService>(service);
-        else Assert.IsType<FuturesTradingService>(service);
+        Assert.IsType<CryptoTradingService>(service);
     }
 
-    /// <summary>Shared metadata loading retains spot units and the futures subclass's contract valuation.</summary>
+    /// <summary>Non-crypto profiles cannot create a crypto service or its transport through the factory.</summary>
     [Theory]
-    [InlineData(TradingMarket.Spot)]
+    [InlineData(TradingMarket.MoexShares)]
+    [InlineData(TradingMarket.MoexFutures)]
+    [InlineData((TradingMarket)999)]
+    public async Task CryptoServiceRejectsNonCryptoProfiles(TradingMarket market)
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "quik", TradingEnvironment.Production, market);
+
+        Assert.Throws<ArgumentException>(() => new CryptoTradingService(profile, native));
+        Assert.Throws<ArgumentException>(() => TradingServiceFactory.CreateCryptoService(profile));
+
+        await native.Close();
+    }
+
+    /// <summary>Shared metadata loading retains spot units and futures contract valuation.</summary>
+    [Theory]
+    [InlineData(TradingMarket.CryptoSpot)]
     [InlineData(TradingMarket.UsdtFutures)]
     public async Task InstrumentMetadataKeepsTheMarketSpecificUnits(TradingMarket market)
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, market);
-        await using AbstractTradingService service = market == TradingMarket.Spot
-            ? new SpotTradingService(profile, native) : new FuturesTradingService(profile, native);
-        var key = new InstrumentKey("binance", market == TradingMarket.Spot ? "spot" : "futures", "",
-            market == TradingMarket.Spot ? "BTC/USDT" : "BTC/USDT:USDT");
+        await using TradingServiceBase service = new CryptoTradingService(profile, native);
+        var key = new InstrumentKey("binance", market == TradingMarket.CryptoSpot ? "spot" : "futures", "",
+            market == TradingMarket.CryptoSpot ? "BTC/USDT" : "BTC/USDT:USDT");
 
         var instrument = await service.FetchInstrumentAsync(key);
+        var nativeMarkets = await native.LoadMarkets();
 
+        Assert.Equal(CcxtMarketDataProvider.MapInstrument(nativeMarkets[key.SecurityId], "binance", 4), instrument);
         Assert.Equal(key, instrument.Key);
         Assert.Equal(.01m, instrument.PriceStep);
-        if (market == TradingMarket.Spot)
+        if (market == TradingMarket.CryptoSpot)
         {
-            Assert.Equal(QuantityUnit.BaseAsset, instrument.TradingRules!.QuantityUnit);
+            Assert.Equal(QuantityUnit.BaseAsset, instrument.QuantityUnit);
             Assert.Empty(await service.FetchPositionsAsync(key));
         }
         else
         {
-            Assert.Equal(QuantityUnit.Contracts, instrument.TradingRules!.QuantityUnit);
-            Assert.Equal(1m, instrument.TradingRules.ContractSize);
-            Assert.Equal("USDT", instrument.TradingRules.SettlementCurrency);
+            Assert.Equal(QuantityUnit.Contracts, instrument.QuantityUnit);
+            Assert.Equal(1m, instrument.ContractSize);
+            Assert.Equal("USDT", instrument.SettlementCurrency);
         }
     }
 
-    /// <summary>A spot service cannot dispatch an instrument belonging to the futures account route.</summary>
-    [Fact]
-    public async Task WrongMarketIsRejectedBeforeDispatch()
+    /// <summary>A native spot listing cannot be relabeled as futures, or vice versa, during metadata loading.</summary>
+    [Theory]
+    [InlineData(TradingMarket.CryptoSpot, "spot", "BTC/USDT:USDT")]
+    [InlineData(TradingMarket.UsdtFutures, "futures", "BTC/USDT")]
+    public async Task InstrumentMetadataRejectsNativeMarketMismatch(TradingMarket market, string instrumentMarket, string symbol)
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, market);
+        await using var service = new CryptoTradingService(profile, native);
+        var key = new InstrumentKey("binance", instrumentMarket, "", symbol);
+
+        await Assert.ThrowsAsync<TradingServiceException>(() => service.FetchInstrumentAsync(key));
+        Assert.Equal(0, native.Calls);
+    }
+
+    /// <summary>Neither crypto market can dispatch an instrument belonging to the other account route.</summary>
+    [Theory]
+    [InlineData(TradingMarket.CryptoSpot)]
+    [InlineData(TradingMarket.UsdtFutures)]
+    public async Task WrongMarketIsRejectedBeforeDispatch(TradingMarket market)
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet, market);
+        await using var service = new CryptoTradingService(profile, native);
+        var key = market == TradingMarket.CryptoSpot
+            ? new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT")
+            : new InstrumentKey("binance", "spot", "", "BTC/USDT");
+
+        await Assert.ThrowsAsync<TradingServiceException>(() => service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1)));
+        Assert.Equal(0, native.Calls);
+    }
+
+    /// <summary>Spot orders still reject hedge mode, and spot position queries cannot call futures endpoints.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SpotRejectsPositionModeBeforeDispatch(bool marketOrder)
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet);
-        await using var service = new SpotTradingService(profile, native);
-        var key = new InstrumentKey("binance", "futures", "", "BTC/USDT:USDT");
-        await Assert.ThrowsAsync<TradingServiceException>(() => service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1)));
+        await using var service = new CryptoTradingService(profile, native);
+        var key = new InstrumentKey("binance", "spot", "", "BTC/USDT");
+
+        await Assert.ThrowsAsync<TradingServiceException>(() => marketOrder
+            ? service.CreateMarketOrderAsync(new MarketOrderRequest(key, OrderSide.Buy, 1, Hedged: true))
+            : service.CreateLimitOrderAsync(new LimitOrderRequest(key, OrderSide.Buy, 1, 100, Hedged: true)));
+        await Assert.ThrowsAsync<NotSupportedException>(() => service.FetchPositionModeAsync(key));
+        Assert.Empty(await service.FetchPositionsAsync(key));
         Assert.Equal(0, native.Calls);
-        Assert.Throws<ArgumentException>(() => new FuturesTradingService(profile, native));
+        Assert.Equal(0, native.PositionModeCalls);
+        Assert.Equal(0, native.PositionFetches);
+    }
+
+    /// <summary>Ordinary limit orders retain GTC duration on both routes without introducing maker-only flags.</summary>
+    [Theory]
+    [InlineData("binance", TradingMarket.CryptoSpot)]
+    [InlineData("bybit", TradingMarket.CryptoSpot)]
+    [InlineData("binance", TradingMarket.UsdtFutures)]
+    [InlineData("bybit", TradingMarket.UsdtFutures)]
+    public async Task OrdinaryLimitOrdersKeepGtcDuration(string venue, TradingMarket market)
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", venue, TradingEnvironment.Testnet, market);
+        await using var service = new CryptoTradingService(profile, native);
+        var futures = market == TradingMarket.UsdtFutures;
+        var key = new InstrumentKey(venue, futures ? "futures" : "spot", "", futures ? "BTC/USDT:USDT" : "BTC/USDT");
+
+        await service.CreateLimitOrderAsync(new LimitOrderRequest(key, OrderSide.Buy, 1, 100, Hedged: futures ? false : null));
+
+        Assert.Equal("GTC", native.Parameters["timeInForce"]);
+        Assert.DoesNotContain("postOnly", native.Parameters.Keys);
+        Assert.Equal(1, native.Calls);
+    }
+
+    /// <summary>Public contract discovery remains available for futures and unavailable on a spot route.</summary>
+    [Theory]
+    [InlineData(TradingMarket.CryptoSpot)]
+    [InlineData(TradingMarket.UsdtFutures)]
+    public async Task ContractCatalogUsesTheBoundMarket(TradingMarket market)
+    {
+        var native = new CapturingExchange();
+        var profile = new TradingAccountProfile(Guid.NewGuid(), "Catalog", "binance", TradingEnvironment.Production, market);
+        await using var service = new CryptoTradingService(profile, native);
+
+        if (market == TradingMarket.CryptoSpot)
+        {
+            await Assert.ThrowsAsync<TradingServiceException>(() => service.FetchTradingPairsAsync("BTC/USDT"));
+            return;
+        }
+
+        Assert.Equal("BTC/USDT:USDT", Assert.Single(await service.FetchTradingPairsAsync("BTC/USDT")));
+        Assert.Empty(await service.FetchTradingPairsAsync("ETH/USDT"));
     }
 
     /// <summary>Checks native precision formatting and detached responses in the adapter.</summary>
@@ -316,7 +413,7 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet);
-        await using var service = new SpotTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         var key = new InstrumentKey("binance", "spot", "", "BTC/USDT");
         var order = await service.CreateLimitOrderAsync(new(key, OrderSide.Sell, 1.23456m, 100.123m));
         Assert.Equal(1.2345d, native.Amount);
@@ -331,7 +428,7 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange { Failure = new ccxt.RequestTimeout("signed url must not be displayed") };
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet);
-        await using var service = new SpotTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         var key = new InstrumentKey("binance", "spot", "", "BTC/USDT");
         var error = await Assert.ThrowsAsync<TradingServiceException>(() => service.CreateMarketOrderAsync(new(key, OrderSide.Buy, 1)));
         Assert.Equal(1, native.Calls);
@@ -345,7 +442,7 @@ public sealed class TradingServiceTests
     {
         var native = new CapturingExchange();
         var profile = new TradingAccountProfile(Guid.NewGuid(), "Fake", "binance", TradingEnvironment.Testnet);
-        await using var service = new SpotTradingService(profile, native);
+        await using var service = new CryptoTradingService(profile, native);
         using var stop = new CancellationTokenSource();
         stop.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.CreateMarketOrderAsync(new(new("binance", "spot", "", "BTC/USDT"), OrderSide.Buy, 1), stop.Token));
@@ -364,12 +461,12 @@ public sealed class TradingServiceTests
 
     /// <summary>Checks routing before any network request, including the private futures API host.</summary>
     [Theory]
-    [InlineData("binance", TradingMarket.Spot, TradingEnvironment.Testnet, "testnet.binance.vision")]
-    [InlineData("binance", TradingMarket.Spot, TradingEnvironment.Production, "api.binance.com")]
+    [InlineData("binance", TradingMarket.CryptoSpot, TradingEnvironment.Testnet, "testnet.binance.vision")]
+    [InlineData("binance", TradingMarket.CryptoSpot, TradingEnvironment.Production, "api.binance.com")]
     [InlineData("binance", TradingMarket.UsdtFutures, TradingEnvironment.Testnet, "testnet.binancefuture.com")]
     [InlineData("binance", TradingMarket.UsdtFutures, TradingEnvironment.Production, "fapi.binance.com")]
-    [InlineData("bybit", TradingMarket.Spot, TradingEnvironment.Testnet, "api-testnet.bybit.com")]
-    [InlineData("bybit", TradingMarket.Spot, TradingEnvironment.Production, "api.bybit.com")]
+    [InlineData("bybit", TradingMarket.CryptoSpot, TradingEnvironment.Testnet, "api-testnet.bybit.com")]
+    [InlineData("bybit", TradingMarket.CryptoSpot, TradingEnvironment.Production, "api.bybit.com")]
     [InlineData("bybit", TradingMarket.UsdtFutures, TradingEnvironment.Testnet, "api-testnet.bybit.com")]
     [InlineData("bybit", TradingMarket.UsdtFutures, TradingEnvironment.Production, "api.bybit.com")]
     public async Task FactoryBindsTheMarketAndNetworkBeforeConnecting(string venue, TradingMarket market,
@@ -381,7 +478,7 @@ public sealed class TradingServiceTests
         var endpoint = venue == "binance" && market == TradingMarket.UsdtFutures ? "fapiPrivate" : "private";
         Assert.Contains(expectedHost, transport.implodeHostname(api[endpoint]));
         Assert.False(transport.verbose);
-        Assert.Equal(market == TradingMarket.Spot ? "spot" : venue == "binance" ? "future" : "swap", transport.options["defaultType"]);
+        Assert.Equal(market == TradingMarket.CryptoSpot ? "spot" : venue == "binance" ? "future" : "swap", transport.options["defaultType"]);
         await transport.Close();
     }
 

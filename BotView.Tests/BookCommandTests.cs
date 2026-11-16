@@ -197,8 +197,8 @@ public sealed class BookCommandTests : IDisposable
             try
             {
                 var store = Store();
-                var window = new InstrumentCommandSettingsWindow(store, "quik:one", new(Future, "SPBFUT:SAME", "Future", "RUB",
-                    TradingRules: new(QuantityUnit.Contracts, PriceQuotation.Points, SettlementCurrency: "RUB")));
+                var window = new InstrumentCommandSettingsWindow(store, "quik:one", new Instrument(Future, "SPBFUT:SAME", "Future", "RUB",
+                    QuantityUnit: QuantityUnit.Contracts, PriceQuotation: PriceQuotation.Points, SettlementCurrency: "RUB"));
                 var root = (FrameworkElement)window.Content;
                 root.Measure(new Size(650, 650));
                 root.Arrange(new Rect(0, 0, 650, 650));

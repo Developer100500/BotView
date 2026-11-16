@@ -1,29 +1,32 @@
 using BotView.Models;
 using BotView.Services.Integrations.Ccxt;
+using BotView.Services.Integrations.Quik;
 
 namespace BotView.Services.Trading;
 
 /// <summary>Creates isolated transports and selects the network before any request.</summary>
 public static class TradingServiceFactory
 {
-    /// <summary>Creates one direct trading service for the profile's market.</summary>
-    public static ITradingService Create(TradingAccountProfile profile, AccountCredentials? credentials = null) => profile.Market switch
+    /// <summary>Creates a crypto spot or USDT futures service, including public catalog access without keys.</summary>
+    public static CryptoTradingService CreateCryptoService(TradingAccountProfile profile, AccountCredentials? credentials = null)
     {
-        TradingMarket.MoexShares or TradingMarket.MoexFutures => new BotView.Services.Integrations.Quik.QuikReadOnlyTradingService(profile),
-        TradingMarket.Spot => new SpotTradingService(profile, CreateExchange(profile, credentials)),
-        TradingMarket.UsdtFutures => CreateFutures(profile, credentials),
-        _ => throw new NotSupportedException("Unsupported trading market.")
-    };
+        ArgumentNullException.ThrowIfNull(profile);
 
-    /// <summary>Creates the futures service, including public contract catalog access without API keys.</summary>
-    public static FuturesTradingService CreateFutures(TradingAccountProfile profile, AccountCredentials? credentials = null)
-    {
-        if (profile.Market != TradingMarket.UsdtFutures)
+        if (profile.Market is not (TradingMarket.CryptoSpot or TradingMarket.UsdtFutures))
         {
-            throw new ArgumentException("A futures profile is required.", nameof(profile));
+            throw new ArgumentException("A crypto spot or USDT futures profile is required.", nameof(profile));
         }
 
-        return new(profile, CreateExchange(profile, credentials));
+        return new CryptoTradingService(profile, CreateExchange(profile, credentials));
+    }
+
+    /// <summary>Creates the read-only QUIK service for a MOEX shares or futures profile.</summary>
+    public static QuikReadOnlyTradingService CreateMoexService(TradingAccountProfile profile)
+    {
+        if (profile.Market is not (TradingMarket.MoexShares or TradingMarket.MoexFutures))
+            throw new ArgumentException("A MOEX shares or futures profile is required.", nameof(profile));
+
+        return new(profile);
     }
 
     /// <summary>Creates a configured spot or linear USDT CCXT.Pro client without connecting.</summary>

@@ -19,10 +19,10 @@ public sealed class TradingAccountSessionTests
     {
         var adapter = new Mock<ITradingService>();
         var account = new TradingAccountContext(profile?.Id.ToString() ?? "profile", "Fake", "binance",
-            TradingEnvironment.Testnet, profile?.Market ?? TradingMarket.Spot);
+            TradingEnvironment.Testnet, profile?.Market ?? TradingMarket.CryptoSpot);
         adapter.SetupGet(s => s.Account).Returns(account);
         adapter.Setup(s => s.FetchInstrumentAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Instrument(Key, "BTC/USDT", "Bitcoin", "USDT", TradingRules: new(QuantityUnit.BaseAsset, PriceQuotation.CurrencyPerUnit)));
+            .ReturnsAsync(new Instrument(Key, "BTC/USDT", "Bitcoin", "USDT", QuantityUnit: QuantityUnit.BaseAsset, PriceQuotation: PriceQuotation.CurrencyPerUnit));
         adapter.Setup(s => s.FetchBalanceAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AccountSnapshot(account, [new("USDT", 100, 100, 0)], null, null, DateTimeOffset.UtcNow));
         adapter.Setup(s => s.FetchOpenOrdersAsync(It.IsAny<InstrumentKey>(), It.IsAny<CancellationToken>()))
@@ -255,7 +255,7 @@ public sealed class TradingAccountSessionTests
         var adapter = Adapter(profile);
         adapter.Setup(s => s.FetchInstrumentAsync(contract, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Instrument(contract, contract.SecurityId, "Bitcoin futures",
-                TradingRules: new(QuantityUnit.Contracts, PriceQuotation.CurrencyPerUnit, ContractSize: .01m)));
+                QuantityUnit: QuantityUnit.Contracts, PriceQuotation: PriceQuotation.CurrencyPerUnit, ContractSize: .01m));
         var subscription = new Mock<IOrderBookSubscription>();
         var snapshot = new OrderBookSnapshot(new(contract.SecurityId, "BTC", "USDT", .01m),
             [new(90m, 10m)], [new(110m, 10m)], DateTimeOffset.UtcNow);
