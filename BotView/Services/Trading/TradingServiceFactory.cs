@@ -21,12 +21,12 @@ public static class TradingServiceFactory
     }
 
     /// <summary>Creates the read-only QUIK service for a MOEX shares or futures profile.</summary>
-    public static QuikReadOnlyTradingService CreateMoexService(TradingAccountProfile profile)
+    public static QuikTradingService CreateMoexService(TradingAccountProfile profile)
     {
         if (profile.Market is not (TradingMarket.MoexShares or TradingMarket.MoexFutures))
             throw new ArgumentException("A MOEX shares or futures profile is required.", nameof(profile));
 
-        return new(profile);
+        return new QuikTradingService(profile);
     }
 
     /// <summary>Creates a configured spot or linear USDT CCXT.Pro client without connecting.</summary>

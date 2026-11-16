@@ -19,10 +19,8 @@ public sealed class OrderInputCalculator
     }
 
     /// <summary>Converts a quote budget to native quantity and formats the amount for the provider.</summary>
-    public decimal ConvertQuantity(decimal input, decimal price, OrderQuantityCurrency currency)
+    public decimal ConvertQuantity(decimal quantity, decimal price, OrderQuantityCurrency currency)
     {
-        var quantity = input;
-
         if (currency == OrderQuantityCurrency.Quote)
         {
             var one = _instrument.Key.Venue == "MOEX"

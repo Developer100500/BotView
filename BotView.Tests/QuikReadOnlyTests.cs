@@ -20,7 +20,7 @@ public sealed class QuikReadOnlyTests
     public async Task ReadAdapterRejectsEveryMutationWithoutCallingItsClient()
     {
         var client = new FakeReadClient();
-        await using var service = new QuikReadOnlyTradingService(Profile, client);
+        await using var service = new QuikTradingService(Profile, client);
         Assert.False(service.CanExecuteTrades);
         await Assert.ThrowsAsync<NotSupportedException>(() => service.CreateLimitOrderAsync(new(Future, OrderSide.Buy, 1, 100), Ct));
         await Assert.ThrowsAsync<NotSupportedException>(() => service.CreateMarketOrderAsync(new(Future, OrderSide.Buy, 1), Ct));
@@ -135,7 +135,7 @@ public sealed class QuikReadOnlyTests
     public async Task AccountCallbacksReadTerminalStates()
     {
         var client = new FakeReadClient();
-        await using var service = new QuikReadOnlyTradingService(Profile, client);
+        await using var service = new QuikTradingService(Profile, client);
         var pending = service.WatchOrdersAsync(Future, Ct);
         client.Orders = [Order(Future, "one", OrderState.Canceled)];
         client.PublishAccount(TradingStream.Orders);
@@ -155,7 +155,7 @@ public sealed class QuikReadOnlyTests
             var credentials = new Mock<ICredentialStore>(MockBehavior.Strict);
             var client = new FakeReadClient();
             await using var manager = new TradingSessionManager(store, credentials.Object,
-                (profile, keys) => { Assert.Null(keys); return new QuikReadOnlyTradingService(profile, client); });
+                (profile, keys) => { Assert.Null(keys); return new QuikTradingService(profile, client); });
             var session = await manager.GetAsync(Profile.Id, Ct);
             Assert.False(session.CanExecuteTrades);
             credentials.Verify(c => c.Read(It.IsAny<Guid>()), Times.Never);
@@ -177,7 +177,7 @@ public sealed class QuikReadOnlyTests
     [Fact]
     public async Task MonetaryCalculationUsesInstrumentUnits()
     {
-        await using var service = new QuikReadOnlyTradingService(Profile, new FakeReadClient());
+        await using var service = new QuikTradingService(Profile, new FakeReadClient());
         var shares = Instrument(Share) with { LotSize = 10 };
         var calculator = new OrderInputCalculator(service, shares);
         Assert.Equal(2, calculator.ConvertQuantity(2500, 100, OrderQuantityCurrency.Quote));
@@ -202,7 +202,7 @@ public sealed class QuikReadOnlyTests
     public async Task RequestsCannotCrossMarketsOrTerminalEndpoints()
     {
         var client = new FakeReadClient();
-        await using var service = new QuikReadOnlyTradingService(Profile, client);
+        await using var service = new QuikTradingService(Profile, client);
         await Assert.ThrowsAsync<ArgumentException>(() => service.FetchInstrumentAsync(Share, Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => service.FetchOpenOrdersAsync(Share, Ct));
         Assert.Equal(0, client.Reads);

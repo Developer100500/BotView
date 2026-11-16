@@ -102,7 +102,7 @@ public sealed class QuikLiveReadTests(ITestOutputHelper output)
             var profile = new TradingAccountProfile(Guid.NewGuid(), "Read-only live verification", "quik",
                 TradingEnvironment.Production, board == "SPBFUT" ? TradingMarket.MoexFutures : TradingMarket.MoexShares,
                 new(options.Host, options.Port, route.Firm, route.Client, route.Account, route.LimitKind));
-            await using var service = new QuikReadOnlyTradingService(profile);
+            await using var service = new QuikTradingService(profile);
             Assert.False(service.CanExecuteTrades);
             await StepAsync($"{board} instrument", () => service.FetchInstrumentAsync(instrument.Key, Ct));
             var balance = await StepAsync($"{board} balance", () => service.FetchBalanceAsync(Ct));

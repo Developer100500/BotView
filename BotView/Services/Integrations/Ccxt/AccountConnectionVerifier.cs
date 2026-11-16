@@ -23,7 +23,7 @@ public sealed class AccountConnectionVerifier : IAccountConnectionVerifier
         {
             try
             {
-                await using var reader = new BotView.Services.Integrations.Quik.QuikReadOnlyTradingService(profile);
+                await using var reader = new BotView.Services.Integrations.Quik.QuikTradingService(profile);
                 await reader.FetchBalanceAsync(timeout.Token).ConfigureAwait(false);
                 return new(true, new(null, null), "QUIK: чтение счёта доступно. Торговое исполнение не реализовано; права брокера не проверены.");
             }
